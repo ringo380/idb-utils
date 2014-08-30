@@ -12,12 +12,14 @@ my $help    		= '';
 my $datadir 		= '';
 my $find_page   	= '';
 my $checksum		= '';
+my $spaceid			= '';
 
 GetOptions(
     'h'   => \$help,
     'd=s' => \$datadir,
     'p=i' => \$find_page,
 	'c=i' => \$checksum
+	's=i' => \$spaceid
 ) or die("Could not get options.\n");
 
 unless ($datadir) { 
@@ -80,7 +82,7 @@ if ($find_page) {
         binmode($fh) or die "Can't binmode $filename: $!";
         for ( $i = 0 ; $i < $page_count ; $i++ ) {
             @tblattr = &get_page($i);
-            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum ) {
+            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum or $tblattr[2] == $spaceid ) {
                 print "Found page $find_page in $tblfile.\n";
                 exit;
             }
