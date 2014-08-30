@@ -67,6 +67,35 @@ sub get_page {
     return @attr;
 }
 
+if ($spaceid) {
+    chomp($datadir);
+    $datadir =~ s/\/$//;
+    my @tblattr;
+    my @files = <$datadir/*/*.ibd>;
+    foreach my $tblfile (@files) {
+        next unless $tblfile =~ /\.ibd$/;
+        print "Checking $tblfile.. \n";
+        $page_size  = 16384;
+        $file_size  = -s $tblfile;
+        $page_count = $file_size / $page_size;
+        open( $fh, "<", $tblfile ) or die "Can't open $filename: $!";
+        binmode($fh) or die "Can't binmode $filename: $!";
+        for ( $i = 0 ; $i < $page_count ; $i++ ) {
+            @tblattr = &get_page($i);
+            if ( $tblattr[2] == $spaceid ) {
+				my $table_name = $tblattr[2];
+				$table_name =~ s/(\w+).ibd/\$1/;
+				my $db_name = $tblfile;
+				$db_name =~ s/$datadir\/(\w+)\/*/\$1/;
+                print "Space ID $spaceid is associated with $tblfile - $db_name.$table_name.\n";
+                exit;
+            }
+        }
+        close($fh);
+    }
+    exit;	
+}
+
 if ($find_page) {
     chomp($datadir);
     $datadir =~ s/\/$//;
@@ -82,7 +111,7 @@ if ($find_page) {
         binmode($fh) or die "Can't binmode $filename: $!";
         for ( $i = 0 ; $i < $page_count ; $i++ ) {
             @tblattr = &get_page($i);
-            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum or $tblattr[2] == $spaceid ) {
+            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum ) {
                 print "Found page $find_page in $tblfile.\n";
                 exit;
             }
