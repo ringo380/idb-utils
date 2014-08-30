@@ -71,7 +71,7 @@ sub get_page {
 }
 
 if ($find_page and !$checksum) {
-	print "Checksum required (-c) to identify the correct page. Here are the most recent 10 relevant log entries..\n";
+	print "Checksum required (-c) to identify the correct page. Here are the most recent 10 relevant log entries..\n\n";
 	my $hostname = `hostname`;
 	chomp($hostname);
 	my $checksum_errs = `grep checksum $datadir/$hostname.err | tail`;
