@@ -27,6 +27,9 @@ unless ($datadir) {
 		or die "Could not determine data directory. Please specify a data directory manually with the '-d' flag.\n";
 }
 
+chomp($datadir);
+$datadir =~ s/\/$//;
+
 sub get_bytes {
     my ( $byte_pos, $byte_count );
     ( $byte_pos, $byte_count ) = @_;
@@ -68,13 +71,11 @@ sub get_page {
 }
 
 if ($find_page and !$checksum) {
-	print "Checksum required to identify the correct page.\n";
+	print "Checksum required (-c) to identify the correct page. Check logs \n";
 	exit;
 }
 
 if ($spaceid) {
-    chomp($datadir);
-    $datadir =~ s/\/$//;
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
     foreach my $tblfile (@files) {
@@ -102,8 +103,6 @@ if ($spaceid) {
 }
 
 if ($find_page) {
-    chomp($datadir);
-    $datadir =~ s/\/$//;
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
     foreach my $tblfile (@files) {
