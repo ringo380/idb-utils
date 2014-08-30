@@ -83,7 +83,7 @@ if ($spaceid) {
         for ( $i = 0 ; $i < $page_count ; $i++ ) {
             @tblattr = &get_page($i);
             if ( $tblattr[2] == $spaceid ) {
-				my $table_name = $tblattr[2];
+				my $table_name = $tblfile;
 				$table_name =~ s/(\w+).ibd/$1/;
 				my $db_name = $tblfile;
 				$db_name =~ s/$datadir\/(\w+)\/*/$1/;
