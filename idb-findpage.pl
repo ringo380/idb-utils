@@ -84,10 +84,10 @@ if ($spaceid) {
             @tblattr = &get_page($i);
             if ( $tblattr[2] == $spaceid ) {
 				my $table_name = $tblattr[2];
-				$table_name =~ s/(\w+).ibd/\$1/;
+				$table_name =~ s/(\w+).ibd/$1/;
 				my $db_name = $tblfile;
-				$db_name =~ s/$datadir\/(\w+)\/*/\$1/;
-                print "Space ID $spaceid is associated with $tblfile - $db_name.$table_name.\n";
+				$db_name =~ s/$datadir\/(\w+)\/*/$1/;
+                print "Space ID $spaceid is associated with $tblfile\n $db_name.$table_name.\n";
                 exit;
             }
         }
