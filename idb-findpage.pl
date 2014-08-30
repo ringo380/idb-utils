@@ -87,7 +87,7 @@ if ($spaceid) {
 				my $db_name = $tblfile;
 				$db_name =~ s/.*$datadir\/(\w+)\/.*/\1/;
 				$table_name =~ s/.*$datadir\/$db_name\/(\w+)\.ibd.*/$1/;
-                print "Space ID $spaceid is associated with $tblfile\nSQL: $db_name.$table_name\n";
+                print "Space ID $spaceid is associated with $tblfile\n$db_name.$table_name\n";
                 exit;
             }
         }
