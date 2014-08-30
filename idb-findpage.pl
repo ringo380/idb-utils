@@ -68,7 +68,7 @@ sub get_page {
 }
 
 if ($find_page and !$checksum) {
-	print "Checksum required to identify the correct page.";
+	print "Checksum required to identify the correct page.\n";
 	exit;
 }
 
