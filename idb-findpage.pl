@@ -18,7 +18,7 @@ GetOptions(
     'h'   => \$help,
     'd=s' => \$datadir,
     'p=i' => \$find_page,
-	'c=i' => \$checksum
+	'c=i' => \$checksum,
 	's=i' => \$spaceid
 ) or die("Could not get options.\n");
 
