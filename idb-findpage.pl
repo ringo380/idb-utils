@@ -61,7 +61,7 @@ sub get_page {
       &get_bytes( ( $offset + 38 + 8 ), 4 )
       ;    # 5 PAGE_N_HEAP - amount of records in page
 
-    # Get Trailer
+    # Get Trailer 
     push @attr, &get_bytes( ( $offset + 16376 ), 4 );    # 6 old-style checksum
     push @attr, &get_bytes( ( $offset + 16380 ), 4 );    # 7 low 32 bits of lsn
 
