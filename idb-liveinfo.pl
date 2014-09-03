@@ -242,6 +242,8 @@ if ($ibdata) {
     print "Primary LSN (offset 1E) from ibdata1: $ibd_lsn2\n";
     print "Primary LSN (offset 20C) from ib_logfile0: $log0_lsn\n";
     print "Current LSN (offset 60C) from ib_logfile0: $log0_lsn2\n";
+    print "Flush LSN: $idb_flush_lsn\n";
+    print "Last Modification LSN: $idb_lastmod_lsn\n";
     exit;
 }
 

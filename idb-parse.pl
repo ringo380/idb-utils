@@ -47,8 +47,11 @@ GetOptions(
     's=i' => \$find_page,    # change to search
     'd'   => \$opt_debug,
     'q'   => \$opt_quiet,
-    'i'   => \$opt_idbata
+    'i'   => \$opt_ibdata
 ) or die("Could not get options.\n");
+
+my $mycnf_path  = "/root/.my.cnf";
+my $mydata_path = "/var/lib/mysql";
 
 # Set the filename
 if   ($file) { $filename = $file; }
@@ -255,6 +258,23 @@ sub fsp_space_id { get_bytes( SIZE_FIL_HEAD, 4 ); }
 sub fsp_high_page { get_bytes( SIZE_FIL_HEAD + 8, 4); }
 sub fsp_flags { get_bytes( SIZE_FILE_HEAD + 16, 4); }
 
+# sys_fsp_hdr
+sub sys_hdr_checksum { get_bytes( 0, 4); }
+
+sub sys_fsp_hdr {
+	
+	# Retrieve header values from ibdata1
+	my $idb_checksum	= &getbytes( 0,	4);
+	my $idb_offset		= &getbytes( 4, 4);
+	my $idb_prev_page	= &getbytes( 8, 4);
+	my $idb_next_page	= &getbytes( 12, 4);
+	my $idb_lastmod_lsn = &getbytes( 16, 8);
+	my $idb_page_type	= &getbytes( 24, 2);
+	my $idb_flush_lsn	= &getbytes( 26, 8);
+	my $idb_space_id	= &getbytes( 34, 4);
+	
+}
+
 sub get_page {
 
     my $page = $_[0] or 0;
@@ -313,6 +333,8 @@ sub get_page_type {
     }
 }
 
+
+
 sub print_page {
 
     my (
@@ -331,9 +353,11 @@ sub print_page {
 
     my ( $nam, $desc, $use ) = &get_page_type($ptype);
     my $cur_pos = cur_pos( fil_head_offset($pagenum) );
-	my $checksum = fil_head_checksum ($pagenum)
+	$checksum = fil_head_checksum ($pagenum);
 
-    printf "Page: " . fil_head_offset($pagenum) . "\n";
+    printf "Page: ";
+	printf fil_head_offset($pagenum);
+	printf "\n";
     print "--------------------\n";
     printf "HEADER\n";
     printf "Byte Start: $cur_pos (" . tohex $offset;
@@ -342,7 +366,7 @@ sub print_page {
 	if ($ptype == 0) {
 		
 	}
-    printf "\nPAGE_N_HEAP (Amount of records in page): $page_n_heap\n";
+    printf "\nPAGE_N_HEAP (Amount of records in page): " . page_n_heap($pagenum) . "\n";
     printf "Prev Page: ";
     if   ( $prevpage == 4294967295 or !$prevpage ) { printf "Not used.\n"; }
     else                                           { printf "$prevpage\n"; }
@@ -399,6 +423,13 @@ $buffer = '';    # Clear out buffer
 # Open up the tablespace file for binary reading
 open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 binmode($fh) or die "Can't binmode $filename: $!";
+
+if ($opt_ibdata) {
+	print "$filename information:\n";
+	print "---------------------\n";
+	print "Checksum (FSP_HDR - 0, 4): " . sys_hdr_checksum . "\n";
+	exit;
+}
 
 if ($set_page) {
     $page_start = $page_size * $set_page;
