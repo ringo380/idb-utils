@@ -2,7 +2,7 @@
 
 use bytes;
 
-#use strict;
+use strict;
 use warnings;
 
 #use diagnostics;
@@ -11,11 +11,13 @@ use Data::Dumper qw(Dumper);
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
 use Scalar::Util qw(looks_like_number);
+use Math::Int64 qw( :native_if_available int64 );
 
 use constant {
-    SIZE_FIL_HEAD    => '38',
-    SIZE_FIL_TRAILER => '8',
-    SIZE_PAGE        => '16384',
+    SIZE_FIL_HEAD    => '38',		# Page Header Size - Default 38
+    SIZE_FIL_TRAILER => '8',		# Page Trailer Size - Default: 8
+    SIZE_PAGE        => '16384',	# Page Size - Default: 16384
+    SIZE_LOG_BLOCK	 => '512'		# Log Block Size - Default: 512
 };
 
 my ( $fh, $filename, $hex, $buffer );
@@ -24,19 +26,32 @@ my $POS_PAGE_BODY   = SIZE_FIL_HEAD;
 my $POS_FIL_TRAILER = SIZE_PAGE - SIZE_FIL_TRAILER;
 
 # Define page data variables
-my (
-    $checksum,    $spaceid,     $pagenum,  $lsn, $ptype,
-    $page_n_heap, $oldchecksum, $low32lsn, $destfile
-);
+#my (
+#    $checksum,    $spaceid,     $pagenum,  $lsn, $ptype,
+#    $page_n_heap, $oldchecksum, $low32lsn, $destfile
+#);
 
-my $opt_help   = '';
-my $opt_chop   = '';
-my $set_page   = '';
-my $file       = '';
-my $find_page  = '';
-my $opt_ibdata = '';
-my $opt_debug  = '';
-my $opt_quiet  = '';
+our ( 
+	$opt_help,
+	$opt_chop,
+	$opt_head,
+	$opt_ibdata,
+	$opt_debug,
+	$opt_quiet,
+	$set_page,
+	$file,
+	$find_page
+	);
+	
+#my $opt_help   = '';
+#my $opt_chop   = '';
+#my $opt_head   = '';
+#my $set_page   = '';
+#my $file       = '';
+#my $find_page  = '';
+#my $opt_ibdata = '';
+#my $opt_debug  = '';
+#my $opt_quiet  = '';
 
 GetOptions(
     'h'   => \$opt_help,
@@ -50,8 +65,121 @@ GetOptions(
     'i'   => \$opt_ibdata
 ) or die("Could not get options.\n");
 
-my $mycnf_path  = "/root/.my.cnf";
-my $mydata_path = "/var/lib/mysql";
+if ($opt_debug) { 
+	print "Debugging enabled..\n";
+}
+
+#------------------------------------------------------------------------------
+# sub usage():
+#       Displays usage information.
+#
+sub usage {
+	
+    print <<END_OF_USAGE
+Usage:
+    idb-parse [-f[ile] <file>] [-p[age] <page #>] [-i[bdata]]
+            [-v[erbose]] [-d[ebug]] [-h[elp]]
+    where
+         [-f[ile]] <file>        Path to InnoDB data file. (Default behavior)
+         [-p[age]] <page #>		 Specify a single page to get information from.
+         [-i[bdata]] <file>		 Specify an InnoDB system data file (eg. ibdata1) to get information from.
+         [-v[erbose]]            Displays additional information.
+         [-d[ebug]]      		 Displays debug information.
+         [-h[elp]]               Displays this Usage information.
+END_OF_USAGE
+}
+
+#------------------------------------------------------------------------------
+# sub about():
+#       displays about information.
+#
+sub about {
+    print <<END_OF_ABOUT
+idb-parse
+
+Ryan Robson,
+ringo380\@gmail.com
+
+\$Revision: 1.0 \$
+\$Date: 2014/09/03 \$
+END_OF_ABOUT
+}
+
+
+#------------------------------------------------------------------------------
+# sub document():
+#       displays full documentation.
+#
+sub document {
+print <<END_OF_DOCUMENTATION
+PERL                                                idb-parse(1)
+
+NAME
+    idb-parse - Parses InnoDB data from the file system.
+
+SYNOPSIS
+    idb-parse [-f[ile <file>] [-p[age]] [-i[bdata]
+            [-v[erbose]] [-h[elp]] [-d[ebug]]
+
+DESCRIPTION
+    This program reads a G2++ file and converts it into XML.
+
+
+ARGUMENTS
+   -f[file] <file>
+     Allows to specify a G2++ file to convert.
+
+   [-v[erbose]]
+     Displays ongoing information and details.
+
+   [-H[ELP]]
+     Displays the usage.
+     If used with other options, causes immediate program termination.
+
+   [-D[OCUMENT]]
+     Displays the full documentation text (this file).
+     If used with other options, causes immediate program termination.
+
+   [-A[BOUT]]
+     Displays informations about this program. Version, author, etc.
+     If used with other options, causes immediate program termination.
+
+EXAMPLES
+    Convert the file ..\test_files\Test_01.g2++ into XML. Display the
+    result on stdout.
+       idb-parse -f ..\test_files\Test_01.g2++
+    
+    The output file will contain a comment specifying the original
+    file and the translation date.
+    
+    The DTD of the output file will refer to a local DTD whose name is
+    composed of the FA fields 'system' and 'trans'.
+
+END_OF_DOCUMENTATION
+}
+
+
+#------------------------------------------------------------------------------
+# sub relnotes():
+#       displays release notes.
+#
+sub rel_notes {
+    print <<END_OF_RELNOTES;
+idb-parse
+\$Revision: 1.0 \$
+\$Date: 2002/03/21 14:17 \$
+	Support unlimited G2++ structure, including arrays.
+
+END_OF_RELNOTES
+}
+
+if ($opt_help) {
+	usage;
+	exit;
+}
+
+our $mycnf_path  = "/root/.my.cnf";
+our $mydata_path = "/var/lib/mysql";
 
 # Set the filename
 if   ($file) { $filename = $file; }
@@ -205,10 +333,6 @@ my %page_types = (
 );
 
 sub tohex {
-
-    #my ($dec) = @_;
-    #my $out = pack "n", $_;
-    #my $tohex = unpack "H*", $out;
     my $tohex = sprintf( "0x%x", $_[0] );
 }
 
@@ -219,11 +343,14 @@ sub get_bytes {
       or die "Couldn't seek to byte $byte_pos in $filename";
     sysread( $fh, $buffer, $byte_count )
       or die "Could not read to byte $byte_pos in $filename";
-
-    #print "Printing buffer: ";
-    #printf '[%vd]', $buffer;
-    #print "\n";
-    if    ( $byte_count == 8 ) { $int = unpack "I*", $buffer; }
+      
+	if ($opt_debug) {
+		print "Printing buffer: ";
+		printf '[%vd]', $buffer;
+		print "\n";
+	}
+	
+    if    ( $byte_count == 8 ) { $int = hex unpack "H*", $buffer; }
     elsif ( $byte_count == 4 ) { $int = unpack "N*", $buffer; }
     elsif ( $byte_count == 2 ) { $int = unpack "n*", $buffer; }
     else                       { $int = unpack "C*", $buffer; }
@@ -244,7 +371,7 @@ sub fil_head_prev { get_bytes( ( cur_pos(@_) + 8 ), 4 ); }
 sub fil_head_next { get_bytes( ( cur_pos(@_) + 12 ), 4 ); }
 sub fil_head_space_id { get_bytes( ( cur_pos(@_) + 34 ), 4 ); }
 sub fil_head_lsn { get_bytes( ( cur_pos(@_) + 20 ), 4 ); }
-sub fil_page_type { get_bytes( ( cur_pos(@_) + 24 ), 2 ); }
+sub fil_head_page_type { get_bytes( ( cur_pos(@_) + 24 ), 2 ); }
 
 # FIL Trailer data
 sub fil_trailer_checksum { get_bytes( ( cur_pos(@_) + 16376 ), 4 ); }
@@ -256,24 +383,23 @@ sub page_n_heap { get_bytes( ( cur_pos(@_) + SIZE_FIL_HEAD + 4, 2 ) ); }
 # FSP Header data
 sub fsp_space_id { get_bytes( SIZE_FIL_HEAD, 4 ); }
 sub fsp_high_page { get_bytes( SIZE_FIL_HEAD + 8, 4); }
-sub fsp_flags { get_bytes( SIZE_FILE_HEAD + 16, 4); }
+sub fsp_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
 
-# sys_fsp_hdr
-sub sys_hdr_checksum { get_bytes( 0, 4); }
+# ibdata1 header info - sys_fil_hdr
+sub sys_hdr_checksum 	{ get_bytes( 0, 4 ); }
+sub sys_hdr_offset 		{ get_bytes( 4, 4 ); }
+sub sys_hdr_prev 		{ get_bytes( 8, 4 ); }
+sub sys_hdr_next		{ get_bytes( 12, 4 ); }
+sub sys_hdr_chkpnt_lsn  { get_bytes( 20, 4 ); }
+sub sys_hdr_lastmod_lsn { get_bytes( 16, 8 ); }
+sub sys_hdr_page_type	{ get_bytes( 24, 2 ); }
+sub sys_hdr_flush_lsn	{ get_bytes( 26, 8 ); }
+sub sys_space_id		{ get_bytes( 34, 4 ); }
 
-sub sys_fsp_hdr {
-	
-	# Retrieve header values from ibdata1
-	my $idb_checksum	= &getbytes( 0,	4);
-	my $idb_offset		= &getbytes( 4, 4);
-	my $idb_prev_page	= &getbytes( 8, 4);
-	my $idb_next_page	= &getbytes( 12, 4);
-	my $idb_lastmod_lsn = &getbytes( 16, 8);
-	my $idb_page_type	= &getbytes( 24, 2);
-	my $idb_flush_lsn	= &getbytes( 26, 8);
-	my $idb_space_id	= &getbytes( 34, 4);
-	
-}
+# ib_logfile info
+sub log_flush_lsn		{ get_bytes( ( SIZE_LOG_BLOCK + 12 ), 4 ); }
+
+
 
 sub get_page {
 
@@ -307,7 +433,7 @@ sub get_page {
 
 sub writepage {
     my ( $byte_pos, $this_page ) = @_;
-    $destfile = "$filename.pages." . $this_page;
+    my $destfile = "$filename.pages." . $this_page;
     open OUTF, ">$destfile"
       or die "Can't open $destfile for writing: $!\n";
     binmode OUTF;
@@ -351,31 +477,8 @@ sub print_page {
         $offset          # 10
     ) = @_;
 
-    my ( $nam, $desc, $use ) = &get_page_type($ptype);
-    my $cur_pos = cur_pos( fil_head_offset($pagenum) );
-	$checksum = fil_head_checksum ($pagenum);
 
-    printf "Page: ";
-	printf fil_head_offset($pagenum);
-	printf "\n";
-    print "--------------------\n";
-    printf "HEADER\n";
-    printf "Byte Start: $cur_pos (" . tohex $offset;
-    printf ")\n";
-    printf "Page Type: $ptype - $nam: $desc - $use";
-	if ($ptype == 0) {
-		
-	}
-    printf "\nPAGE_N_HEAP (Amount of records in page): " . page_n_heap($pagenum) . "\n";
-    printf "Prev Page: ";
-    if   ( $prevpage == 4294967295 or !$prevpage ) { printf "Not used.\n"; }
-    else                                           { printf "$prevpage\n"; }
-    printf "Next Page: ";
-    if   ( $nextpage == 4294967295 or !$prevpage ) { printf "Not used.\n"; }
-    else                                           { printf "$nextpage\n"; }
-    printf "LSN: $lsn\n";
-    printf "Space ID: $spaceid\n";
-    printf "Checksum: $checksum\n";
+
     printf "\nTRAILER\n";
     printf "Old-style Checksum: $oldchecksum\n";
     printf "Low 32 bits of LSN: $low32lsn\n";
@@ -386,9 +489,52 @@ sub print_page {
     print "--------------------\n";
 }
 
+sub print_fil_hdr {
+	my ($p) = @_; 	# Get page number
+	
+	my $cur_pos 	= cur_pos( fil_head_offset($p) );
+    my $prev		= fil_head_prev($p);
+    my $next		= fil_head_next($p);
+    my $offset		= fil_head_offset($p);
+    my $type		= fil_head_page_type($p);
+    my $pheap		= page_n_heap($p);
+    my $lsn			= fil_head_lsn($p);
+    my $id			= fil_head_space_id($p);
+    my $checksum	= fil_head_checksum($p);
+    
+	
+    my ( $nam, $desc, $use ) = get_page_type(fil_head_page_type($p));
+       
+	#my $checksum = fil_head_checksum($p);
+
+    printf "Page: $offset\n";
+    printf "--------------------\n";
+    printf "HEADER\n";
+    printf "Byte Start: $cur_pos (" . tohex $cur_pos;
+    printf ")\n";
+    printf "Page Type: $type - $nam: \n$desc - $use\n";
+    printf "\nPAGE_N_HEAP (Amount of records in page): $pheap\n";
+    printf "Prev Page: ";
+    if   ( $prev == 4294967295 or !$prev ) { printf "Not used.\n"; }
+    else                                           { printf "\n"; }
+    printf "Next Page: ";
+    if   ( $next == 4294967295 or !$next ) { printf "Not used.\n"; }
+    else                                           { printf "$next\n"; }
+    printf "LSN: $lsn\n";
+    printf "Space ID: $id\n";
+    printf "Checksum: $checksum\n";
+}
+
+sub print_fsp_hdr {
+    printf "--------------------\n";
+	printf "FSP_HDR - Filespace Header\n";
+    printf "--------------------\n";
+    printf "Space ID: " . fsp_space_id . "\n";
+    printf "High Page: " . fsp_high_page . "\n";
+}
+
 if ($find_page) {
-    my $datadir =
-`mysqld --verbose --help 2> /dev/null | grep "datadir\\s" | sed 's/.*\\s//'`;
+    my $datadir = `mysqld --verbose --help 2> /dev/null | grep \"datadir\\s\" | sed 's/.*\\s//'`;
     print "Datadir: $datadir\n";
     chomp($datadir);
     $datadir =~ s/\/$//;
@@ -425,32 +571,43 @@ open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 binmode($fh) or die "Can't binmode $filename: $!";
 
 if ($opt_ibdata) {
-	print "$filename information:\n";
-	print "---------------------\n";
-	print "Checksum (FSP_HDR - 0, 4): " . sys_hdr_checksum . "\n";
+	print "Data File (ibdata) Information:\n";
+	print "---------------------------\n";
+	print "FSP_HDR - Filespace Header\n";
+	print "---------------------------\n";
+	print "Checksum (0, 4): " . sys_hdr_checksum . "\n";
+	print "Last Modification LSN (16, 8): " . sys_hdr_lastmod_lsn . "\n";
+	print "Flush LSN (26, 8): " . sys_hdr_flush_lsn . "\n";
 	exit;
 }
 
-if ($set_page) {
-    $page_start = $page_size * $set_page;
-    if ( $page_start < $file_size and looks_like_number $set_page) {
-        print_page( get_page($set_page) );
-    }
-    else {
-        print "Invalid page.\n";
-    }
+sub process_page {
+		my $page_start = $page_size * $set_page;
+		if ( $page_start < $file_size and looks_like_number $set_page) {
+			print_page( get_page($set_page) );
+		}
+		else {
+			print "Invalid page.\n";
+		}
 }
-else {
-	
-    print "Pages containing data in $filename:\n";
-    print "--------------------\n";
 
-    for ( $i = 0 ; $i < $page_count ; $i++ ) {
-        unless ( !fil_head_checksum($i) ) {
-            if ($opt_chop) {
-                writepage( cur_pos($i), $i );
-            }
-            print_page( get_page($i) );
-        }
-    }
+sub process_pages {
+		print "Pages containing data in $filename:\n";
+		print "--------------------\n";
+		for ( $i = 0 ; $i < $page_count ; $i++ ) {
+			unless ( !fil_head_checksum($i) ) {
+				if ($opt_chop) {
+					writepage( cur_pos($i), $i );
+				}			
+				#print_page( get_page($i) );
+				print_fil_hdr($i);
+				print_fsp_hdr;
+			}
+		}
+}
+
+if ($set_page) {
+	process_page;
+} else {
+	process_pages;
 }

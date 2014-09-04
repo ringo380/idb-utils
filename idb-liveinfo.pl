@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 
 #use diagnostics;
+#use strict;
 use warnings;
 
 use DBI;
