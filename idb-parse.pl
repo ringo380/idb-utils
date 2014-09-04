@@ -14,10 +14,11 @@ use Scalar::Util qw(looks_like_number);
 use Math::Int64 qw( :native_if_available int64 );
 
 use constant {
-    SIZE_FIL_HEAD    => '38',		# Page Header Size - Default 38
-    SIZE_FIL_TRAILER => '8',		# Page Trailer Size - Default: 8
-    SIZE_PAGE        => '16384',	# Page Size - Default: 16384
-    SIZE_LOG_BLOCK	 => '512'		# Log Block Size - Default: 512
+    SIZE_FIL_HEAD    		=> '38',		# Page Header Size - Default 38
+    SIZE_FIL_TRAILER 		=> '8',			# Page Trailer Size - Default: 8
+    SIZE_PAGE        		=> '16384',		# Page Size - Default: 16384
+    SIZE_LOG_BLOCK	 		=> '512',		# Log Block Size - Default: 512
+	LOG_CHECKPOINT_GROUPS 	=> '32'    		# Maximum number of log group checkpoints
 };
 
 my ( $fh, $filename, $hex, $buffer );
@@ -111,7 +112,7 @@ END_OF_ABOUT
 #       displays full documentation.
 #
 sub document {
-print <<END_OF_DOCUMENTATION
+print <<'END_OF_DOCUMENTATION'
 PERL                                                idb-parse(1)
 
 NAME
