@@ -793,9 +793,10 @@ if ($opt_records) {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
 	
-	$log_file_size = -s $filename;
+	my $log_file_size = -s $filename;
 	my $block_size = SIZE_LOG_BLOCK;
 	my $block_count = $log_file_size / $block_size;
+	exit;
 }
 
 # Parse ib_logfile:
