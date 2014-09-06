@@ -18,8 +18,10 @@ use constant {
     SIZE_FIL_TRAILER 		=> '8',			# Page Trailer Size - Default: 8
     SIZE_PAGE        		=> '16384',		# Page Size - Default: 16384
     SIZE_LOG_BLOCK	 		=> '512',		# Log Block Size - Default: 512
+    SIZE_LOG_BLOCK_HDR		=>  14,			# Log Block Header Size - Default: 14
 	LOG_CHECKPOINT_GROUPS 	=> '32',  		# Maximum number of log group checkpoints
-	LOG_MAX_N_GROUPS		=> '32'			# Maximum number of log groups in log_group_struct::checkpoint_buf
+	LOG_MAX_N_GROUPS		=> '32',		# Maximum number of log groups in log_group_struct::checkpoint_buf
+	LOG_BLOCK_FLUSH_BIT_MASK => 2147483648  # (0x80000000UL) Mask used to get the highest bit in the preceding field
 };
 
 my ( $fh, $filename, $hex, $buffer );
@@ -43,6 +45,9 @@ our (
 	$opt_debug,
 	$opt_quiet,
 	$opt_verbose,
+	$opt_vv,
+	$opt_noempty,
+	$opt_records,
 	$set_page,
 	$file,
 	$find_page
@@ -69,7 +74,10 @@ GetOptions(
     'q'   => \$opt_quiet,
     'i'   => \$opt_ibdata,
     'l'	  => \$opt_log,
-    'v'	  => \$opt_verbose
+    'v'	  => \$opt_verbose,
+    'vv'  => \$opt_vv,
+    'e'	  => \$opt_noempty,
+    'r'	  => \$opt_records
 ) or die("Could not get options.\n");
 
 if ($opt_debug) { 
@@ -229,7 +237,11 @@ my %record_types = (
     17 => 'LIST_END_COPY_CREATED',
     18 => 'PAGE_REORGANIZE',
     19 => 'PAGE_CREATE',
-    20 => 'UNDO_INSERT',
+    
+    20 => 'UNDO_INSERT',			# Identifies data manipulation statements.
+									# 1st byte: 0x14
+									# Stores affected table ID#, ID for statement type, and additional information (depending on statement type)
+
     21 => 'UNDO_ERASE_END',
     22 => 'UNDO_INIT',
     23 => 'UNDO_HDR_DISCARD',
@@ -247,7 +259,7 @@ my %record_types = (
     35 => 'FILE_DELETE',
     36 => 'COMP_REC_MIN_MARK',
     37 => 'COMP_PAGE_CREATE',
-    38 => 'COMP_REC_INSERT',
+    38 => 'COMP_REC_INSERT',		# Insertion of new record - 1st byte: 0x26
     39 => 'COMP_REC_CLUST_DELETE_MARK',
     40 => 'COMP_REC_SEC_DELETE_MARK',
     41 => 'COMP_REC_UPDATE_IN_PLACE',
@@ -262,6 +274,13 @@ my %record_types = (
     50 => 'ZIP_WRITE_HEADER',
     51 => 'ZIP_PAGE_COMPRESS',
 );
+
+# ----- Define data manipulation types
+my @manip_types = {
+	hex 0x0B => 'INSERT',
+	hex 0x1C => 'UPDATE',
+	hex 0x0E => 'DELETE',
+};
 
 # ----- Define Undo Log Segments
 
@@ -339,9 +358,40 @@ my %page_types = (
     }
 );
 
+#
+# Utility Subs
+# ----------------------------------
+
 sub tohex {
     my $tohex = sprintf( "0x%x", $_[0] );
 }
+
+sub hr {
+	printf "--------------------\n";
+}
+
+sub verbose {
+	my ($string) = @_;
+	if ($opt_verbose) { printf $string; } 
+}
+
+sub vv { # Very verbose
+	my ($string) = @_;
+	if ($opt_vv) { printf $string; }
+}
+
+sub dbg { # Debug
+	my ($string) = @_;
+	if ($opt_debug) { printf $string; }
+}
+
+sub nl { # newline
+	printf "\n";
+}
+
+#
+# Binary Operation Subs
+# ----------------------------------
 
 sub get_bytes {
     my ( $byte_pos, $byte_count, $int );
@@ -374,6 +424,11 @@ sub cur_pos {
 sub cur_log_pos {
 	my ($c) = @_;
 	SIZE_LOG_BLOCK * $c;
+}
+
+sub cur_rec_pos {
+	my ($r) = @_;
+	cur_log_pos($r) + SIZE_LOG_BLOCK_HDR;
 }
 
 # 
@@ -422,16 +477,118 @@ sub log_file_start_lsn	{ get_bytes( 4, 8 ); }
 sub log_file_num		{ get_bytes( 12, 4 ); }		# LOG_FILE_NO - 4-byte archived log file number; this field is only defined in an archived log file.
 sub log_created_by		{ get_bytes( 16, 32 ); }	# LOG_FILE_WAS_CREATED_BY_HOT_BACKUP
 
-# Log File Checkpoint Block 1
-sub log_checkpoint_num	{ get_bytes( SIZE_LOG_BLOCK, 8 ); }
-sub log_checkpoint_lsn	{ get_bytes( (SIZE_LOG_BLOCK + 8), 8 ); }
-sub log_checkpoint_log_offset	{ get_bytes( (SIZE_LOG_BLOCK + 16), 4 ); }
-sub log_checkpoint_log_buf_size	{ get_bytes( (SIZE_LOG_BLOCK + 20), 4 ); }
-sub log_checkpoint_archived_lsn	{ get_bytes( (SIZE_LOG_BLOCK + 24), 8 ); }
-sub log_checkpoint_checksum_1	{ get_bytes( (SIZE_LOG_BLOCK + $LOG_CHECKPOINT_ARRAY_END), 4 ); } 		# Defaults would be: 512 + 288 = 800
-sub log_checkpoint_checksum_2	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 4)), 4 ); }
-sub log_checkpoint_fsp_free_limit 	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 8)), 4 ); }
-sub log_checkpoint_fsp_magic_num	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 12)), 4 ); }
+# Log File Checkpoint
+sub log_checkpoint_num	{ get_bytes( cur_log_pos(@_), 8 ); }
+sub log_checkpoint_lsn	{ get_bytes( (cur_log_pos(@_) + 8), 8 ); }
+sub log_checkpoint_log_offset	{ get_bytes( (cur_log_pos(@_) + 16), 4 ); }
+sub log_checkpoint_log_buf_size	{ get_bytes( (cur_log_pos(@_) + 20), 4 ); }
+sub log_checkpoint_archived_lsn	{ get_bytes( (cur_log_pos(@_) + 24), 8 ); }
+sub log_checkpoint_checksum_1	{ get_bytes( (cur_log_pos(@_) + $LOG_CHECKPOINT_ARRAY_END), 4 ); } 		# Defaults would be: 512 + 288 = 800
+sub log_checkpoint_checksum_2	{ get_bytes( (cur_log_pos(@_) + ($LOG_CHECKPOINT_ARRAY_END + 4)), 4 ); }
+sub log_checkpoint_fsp_free_limit 	{ get_bytes( (cur_log_pos(@_) + ($LOG_CHECKPOINT_ARRAY_END + 8)), 4 ); }
+sub log_checkpoint_fsp_magic_num	{ get_bytes( (cur_log_pos(@_) + ($LOG_CHECKPOINT_ARRAY_END + 12)), 4 ); }
+sub log_checkpoint_size				{ get_bytes( (cur_log_pos(@_) + ($LOG_CHECKPOINT_ARRAY_END + 16)), 4 ); }
+
+# Log Block Header
+sub log_block_hdr_num			{ get_bytes( cur_log_pos(@_), 4); }
+sub log_block_hdr_data_len 		{ get_bytes( (cur_log_pos(@_) + 4), 2); }	# Number of bytes of log written to this block.
+sub log_block_first_rec_group 	{ get_bytes( (cur_log_pos(@_) + 6), 2); }	# Offset of first start of an MTR log ercord in this log block. 0 if none. If same as LOG_BLOCK_HDR_DATA_LEN, means that first rec group has not yet been added to this log block - if it does, it will start @ this offset.
+sub log_block_checkpoint_num	{ get_bytes( (cur_log_pos(@_) + 8), 4); }
+sub log_block_hdr_size			{ get_bytes( (cur_log_pos(@_) + 12), 2); }
+
+# Log Block Trailer
+sub log_block_checksum			{ get_bytes( (cur_log_pos(@_) + SIZE_LOG_BLOCK) - 8, 4); }
+sub log_block_trl_size			{ get_bytes( (cur_log_pos(@_) + SIZE_LOG_BLOCK) - 4, 4); }
+
+# Log Block Records
+sub log_rec_entry_type			{ get_bytes( (cur_rec_pos(@_)), 1); }
+
+sub print_log_record {
+	my ($b) = @_;
+	printf "Log Record\n";
+	hr;
+	printf "Log Entry Type: " . log_rec_entry_type($b) . "\n";
+}
+
+sub print_log_block {
+	
+	my ($b) = @_; # Get block number
+	my ($blocknum, $flush);
+	
+	my $mtr_start 	= log_block_first_rec_group($b);
+	my $data_len 	= log_block_hdr_data_len($b);
+	my $byte_start	= cur_log_pos($b);
+	my $byte_end	= $byte_start + 512;
+	my $hdr_size	= log_block_hdr_size($b);
+	my $cnum		= log_block_checkpoint_num($b);
+	
+	# Check to see if flush bit mask is set. If so, extract the real block number from the returned value and toggle $flush.
+	if (log_block_hdr_num($b) > LOG_BLOCK_FLUSH_BIT_MASK) {
+		$blocknum = log_block_hdr_num($b) - LOG_BLOCK_FLUSH_BIT_MASK;
+		$flush = 1;
+	} else {
+		$blocknum = log_block_hdr_num($b);
+	}
+	
+	if  ($opt_noempty and !$cnum) {
+		return;
+	} else {
+		printf "Log Block\n";
+		hr;
+		printf "HEADER\n";
+		verbose "Byte Start: $byte_start (" . tohex($byte_start) . ")\n";
+		printf "Block Number";
+			if ($flush) {
+				printf ": $blocknum - Flush bit mask is set; first block in log flush write segment.";
+			} else {
+				printf ": " . log_block_hdr_num($b);
+			}
+			vv "\n-- (LOG_BLOCK_HDR_NO - off 0, len 4)";
+			nl;
+			if ($data_len == 512) { 
+				vv "Block Length";			
+				vv ": $data_len (Fully written)";
+				vv "\n-- (LOG_BLOCK_HDR_DATA_LEN - off 4, len 2)";
+				vv "\n";
+			} else {
+				printf "Block Length";
+				printf ": $data_len (Not fully written)";
+				vv "\n-- (LOG_BLOCK_HDR_DATA_LEN - off 4, len 2)";
+				nl;	
+			}
+			
+		if ($mtr_start) { 
+			printf "Starting MTR Log Record Offset";		
+				printf ": $mtr_start";
+				vv "\n-- (LOG_BLOCK_FIRST_REC_GROUP - off 6, len 2)";
+				nl;
+		}
+		printf "Block Checkpoint Number";			
+			printf ": " . log_block_checkpoint_num($b);
+			vv "\n-- (LOG_BLOCK_CHECKPOINT_NO - off 8, len 4)";
+			nl;
+		printf "Header Data Size";	
+			if (!$hdr_size) {
+				printf ": No data written yet.";
+			} else {
+				printf ": " . log_block_hdr_size($b);
+			}
+			vv "\n-- (LOG_BLOCK_HDR_SIZE - off 12, len 2)";
+			nl;
+		nl;
+		printf "TRAILER\n";
+		printf "Block Checksum";
+			printf ": " . log_block_checksum($b);
+			vv "\n-- (LOG_BLOCK_CHECKSUM - offset 512 - 8, len 4)";
+			nl;
+		printf "Trailer Size";
+			printf ": " . log_block_trl_size($b);
+			vv "\n-- (LOG_BLOCK_TRL_SIZE - offset 512 - 4, len 4)";
+			nl;
+		verbose "Byte End: $byte_end (" . tohex($byte_end) . ")\n";
+		hr;
+	}
+}
 
 sub get_page {
 
@@ -563,28 +720,22 @@ sub print_fsp_hdr {
     printf "High Page: " . fsp_high_page . "\n";
 }
 
-sub hr {
-	printf "--------------------\n";
-}
-
-sub verbose {
-	my ($string) = @_;
-	if ($opt_verbose) { printf $string; } 
-}
-
 sub print_log_fil_hdr {
 	
 	printf "Log File Header - Block 0:\n";
 	hr; 
-	printf "Log Group ID";
-		verbose " (LOG_GROUP_ID - off 0, len 4)";
-		printf ": " . log_group_id . "\n";
+	printf "Log Group ID";		
+		printf ": " . log_group_id;
+		vv "\n-- (LOG_GROUP_ID - off 0, len 4)";
+		nl;
 	printf "Starting LSN";
-		verbose " (LOG_FILE_START_LSN - off 4, len 8)";
-		printf ": " . log_file_start_lsn . "\n";
-	printf "Log File Number";
-		verbose " (LOG_FILE_NO - off 12, len 4)";
-		printf ": " . log_file_num . "\n";
+		printf ": " . log_file_start_lsn;
+		vv "\n-- (LOG_FILE_START_LSN - off 4, len 8)";
+		nl;
+	printf "Log File Number";		
+		printf ": " . log_file_num;
+		vv "\n-- (LOG_FILE_NO - off 12, len 4)";
+		nl;
 #	printf "Created by Hot Backup?";
 #		if ($opt_verbose) { printf " (LOG_FILE_WAS_CREATED_BY_HOT_BACKUP - off 16, len 32)"; }
 #		printf ": " . log_created_by . "\n";
@@ -592,33 +743,60 @@ sub print_log_fil_hdr {
 }
 
 sub print_log_checkpoint {
-	printf "Log Checkpoint 1 - Block 1:\n";
+	
+	my ($b) = @_; # Set block number
+	
+	printf "Log Checkpoint:\n";
 	hr;
 	printf "Checkpoint Number";
-		verbose " (LOG_CHECKPOINT_NO - off 512, len 8)";
-		printf ": " . log_checkpoint_num . "\n";
+		printf ": " . log_checkpoint_num($b);
+		vv "\n-- (LOG_CHECKPOINT_NO - off 512, len 8)";
+		nl;
 	printf "Checkpoint LSN";
-		verbose " (LOG_CHECKPOINT_LSN - off 512 + 8, len 8)";
-		printf ": " . log_checkpoint_lsn . "\n";
+		printf ": " . log_checkpoint_lsn($b);
+		vv "\n-- (LOG_CHECKPOINT_LSN - off 512 + 8, len 8)";
+		nl;
 	printf "Checkpoint Offset";
-		verbose " (LOG_CHECKPOINT_OFFSET - off 512 + 16, len 4)";
-		printf ": " . log_checkpoint_log_offset . "\n";
+		printf ": " . log_checkpoint_log_offset($b);
+		vv "\n-- (LOG_CHECKPOINT_OFFSET - off 512 + 16, len 4)";
+		nl;
 	printf "Checkpoint Log Buffer Size";
-		verbose " (LOG_CHECKPOINT_LOG_BUF_SIZE - off 512 + 20, len 4)";
-		printf ": " . log_checkpoint_log_buf_size . "\n";
+		printf ": " . log_checkpoint_log_buf_size($b);
+		vv "\n-- (LOG_CHECKPOINT_LOG_BUF_SIZE - off 512 + 20, len 4)";
+		nl;
 	printf "Archived LSN";
-		verbose " (LOG_CHECKPOINT_ARCHIVED_LSN - off 512 + 24, len 8)";
-		printf ": " . log_checkpoint_archived_lsn . "\n";
-	printf "Checksum 1";
-		verbose " (LOG_CHECKPOINT_CHECKSUM_1 - off 512 + 288 (calculated by log_checkpoint_group_array + [log_max_n_groups*8]), len 4)";
-		printf ": " . log_checkpoint_checksum_1 . "\n";
-	printf "Checksum 2"; 
-		verbose " (LOG_CHECKPOINT_CHECKSUM_2 - off 512 + (288 + 4), len 4)";
-		printf ": " . log_checkpoint_checksum_2 . "\n";
+		
+		if (log_checkpoint_archived_lsn($b) == 18446744073709551615) {
+			printf ": UNIV_LOG_ARCHIVE not activated.";
+		} else {
+			printf ": " . log_checkpoint_archived_lsn($b);
+		}
+		vv "\n-- (LOG_CHECKPOINT_ARCHIVED_LSN - off 512 + 24, len 8)";
+		nl;
+	printf "Checksum 1";	
+		printf ": " . log_checkpoint_checksum_1($b);
+		vv "\n-- (LOG_CHECKPOINT_CHECKSUM_1 - off 512 + 288 (calculated by log_checkpoint_group_array + [log_max_n_groups*8]), len 4)";
+		nl;
+	printf "Checksum 2"; 	
+		printf ": " . log_checkpoint_checksum_2($b);
+		vv "\n-- (LOG_CHECKPOINT_CHECKSUM_2 - off 512 + (288 + 4), len 4)";
+		nl;
+	printf "Checkpoint Size"; 
+		printf ": " . log_checkpoint_size($b);
+		vv "\n-- (LOG_CHECKPOINT_SIZE - off 512 + (288 + 16), len 4)";
+		nl;
 	hr;
 }
 
 #-- TOGGLED MODES
+if ($opt_records) {
+	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
+	binmode($fh) or die "Can't binmode $filename: $!";
+	
+	$log_file_size = -s $filename;
+	my $block_size = SIZE_LOG_BLOCK;
+	my $block_count = $log_file_size / $block_size;
+}
 
 # Parse ib_logfile:
 if ($opt_log) {
@@ -632,12 +810,13 @@ if ($opt_log) {
 	
 	printf "$filename:\n";
 	hr;
-	print_log_fil_hdr;		# Log file header output
-	print_log_checkpoint; 	# Log Checkpoint 1 output 
+	print_log_fil_hdr;			# Log file header output
+	print_log_checkpoint(1); 	# Log Checkpoint 1 output
+	print_log_checkpoint(3);	# Log Checkpoint 2 output (2nd block skipped as padding)
 	
-	#for ($i = 0; $i < $block_count; $i++) {
-	#	print "Log Block $i LSN: " . log_flush_lsn($i) . "\n";
-	# }
+	for ($i = 4; $i < $block_count; $i++) {
+		print_log_block($i);
+	}
 	exit;	
 }
 
