@@ -666,14 +666,7 @@ sub print_page {
 
 
 
-    printf "\nTRAILER\n";
-    printf "Old-style Checksum: $oldchecksum\n";
-    printf "Low 32 bits of LSN: $low32lsn\n";
-    printf "Byte End: "
-      . ( cur_pos($pagenum) + $page_size ) . " ("
-      . tohex( cur_pos($pagenum) + $page_size );
-    printf ")\n";
-    print "--------------------\n";
+
 }
 
 sub print_fil_hdr {
@@ -710,6 +703,22 @@ sub print_fil_hdr {
     printf "LSN: $lsn\n";
     printf "Space ID: $id\n";
     printf "Checksum: $checksum\n";
+}
+
+sub print_fil_trl {
+	my ($p) = @_;
+	
+	my $csum = fil_trailer_checksum($p);	# Old-style checksum
+	my $lsn  = fil_trailer_low32_lsn($p);	# Low 32 bits of LSN
+	
+	printf "TRAILER\n";
+    printf "Old-style Checksum: $csum\n";
+    printf "Low 32 bits of LSN: $lsn\n";
+    printf "Byte End: "
+      . ( cur_pos($p) + $page_size ) . " ("
+      . tohex( cur_pos($p) + $page_size );
+    printf ")\n";
+    print "--------------------\n";
 }
 
 sub print_fsp_hdr {
@@ -876,18 +885,20 @@ sub process_page {
 }
 
 sub process_pages {
-		print "Pages containing data in $filename:\n";
-		print "--------------------\n";
-		for ( $i = 0 ; $i < $page_count ; $i++ ) {
-			unless ( !fil_head_checksum($i) ) {
-				if ($opt_chop) {
-					writepage( cur_pos($i), $i );
-				}			
-				#print_page( get_page($i) );
-				print_fil_hdr($i);
-				print_fsp_hdr;
-			}
+	print_fsp_hdr;
+	nl;
+	print "Pages containing data in $filename:\n";
+	print "--------------------\n";
+	for ( $i = 0 ; $i < $page_count ; $i++ ) {
+		unless ( !fil_head_checksum($i) ) {
+			if ($opt_chop) {
+				writepage( cur_pos($i), $i );
+			}			
+			#print_page( get_page($i) );
+			print_fil_hdr($i);
+			print_fil_trl($i);			
 		}
+	}
 }
 
 if ($set_page) {
