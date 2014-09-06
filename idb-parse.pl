@@ -2,7 +2,7 @@
 
 use bytes;
 
-use strict;
+use strict 'vars';
 use warnings;
 
 #use diagnostics;
@@ -11,20 +11,22 @@ use Data::Dumper qw(Dumper);
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
 use Scalar::Util qw(looks_like_number);
-use Math::Int64 qw( :native_if_available int64 );
+use Math::Int64 qw( :native_if_available int64 hex_to_uint64 uint64_to_hex );
 
 use constant {
     SIZE_FIL_HEAD    		=> '38',		# Page Header Size - Default 38
     SIZE_FIL_TRAILER 		=> '8',			# Page Trailer Size - Default: 8
     SIZE_PAGE        		=> '16384',		# Page Size - Default: 16384
     SIZE_LOG_BLOCK	 		=> '512',		# Log Block Size - Default: 512
-	LOG_CHECKPOINT_GROUPS 	=> '32'    		# Maximum number of log group checkpoints
+	LOG_CHECKPOINT_GROUPS 	=> '32',  		# Maximum number of log group checkpoints
+	LOG_MAX_N_GROUPS		=> '32'			# Maximum number of log groups in log_group_struct::checkpoint_buf
 };
 
 my ( $fh, $filename, $hex, $buffer );
 
-my $POS_PAGE_BODY   = SIZE_FIL_HEAD;
-my $POS_FIL_TRAILER = SIZE_PAGE - SIZE_FIL_TRAILER;
+our $POS_PAGE_BODY   			= SIZE_FIL_HEAD;
+our $POS_FIL_TRAILER 			= SIZE_PAGE - SIZE_FIL_TRAILER;
+our $LOG_CHECKPOINT_ARRAY_END 	= LOG_CHECKPOINT_GROUPS + (LOG_MAX_N_GROUPS * 8); # Defaults to 32 + (32 * 8) = 288
 
 # Define page data variables
 #my (
@@ -37,8 +39,10 @@ our (
 	$opt_chop,
 	$opt_head,
 	$opt_ibdata,
+	$opt_log,
 	$opt_debug,
 	$opt_quiet,
+	$opt_verbose,
 	$set_page,
 	$file,
 	$find_page
@@ -63,7 +67,9 @@ GetOptions(
     's=i' => \$find_page,    # change to search
     'd'   => \$opt_debug,
     'q'   => \$opt_quiet,
-    'i'   => \$opt_ibdata
+    'i'   => \$opt_ibdata,
+    'l'	  => \$opt_log,
+    'v'	  => \$opt_verbose
 ) or die("Could not get options.\n");
 
 if ($opt_debug) { 
@@ -81,12 +87,12 @@ Usage:
     idb-parse [-f[ile] <file>] [-p[age] <page #>] [-i[bdata]]
             [-v[erbose]] [-d[ebug]] [-h[elp]]
     where
-         [-f[ile]] <file>        Path to InnoDB data file. (Default behavior)
+         [-f[ile]] <file>        	Path to InnoDB data file. (Default behavior)
          [-p[age]] <page #>		 Specify a single page to get information from.
          [-i[bdata]] <file>		 Specify an InnoDB system data file (eg. ibdata1) to get information from.
-         [-v[erbose]]            Displays additional information.
+         [-v[erbose]]            	Displays additional information.
          [-d[ebug]]      		 Displays debug information.
-         [-h[elp]]               Displays this Usage information.
+         [-h[elp]]               	Displays this Usage information.
 END_OF_USAGE
 }
 
@@ -351,10 +357,10 @@ sub get_bytes {
 		print "\n";
 	}
 	
-    if    ( $byte_count == 8 ) { $int = hex unpack "H*", $buffer; }
+    if    ( $byte_count == 8 ) { $int = hex_to_uint64 unpack "H*", $buffer; }
     elsif ( $byte_count == 4 ) { $int = unpack "N*", $buffer; }
     elsif ( $byte_count == 2 ) { $int = unpack "n*", $buffer; }
-    else                       { $int = unpack "C*", $buffer; }
+    else                       { $int = unpack "H*", $buffer; }
     return $int;
 
 }
@@ -364,6 +370,16 @@ sub cur_pos {
     my ($page) = @_;
     $page_size * $page;
 }
+
+sub cur_log_pos {
+	my ($c) = @_;
+	SIZE_LOG_BLOCK * $c;
+}
+
+# 
+# Subs defined below to represent values retrieved via byte position/length, 
+# passed to get_bytes to grab the data from the binary files.
+# ----------------------------------
 
 # FIL Header data
 sub fil_head_offset { get_bytes( ( cur_pos(@_) + 4 ), 4 ); }
@@ -398,9 +414,24 @@ sub sys_hdr_flush_lsn	{ get_bytes( 26, 8 ); }
 sub sys_space_id		{ get_bytes( 34, 4 ); }
 
 # ib_logfile info
-sub log_flush_lsn		{ get_bytes( ( SIZE_LOG_BLOCK + 12 ), 4 ); }
+sub log_flush_lsn		{ get_bytes( ( cur_log_pos(@_) + 12 ), 4 ); }
 
+# Log File Header
+sub log_group_id		{ get_bytes( 0, 4 ); }
+sub log_file_start_lsn	{ get_bytes( 4, 8 ); }	
+sub log_file_num		{ get_bytes( 12, 4 ); }		# LOG_FILE_NO - 4-byte archived log file number; this field is only defined in an archived log file.
+sub log_created_by		{ get_bytes( 16, 32 ); }	# LOG_FILE_WAS_CREATED_BY_HOT_BACKUP
 
+# Log File Checkpoint Block 1
+sub log_checkpoint_num	{ get_bytes( SIZE_LOG_BLOCK, 8 ); }
+sub log_checkpoint_lsn	{ get_bytes( (SIZE_LOG_BLOCK + 8), 8 ); }
+sub log_checkpoint_log_offset	{ get_bytes( (SIZE_LOG_BLOCK + 16), 4 ); }
+sub log_checkpoint_log_buf_size	{ get_bytes( (SIZE_LOG_BLOCK + 20), 4 ); }
+sub log_checkpoint_archived_lsn	{ get_bytes( (SIZE_LOG_BLOCK + 24), 8 ); }
+sub log_checkpoint_checksum_1	{ get_bytes( (SIZE_LOG_BLOCK + $LOG_CHECKPOINT_ARRAY_END), 4 ); } 		# Defaults would be: 512 + 288 = 800
+sub log_checkpoint_checksum_2	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 4)), 4 ); }
+sub log_checkpoint_fsp_free_limit 	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 8)), 4 ); }
+sub log_checkpoint_fsp_magic_num	{ get_bytes( (SIZE_LOG_BLOCK + ($LOG_CHECKPOINT_ARRAY_END + 12)), 4 ); }
 
 sub get_page {
 
@@ -410,18 +441,16 @@ sub get_page {
     $offset = $page_size * $page;
 
     # Get FIL Header
-    push @attr, get_bytes( ( $offset + 4 ), 4 );    # 0 page number
-    push @attr, get_bytes( $offset, 4 );            # 1 checksum
-    push @attr, get_bytes( ( $offset + 8 ),  4 );   # 2 prev page
-    push @attr, get_bytes( ( $offset + 12 ), 4 );   # 3 next page
-    push @attr, get_bytes( ( $offset + 34 ), 4 );   # 4 space id
-    push @attr, get_bytes( ( $offset + 20 ), 4 );   # 5 lsn
-    push @attr, get_bytes( ( $offset + 24 ), 2 );   # 6 page type
+    push @attr, get_bytes( ( $offset + 4 ), 4 );    	# 0 page number
+    push @attr, get_bytes( $offset, 4 );            	# 1 checksum
+    push @attr, get_bytes( ( $offset + 8 ),  4 );   	# 2 prev page
+    push @attr, get_bytes( ( $offset + 12 ), 4 );   	# 3 next page
+    push @attr, get_bytes( ( $offset + 34 ), 4 );   	# 4 space id
+    push @attr, get_bytes( ( $offset + 20 ), 4 );   	# 5 lsn
+    push @attr, get_bytes( ( $offset + 24 ), 2 );   	# 6 page type
 
     # Get Page Header
-    push @attr,
-      get_bytes( ( $offset + 38 + 4 ), 2 )
-      ;    # 7 PAGE_N_HEAP - amount of records in page
+    push @attr, get_bytes( ( $offset + 38 + 4 ), 2 );   # 7 PAGE_N_HEAP
 
     # Get Trailer
     push @attr, get_bytes( ( $offset + 16376 ), 4 );    # 8 old-style checksum
@@ -534,15 +563,89 @@ sub print_fsp_hdr {
     printf "High Page: " . fsp_high_page . "\n";
 }
 
+sub hr {
+	printf "--------------------\n";
+}
+
+sub verbose {
+	my ($string) = @_;
+	if ($opt_verbose) { printf $string; } 
+}
+
+sub print_log_fil_hdr {
+	
+	printf "Log File Header - Block 0:\n";
+	hr; 
+	printf "Log Group ID";
+		verbose " (LOG_GROUP_ID - off 0, len 4)";
+		printf ": " . log_group_id . "\n";
+	printf "Starting LSN";
+		verbose " (LOG_FILE_START_LSN - off 4, len 8)";
+		printf ": " . log_file_start_lsn . "\n";
+	printf "Log File Number";
+		verbose " (LOG_FILE_NO - off 12, len 4)";
+		printf ": " . log_file_num . "\n";
+#	printf "Created by Hot Backup?";
+#		if ($opt_verbose) { printf " (LOG_FILE_WAS_CREATED_BY_HOT_BACKUP - off 16, len 32)"; }
+#		printf ": " . log_created_by . "\n";
+	hr;
+}
+
+sub print_log_checkpoint {
+	printf "Log Checkpoint 1 - Block 1:\n";
+	hr;
+	printf "Checkpoint Number";
+		verbose " (LOG_CHECKPOINT_NO - off 512, len 8)";
+		printf ": " . log_checkpoint_num . "\n";
+	printf "Checkpoint LSN";
+		verbose " (LOG_CHECKPOINT_LSN - off 512 + 8, len 8)";
+		printf ": " . log_checkpoint_lsn . "\n";
+	printf "Checkpoint Offset";
+		verbose " (LOG_CHECKPOINT_OFFSET - off 512 + 16, len 4)";
+		printf ": " . log_checkpoint_log_offset . "\n";
+	printf "Checkpoint Log Buffer Size";
+		verbose " (LOG_CHECKPOINT_LOG_BUF_SIZE - off 512 + 20, len 4)";
+		printf ": " . log_checkpoint_log_buf_size . "\n";
+	printf "Archived LSN";
+		verbose " (LOG_CHECKPOINT_ARCHIVED_LSN - off 512 + 24, len 8)";
+		printf ": " . log_checkpoint_archived_lsn . "\n";
+	printf "Checksum 1";
+		verbose " (LOG_CHECKPOINT_CHECKSUM_1 - off 512 + 288 (calculated by log_checkpoint_group_array + [log_max_n_groups*8]), len 4)";
+		printf ": " . log_checkpoint_checksum_1 . "\n";
+	printf "Checksum 2"; 
+		verbose " (LOG_CHECKPOINT_CHECKSUM_2 - off 512 + (288 + 4), len 4)";
+		printf ": " . log_checkpoint_checksum_2 . "\n";
+	hr;
+}
+
+#-- TOGGLED MODES
+
+# Parse ib_logfile:
+if ($opt_log) {
+	
+	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
+	binmode($fh) or die "Can't binmode $filename: $!";
+	
+	my $log_file_size 	= -s $filename;	
+	my $block_size		= SIZE_LOG_BLOCK; 					# Default 512 - Change in constants
+	my $block_count 	= $log_file_size / $block_size; 
+	
+	printf "$filename:\n";
+	hr;
+	print_log_fil_hdr;		# Log file header output
+	print_log_checkpoint; 	# Log Checkpoint 1 output 
+	
+	#for ($i = 0; $i < $block_count; $i++) {
+	#	print "Log Block $i LSN: " . log_flush_lsn($i) . "\n";
+	# }
+	exit;	
+}
+
 if ($find_page) {
     my $datadir = `mysqld --verbose --help 2> /dev/null | grep \"datadir\\s\" | sed 's/.*\\s//'`;
     print "Datadir: $datadir\n";
     chomp($datadir);
     $datadir =~ s/\/$//;
-
-#opendir(DH, $datadir) or die "Couldn't open directory handle on $datadir: $!\n";
-#my @files = readdir(DH);
-#closedir(DH);
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
     foreach my $tblfile (@files) {
