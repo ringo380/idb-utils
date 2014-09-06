@@ -802,7 +802,7 @@ sub print_log_checkpoint {
 }
 
 sub list_tsid {
-	my @files = <$datadir/*/*.ibd>;
+	my @files = <$mydata_path/*/*.ibd>;
 	foreach my $tblfile (@files) {
 		next unless $tblfile =~ /\.ibd$/;
 		open( $fh, "<", $tblfile ) or die "Can't open $tblfile: $!";
