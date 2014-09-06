@@ -814,8 +814,9 @@ sub list_tsid {
 
 #-- TOGGLED MODES
 
-if ($opt_listtsid {
+if ($opt_listtsid) {
 	list_tsid;
+	exit;
 }
 
 if ($opt_records) {
