@@ -202,7 +202,9 @@ our $mydata_path = "/var/lib/mysql";
 
 # Set the filename
 if   ($file) { $filename = $file; }
-else         { $filename = $ARGV[-1]; }
+elsif ($ARGV[-1]) { $filename = $ARGV[-1]; }
+else { $filename = "$mydata_path/ibdata1"; }
+
 if ( !-e $filename ) {
     print STDERR "File path provided does not exist.\n";
     exit;
