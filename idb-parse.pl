@@ -692,11 +692,11 @@ sub print_fil_hdr {
     printf "HEADER\n";
     printf "Byte Start: $cur_pos (" . tohex $cur_pos;
     printf ")\n";
-    printf "Page Type: $type - $nam: \n$desc - $use\n";
-    printf "\nPAGE_N_HEAP (Amount of records in page): $pheap\n";
+    printf "Page Type: $type - \n-- $nam: $desc - $use\n";
+    verbose "PAGE_N_HEAP (Amount of records in page): $pheap\n";
     printf "Prev Page: ";
     if   ( $prev == 4294967295 or !$prev ) { printf "Not used.\n"; }
-    else                                           { printf "\n"; }
+    else                                           { printf "$prev\n"; }
     printf "Next Page: ";
     if   ( $next == 4294967295 or !$next ) { printf "Not used.\n"; }
     else                                           { printf "$next\n"; }
