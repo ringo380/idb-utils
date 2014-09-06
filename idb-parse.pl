@@ -48,6 +48,8 @@ our (
 	$opt_vv,
 	$opt_noempty,
 	$opt_records,
+	$opt_findtsid,
+	$opt_listtsid,
 	$set_page,
 	$file,
 	$find_page
@@ -69,7 +71,7 @@ GetOptions(
     'c'   => \$opt_chop,
     'p=i' => \$set_page,
     'f=s' => \$file,
-    's=i' => \$find_page,    # change to search
+    's=i' => \$find_page,    	# change to search
     'd'   => \$opt_debug,
     'q'   => \$opt_quiet,
     'i'   => \$opt_ibdata,
@@ -77,7 +79,9 @@ GetOptions(
     'v'	  => \$opt_verbose,
     'vv'  => \$opt_vv,
     'e'	  => \$opt_noempty,
-    'r'	  => \$opt_records
+    'r'	  => \$opt_records,
+    't'	  => \$opt_findtsid,	# find tablespace id
+    'u'   => \$opt_listtsid
 ) or die("Could not get options.\n");
 
 if ($opt_debug) { 
@@ -683,7 +687,7 @@ sub print_fil_hdr {
     my $checksum	= fil_head_checksum($p);
     
 	
-    my ( $nam, $desc, $use ) = get_page_type(fil_head_page_type($p));
+    my ( $nam, $desc, $use ) = get_page_type($type);
        
 	#my $checksum = fil_head_checksum($p);
 
@@ -692,7 +696,7 @@ sub print_fil_hdr {
     printf "HEADER\n";
     printf "Byte Start: $cur_pos (" . tohex $cur_pos;
     printf ")\n";
-    printf "Page Type: $type - \n-- $nam: $desc - $use\n";
+    printf "Page Type: $type\n-- $nam: $desc - $use\n";
     verbose "PAGE_N_HEAP (Amount of records in page): $pheap\n";
     printf "Prev Page: ";
     if   ( $prev == 4294967295 or !$prev ) { printf "Not used.\n"; }
@@ -797,7 +801,23 @@ sub print_log_checkpoint {
 	hr;
 }
 
+sub list_tsid {
+	my @files = <$datadir/*/*.ibd>;
+	foreach my $tblfile (@files) {
+		next unless $tblfile =~ /\.ibd$/;
+		open( $fh, "<", $tblfile ) or die "Can't open $tblfile: $!";
+		binmode($fh) or die "Can't binmode $tblfile: $!";
+		my $tsid = fsp_space_id;
+		printf "$tblfile - Space ID: $tsid\n";		
+	}
+}
+
 #-- TOGGLED MODES
+
+if ($opt_listtsid {
+	list_tsid;
+}
+
 if ($opt_records) {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
