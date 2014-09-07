@@ -201,24 +201,35 @@ our $mycnf_path  = "/root/.my.cnf";
 our $mydata_path = "/var/lib/mysql";
 
 # Set the filename
-if   ($file) { $filename = $file; }
-elsif ($ARGV[-1]) { $filename = $ARGV[-1]; }
-else { $filename = "$mydata_path/ibdata1"; }
+if   ($file) { 
+	$filename = $file; 
+} elsif ($ARGV[-1]) { 
+	$filename = $ARGV[-1]; 
+} 
+#else { $filename = "$mydata_path/ibdata1"; }
 
-if ( !-e $filename ) {
-    print STDERR "File path provided does not exist.\n";
-    exit;
-}
-if ( !-r $filename ) {
-    print STDERR "File path provided is not readable.\n";
-    exit;
+unless (!$filename) {
+	
+	if ( !-e $filename ) {
+		print STDERR "File path provided does not exist.\n";
+		exit;
+	}
+	
+	if ( !-r $filename ) {
+		print STDERR "File path provided is not readable.\n";
+		exit;
+	}
+	
+	my $file_size  = -s $filename;
+	my $page_count = $file_size / $page_size;
+	
 }
 
 my $offset     = 0;
 my $i          = 0;
 my $page_size  = SIZE_PAGE;
-my $file_size  = -s $filename;
-my $page_count = $file_size / $page_size;
+
+
 
 if ($opt_help) { print "This is help\n"; exit; }
 if ($opt_chop) {
