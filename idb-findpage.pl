@@ -72,6 +72,7 @@ if ($find_page) {
     $datadir =~ s/\/$//;
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
+    unless ($spaceid) { $spaceid = 0; }
     foreach my $tblfile (@files) {
         next unless $tblfile =~ /\.ibd$/;
         print "Checking $tblfile.. \n";
@@ -82,10 +83,10 @@ if ($find_page) {
         binmode($fh) or die "Can't binmode $filename: $!";
         for ( $i = 0 ; $i < $page_count ; $i++ ) {
             @tblattr = &get_page($i);
-            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum or $tblattr[2] == $spaceid ) {
+            if ( $tblattr[0] == $find_page and $tblattr[1] == $checksum ) {
                 print "Found page $find_page in $tblfile.\n";
-                exit;
-            }
+           	exit;
+	    }
         }
         close($fh);
     }
