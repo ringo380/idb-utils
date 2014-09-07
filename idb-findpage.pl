@@ -27,6 +27,9 @@ unless ($datadir) {
 		or die "Could not determine data directory. Please specify a data directory manually with the '-d' flag.\n";
 }
 
+chomp($datadir);
+$datadir =~ s/\/$//;
+
 sub get_bytes {
     my ( $byte_pos, $byte_count );
     ( $byte_pos, $byte_count ) = @_;
@@ -58,7 +61,7 @@ sub get_page {
       &get_bytes( ( $offset + 38 + 8 ), 4 )
       ;    # 5 PAGE_N_HEAP - amount of records in page
 
-    # Get Trailer
+    # Get Trailer 
     push @attr, &get_bytes( ( $offset + 16376 ), 4 );    # 6 old-style checksum
     push @attr, &get_bytes( ( $offset + 16380 ), 4 );    # 7 low 32 bits of lsn
 
@@ -67,9 +70,43 @@ sub get_page {
     return @attr;
 }
 
+if ($find_page and !$checksum) {
+	print "Checksum required (-c) to identify the correct page. Here are the most recent 10 relevant log entries..\n\n";
+	my $hostname = `hostname`;
+	chomp($hostname);
+	my $checksum_errs = `grep checksum $datadir/$hostname.err | tail`;
+	printf $checksum_errs;
+	exit;
+}
+
+if ($spaceid) {
+    my @tblattr;
+    my @files = <$datadir/*/*.ibd>;
+    foreach my $tblfile (@files) {
+        next unless $tblfile =~ /\.ibd$/;
+        print "Checking $tblfile.. \n";
+        $page_size  = 16384;
+        $file_size  = -s $tblfile;
+        $page_count = $file_size / $page_size;
+        open( $fh, "<", $tblfile ) or die "Can't open $filename: $!";
+        binmode($fh) or die "Can't binmode $filename: $!";
+        for ( $i = 0 ; $i < $page_count ; $i++ ) {
+            @tblattr = &get_page($i);
+            if ( $tblattr[2] == $spaceid ) {
+				my $table_name = $tblfile;
+				my $db_name = $tblfile;
+				$db_name =~ s/.*$datadir\/(\w+)\/.*/$1/;
+				$table_name =~ s/.*$datadir\/$db_name\/(\w+)\.ibd.*/$1/;
+                print "Space ID $spaceid is associated with $tblfile\n$db_name.$table_name\n";
+                exit;
+            }
+        }
+        close($fh);
+    }
+    exit;	
+}
+
 if ($find_page) {
-    chomp($datadir);
-    $datadir =~ s/\/$//;
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
     unless ($spaceid) { $spaceid = 0; }
