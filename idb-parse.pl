@@ -51,6 +51,7 @@ our (
 	$opt_findtsid,
 	$opt_listtsid,
 	$set_page,
+	$datadir,
 	$file,
 	$find_page
 	);
@@ -73,6 +74,7 @@ GetOptions(
     'f=s' => \$file,
     's=i' => \$find_page,    	# change to search
     'd'   => \$opt_debug,
+    'z'   => \$datadir,
     'q'   => \$opt_quiet,
     'i'   => \$opt_ibdata,
     'l'	  => \$opt_log,
@@ -88,6 +90,11 @@ if ($opt_debug) {
 	print "Debugging enabled..\n";
 }
 
+unless ($datadir) {
+	$datadir = `mysqld --verbose --help 2> /dev/null | grep "datadir\\s" | sed 's/datadir[ ]*//'`;
+	$datadir =~ s/\/$//;
+	chomp($datadir);
+}
 #------------------------------------------------------------------------------
 # sub usage():
 #       Displays usage information.
@@ -865,10 +872,9 @@ if ($opt_log) {
 }
 
 if ($find_page) {
-    my $datadir = `mysqld --verbose --help 2> /dev/null | grep \"datadir\\s\" | sed 's/.*\\s//'`;
-    print "Datadir: $datadir\n";
-    chomp($datadir);
-    $datadir =~ s/\/$//;
+	
+
+	
     my @tblattr;
     my @files = <$datadir/*/*.ibd>;
     foreach my $tblfile (@files) {
