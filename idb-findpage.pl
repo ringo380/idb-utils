@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 
+use strict;
 use warnings;
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
