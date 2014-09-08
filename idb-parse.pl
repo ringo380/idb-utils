@@ -916,6 +916,7 @@ sub process_page {
 		my $page_start = $page_size * $set_page;
 		if ( $page_start < $file_size and looks_like_number $set_page) {
 			print_fil_hdr( get_page( $set_page ) );
+			nl;
 			print_fil_trl( get_page( $set_page ) );
 		}
 		else {
@@ -935,6 +936,7 @@ sub process_pages {
 			}			
 			#print_page( get_page($i) );
 			print_fil_hdr($i);
+			nl;
 			print_fil_trl($i);			
 		}
 	}
