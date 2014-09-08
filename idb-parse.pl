@@ -24,11 +24,12 @@ use constant {
 	LOG_BLOCK_FLUSH_BIT_MASK => 2147483648  # (0x80000000UL) Mask used to get the highest bit in the preceding field
 };
 
-my ( $fh, $filename, $hex, $buffer, $page_size );
+my ( $fh, $filename, $hex, $buffer );
 
 our $POS_PAGE_BODY   			= SIZE_FIL_HEAD;
 our $POS_FIL_TRAILER 			= SIZE_PAGE - SIZE_FIL_TRAILER;
 our $LOG_CHECKPOINT_ARRAY_END 	= LOG_CHECKPOINT_GROUPS + (LOG_MAX_N_GROUPS * 8); # Defaults to 32 + (32 * 8) = 288
+our $page_size  				= SIZE_PAGE;
 
 # Define page data variables
 #my (
@@ -228,13 +229,14 @@ unless (!$filename) {
 	}
 	
 	my $file_size  = -s $filename;
+	
 	my $page_count = $file_size / $page_size;
 	
 }
 
 my $offset     = 0;
 my $i          = 0;
-my $page_size  = SIZE_PAGE;
+
 
 
 
