@@ -8,7 +8,7 @@ use warnings;
 use bytes;
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
-use Data::Dumper;
+#use Data::Dumper;
 
 use constant {
     SIZE_FIL_HEAD    		=> 38,		# Page Header Size - Default 38
