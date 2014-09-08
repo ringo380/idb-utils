@@ -105,6 +105,7 @@ our (
 	$opt_noempty,
 	$opt_records,
 	$set_page,
+	$set_type,
 	$datadir,
 	$file
 	);
@@ -116,6 +117,7 @@ GetOptions(
     'f=s' => \$file,
     'c'   => \$opt_chop,	# Split into page file(s).
     'x'   => \$opt_debug,
+	't=s' => \$set_type,
     'd'   => \$datadir,
     'q'   => \$opt_quiet,
     'i'   => \$opt_ibdata,
@@ -410,7 +412,10 @@ sub process_pages {
 	print "Pages containing data in $filename:\n";
 	print "--------------------\n";
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
-		unless ( !fil_head_checksum($i) ) {
+		unless ( !$opt_noempty and !fil_head_checksum($i) ) {
+			if ($set_type) {
+				unless (uc $set_type eq 'INDEX' and fil_head_page_type($i) == '17855') { next; }
+			}
 			if ($opt_chop) {
 				writepage( cur_pos($i), $i );
 			}			
