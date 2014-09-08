@@ -53,19 +53,8 @@ our (
 	$opt_listtsid,
 	$set_page,
 	$datadir,
-	$file,
-	$find_page
+	$file
 	);
-	
-#my $opt_help   = '';
-#my $opt_chop   = '';
-#my $opt_head   = '';
-#my $set_page   = '';
-#my $file       = '';
-#my $find_page  = '';
-#my $opt_ibdata = '';
-#my $opt_debug  = '';
-#my $opt_quiet  = '';
 
 GetOptions(
     'h'   => \$opt_help,
@@ -73,7 +62,6 @@ GetOptions(
     'c'   => \$opt_chop,
     'p=i' => \$set_page,
     'f=s' => \$file,
-    's=i' => \$find_page,    	# change to search
     'd'   => \$opt_debug,
     'z'   => \$datadir,
     'q'   => \$opt_quiet,
@@ -202,7 +190,7 @@ END_OF_RELNOTES
 
 if ($opt_help) {
 	usage;
-	exit;
+	exit 0;
 }
 
 our $mycnf_path  = "/root/.my.cnf";
@@ -213,8 +201,9 @@ if   ($file) {
 	$filename = $file; 
 } elsif ($ARGV[-1]) { 
 	$filename = $ARGV[-1]; 
-} 
-#else { $filename = "$mydata_path/ibdata1"; }
+} else {
+	print STDERR "Warning: Filename invalid or no filename specified.\n";
+}
 
 unless (!$filename) {
 	
@@ -228,7 +217,7 @@ unless (!$filename) {
 		exit;
 	}
 	
-	$file_size  = -s $filename;	
+	$file_size  = -s $filename or die "Could not retrieve size of $filename: $!";	
 	$page_count = $file_size / $page_size;
 	
 }
@@ -236,13 +225,8 @@ unless (!$filename) {
 my $offset     = 0;
 my $i          = 0;
 
-
-
-
-if ($opt_help) { print "This is help\n"; exit; }
 if ($opt_chop) {
     print "Splitting into page files..\n";
-    my $opt_chop = 1;
 }
 
 # ----- Define log record types
@@ -867,32 +851,6 @@ if ($opt_log) {
 		print_log_block($i);
 	}
 	exit;	
-}
-
-if ($find_page) {
-	
-
-	
-    my @tblattr;
-    my @files = <$datadir/*/*.ibd>;
-    foreach my $tblfile (@files) {
-        next unless $tblfile =~ /\.ibd$/;
-        print "Checking $tblfile.. \n";
-        $page_size  = 16384;
-        $file_size  = -s $tblfile;
-        $page_count = $file_size / $page_size;
-        open( $fh, "<", $tblfile ) or die "Can't open $filename: $!";
-        binmode($fh) or die "Can't binmode $filename: $!";
-        for ( $i = 0 ; $i < $page_count ; $i++ ) {
-            @tblattr = get_page($i);
-            if ( $tblattr[0] == $find_page ) {
-                print "Found page $find_page in $tblfile.\n";
-                exit;
-            }
-        }
-        close($fh);
-    }
-    exit;
 }
 
 $buffer = '';    # Clear out buffer
