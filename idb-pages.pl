@@ -458,7 +458,7 @@ sub print_idx_hdr {
 	my $max_tid = page_max_trx_id($p);
 	
 	nl;
-	printf "------ INDEX Header\n";
+	printf "------ INDEX Header: Page " . fil_head_offset($p) . "\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
 	if ($level == 0) { 
