@@ -29,7 +29,11 @@ use constant {
 	REC_N_NEW_EXTRA_BYTES	=> 5,			# Number of extra bytes in a new-style record, in addition to the data and the offsets
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
-
+	PAGE_LEFT				=> 1,
+	PAGE_RIGHT				=> 2,
+	PAGE_SAME_REC			=> 3,
+	PAGE_SAME_PAGE			=> 4,
+	PAGE_NO_DIRECTION		=> 5
 };
 
 my ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
