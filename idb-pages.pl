@@ -424,20 +424,23 @@ sub process_pages {
 	unless ($opt_empty) { print "Pages containing data in $filename:\n"; } else { print "All pages in $filename:\n"; }
 	print "--------------------\n";
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
-		unless ( $opt_empty and !fil_head_checksum($i) ) {
 			if ($set_type) {
 				unless (uc $set_type eq 'INDEX' and fil_head_page_type($i) == '17855') { next; }
 			}
 			if ($opt_chop) {
 				writepage( cur_pos($i), $i );
 			}			
-			print_fil_hdr($i);
-			nl;
-			print_fil_trl($i);			
-		} else {
-			print_fil_hdr($i);
-			nl;
-			print_fil_trl($i);
+			my $this_csum = fil_head_checksum($i);
+			if (!$opt_empty and $this_csum) {
+				print_fil_hdr($i);
+				nl;
+				print_fil_trl($i);	
+			} else {
+				print_fil_hdr($i);
+				nl;
+				print_fil_trl($i);	
+			}
+		
 		}
 	}
 }
