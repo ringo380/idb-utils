@@ -29,6 +29,7 @@ use constant {
 	REC_N_NEW_EXTRA_BYTES	=> 5,			# Number of extra bytes in a new-style record, in addition to the data and the offsets
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
+	# Directions of cursor movement:
 	PAGE_LEFT				=> 1,
 	PAGE_RIGHT				=> 2,
 	PAGE_SAME_REC			=> 3,
@@ -460,6 +461,7 @@ sub print_idx_hdr {
 	
 	my $level = page_level($p);
 	my $max_tid = page_max_trx_id($p);
+	my $dir = page_direction($p);
 	
 	nl;
 	printf "------ INDEX Header: Page " . fil_head_offset($p) . "\n";
@@ -484,7 +486,12 @@ sub print_idx_hdr {
 	printf "Garbage Bytes: " . page_garbage($p) . "\n";
 		verbose "-- Number of bytes in deleted records.\n";
 	printf "Last Insert: " . page_last_insert($p) . "\n";
-	printf "Page Direction: " . page_direction($p) . "\n";
+	printf "Page Direction: $dir\n";
+		if $dir == PAGE_LEFT print "-- Left\n";
+		if $dir == PAGE_RIGHT print "-- Right\n";
+		if $dir == PAGE_SAME_REC print "-- Page Same Record\n";
+		if $dir == PAGE_SAME_PAGE print "-- Page Same Page\n";
+		if $dir == PAGE_NO_DIRECTION print "-- No Direction\n";
 	printf "Inserts in this direction: " . page_n_direction($p) . "\n";
 		verbose "-- Number of consecutive inserts in this direction.\n";
 }
