@@ -310,6 +310,11 @@ sub cur_pos {
     SIZE_PAGE * $page;	# Default SIZE_PAGE 16384
 }
 
+sub cur_idx_pos {
+	my ($page) = @_;
+	FIL_PAGE_DATA + (SIZE_PAGE * $page);
+}
+
 #
 # END Binary Operation Subs
 # ----------------------------------
@@ -337,21 +342,21 @@ sub fil_trailer_checksum { get_bytes( ( cur_pos(@_) + 16376 ), 4 ); }
 sub fil_trailer_low32_lsn { get_bytes( ( cur_pos(@_) + 16380 ), 4 ); }
 
 # INDEX Header data
-sub page_n_dir_slots 	{ get_bytes ( cur_pos(@_), 2 ); }		# number of slots in page directory
-sub page_heap_top		{ get_bytes ( cur_pos(@_) + 2, 2 ); }	# pointer to record heap top
-sub page_n_heap			{ get_bytes ( cur_pos(@_) + 4, 2 ); }	# number of records in the heap ( bit 15=flag: new-style compact page format)
-sub page_free			{ get_bytes ( cur_pos(@_) + 6, 2 ); }	# pointer to start of page free record list
-sub page_garbage		{ get_bytes ( cur_pos(@_) + 8, 2 ); }	# number of bytes in deleted records
-sub page_last_insert	{ get_bytes ( cur_pos(@_) + 10, 2 ); }	# pointer to the last inserted record, or NULL if info has been reset by a delete (for example)
-sub page_direction		{ get_bytes ( cur_pos(@_) + 12, 2 ); }	# last insert direction: PAGE_LEFT, ...  
-sub page_n_direction	{ get_bytes ( cur_pos(@_) + 14, 2 ); }	# number of consecutive inserts to the same direction
-sub page_n_recs 		{ get_bytes ( cur_pos(@_) + 16, 2 ); }	# number of user records on the page
-sub page_max_trx_id		{ get_bytes ( cur_pos(@_) + 18, 8 ); }	# highest id of a trx which may have modified a record on the page; trx_id_t; defined only in secondary indexes and in the insert buffer tree
+sub page_n_dir_slots 	{ get_bytes ( cur_idx_pos(@_), 2 ); }		# number of slots in page directory
+sub page_heap_top		{ get_bytes ( cur_idx_pos(@_) + 2, 2 ); }	# pointer to record heap top
+sub page_n_heap			{ get_bytes ( cur_idx_pos(@_) + 4, 2 ); }	# number of records in the heap ( bit 15=flag: new-style compact page format)
+sub page_free			{ get_bytes ( cur_idx_pos(@_) + 6, 2 ); }	# pointer to start of page free record list
+sub page_garbage		{ get_bytes ( cur_idx_pos(@_) + 8, 2 ); }	# number of bytes in deleted records
+sub page_last_insert	{ get_bytes ( cur_idx_pos(@_) + 10, 2 ); }	# pointer to the last inserted record, or NULL if info has been reset by a delete (for example)
+sub page_direction		{ get_bytes ( cur_idx_pos(@_) + 12, 2 ); }	# last insert direction: PAGE_LEFT, ...  
+sub page_n_direction	{ get_bytes ( cur_idx_pos(@_) + 14, 2 ); }	# number of consecutive inserts to the same direction
+sub page_n_recs 		{ get_bytes ( cur_idx_pos(@_) + 16, 2 ); }	# number of user records on the page
+sub page_max_trx_id		{ get_bytes ( cur_idx_pos(@_) + 18, 8 ); }	# highest id of a trx which may have modified a record on the page; trx_id_t; defined only in secondary indexes and in the insert buffer tree
 
 # INDEX Private Data Structure Header
-sub page_level			{ get_bytes ( cur_pos(@_) + 26, 2 ); } 	# level of the node in an index tree; the leaf level is the level 0.  This field should not be written to after page creation.
-sub page_index_id		{ get_bytes ( cur_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
-sub page_btr_seg_leaf	{ get_bytes ( cur_pos(@_) + 36, 8 ); } 
+sub page_level			{ get_bytes ( cur_idx_pos(@_) + 26, 2 ); } 	# level of the node in an index tree; the leaf level is the level 0.  This field should not be written to after page creation.
+sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
+sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
 
 
 # Page Header data
@@ -448,6 +453,18 @@ sub print_fsp_hdr {
 	printf "Flags: " . fsp_flags . "\n";
 }
 
+sub print_idx_hdr {
+	
+	my ($p) = @_;
+	
+	printf "--------------------\n";
+	printf "INDEX Header\n";
+	printf "--------------------\n";
+	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
+		verbose "-- Number of slots in page directory\n";
+	printf "Heap Top: " . page_heap_top($p) . "\n";
+}
+
 
 sub process_page {
 	my $page_start = SIZE_PAGE * $set_page;
@@ -472,18 +489,25 @@ sub process_pages {
 	unless ($opt_empty) { print "Pages containing data in $filename:\n"; } else { print "All pages in $filename:\n"; }
 	print "--------------------\n";
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
-			if ($set_type) {
-				unless (uc $set_type eq 'INDEX' and fil_head_page_type($i) == '17855') { next; }
-			}
-			if ($opt_chop) {
-				writepage( cur_pos($i), $i );
-			}			
-			my $this_csum = fil_head_checksum($i);
-			if ($this_csum) {
-				print_fil_hdr($i);
-				nl;
-				print_fil_trl($i);	
-			}		
+			
+		my $type = fil_head_page_type($i);
+		
+		if ($set_type) {
+			unless (uc $set_type eq 'INDEX' and $type == '17855') { next; }
+		}
+		if ($opt_chop) {
+			writepage( cur_pos($i), $i );
+		}			
+		my $this_csum = fil_head_checksum($i);
+		if ($this_csum) {
+			print_fil_hdr($i);
+			nl;
+			#if ( $type == '17855' ) {
+			print_idx_hdr($i);
+				#}
+			nl;
+			print_fil_trl($i);	
+		}
 	}
 }
 
