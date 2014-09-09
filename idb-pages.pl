@@ -16,14 +16,20 @@ use constant {
     SIZE_PAGE        		=> 16384,		# Page Size - Default: 16384
     UT_HASH_RANDOM_MASK    	=> 1463735687,
 	UT_HASH_RANDOM_MASK2    => 1653893711,
+	FIL_PAGE_DATA			=> 38,			# Start of data on page
+	FSEG_PAGE_DATA			=> 38, 			# Should be the same as FIL_PAGE_DATA
+	FSEG_HEADER_SIZE		=> 10,			# Length of file system header, in bytes
 	FIL_PAGE_LSN          	=> 16,
 	FIL_PAGE_FILE_FLUSH_LSN => 26,
+	PAGE_HEADER				=> 38, 			# Should be the same as FSEG_PAGE_DATA
 	PAGE_HEADER_PRIV_END	=> 26, 			# end of private data structure of the page header which are set in a page create
 	FIL_PAGE_OFFSET     	=> 4,
 	FIL_PAGE_DATA       	=> 38,
+	REC_N_OLD_EXTRA_BYTES	=> 6,			# Number of extra bytes in an old-style record, in addition to the data and the offsets
+	REC_N_NEW_EXTRA_BYTES	=> 5,			# Number of extra bytes in a new-style record, in addition to the data and the offsets
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
-	FSEG_HEADER_SIZE		=> 10
+
 };
 
 my ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
@@ -32,6 +38,24 @@ our $POS_PAGE_BODY   			= SIZE_FIL_HEAD;
 our $POS_FIL_TRAILER 			= SIZE_PAGE - SIZE_FIL_TRAILER;
 our $PAGE_SIZE	 				= SIZE_PAGE;
 
+#------------------------------------------------------------------------------
+# Most of the following grabbed from page0page.h in MySQL source to define 
+# various page offset constants.
+#
+
+our $PAGE_DATA					= PAGE_HEADER + 36 + 2 * FSEG_HEADER_SIZE; # Default = 94; defines start of page data
+our $PAGE_OLD_INFIMUM			= PAGE_DATA + 1 + REC_N_OLD_EXTRA_BYTES; # Default = 101; offset of the page infimum record on an old-style page
+our $PAGE_OLD_SUPREMUM			= PAGE_DATA + 2 + 2 * REC_N_OLD_EXTRA_BYTES + 8; # Default = 112; offset of the page supremum record on an old-style page
+our $PAGE_OLD_SUPREMUM_END 		= PAGE_OLD_SUPREMUM + 9; # Default = 121; offset of the page supremum record end on an old-style page
+our $PAGE_NEW_INFIMUM			= PAGE_DATA + REC_N_NEW_EXTRA_BYTES; # Default = 99; offset of the page infimum record on a new-style compact page
+our $PAGE_NEW_SUPREMUM			= PAGE_DATA + 2 * REC_N_NEW_EXTRA_BYTES + 8; # Default = 109; offset of the page supremum record on a new-style compact page
+our $PAGE_NEW_SUPREMUM_END 		= PAGE_NEW_SUPREMUM + 8; # Default = 117; offset of the page supremum record end on a new-style compact page
+
+# Heap numbers
+our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
+our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
+our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
+				
 my %page_types = (
     'ALLOCATED' => {
         'value'       => 0,
@@ -327,7 +351,7 @@ sub page_max_trx_id		{ get_bytes ( cur_pos(@_) + 18, 8 ); }	# highest id of a tr
 # INDEX Private Data Structure Header
 sub page_level			{ get_bytes ( cur_pos(@_) + 26, 2 ); } 	# level of the node in an index tree; the leaf level is the level 0.  This field should not be written to after page creation.
 sub page_index_id		{ get_bytes ( cur_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
-sub page_btr_seg_leaf	{ get_bytes ( cur_pos(@_) + 36, 
+sub page_btr_seg_leaf	{ get_bytes ( cur_pos(@_) + 36, 8 ); } 
 
 
 # Page Header data
