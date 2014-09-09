@@ -132,7 +132,7 @@ our (
 	$opt_chop,
 	$opt_csum,
 	$opt_ibdata,
-	$opt_indexes,
+	$opt_index,
 	$opt_debug,			# -x
 	$opt_quiet,
 	$opt_verbose,
@@ -157,7 +157,7 @@ GetOptions(
     'd'   => \$datadir,
     'q'   => \$opt_quiet,
     'b'   => \$opt_ibdata,
-	'i:i'   => \$opt_index,	# Index information
+	'i'	  => \$opt_index,
     'v'	  => \$opt_verbose,
     'vv'  => \$opt_vv,
     'e'	  => \$opt_empty,	# Show empty pages
