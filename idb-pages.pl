@@ -462,6 +462,7 @@ sub print_idx_hdr {
 	if ($level == 0) { 
 		printf "-- Leaf Level\n";
 	}
+	printf "Max Transaction ID: " . page_max_trx_id($p) . "\n";
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
@@ -490,6 +491,9 @@ sub process_page {
 }
 
 sub process_pages {
+	
+	my ($p) = @_;
+	
 	print_fsp_hdr;
 	nl;
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
@@ -509,7 +513,6 @@ sub process_pages {
 			if ($type == '17855') {
 				print_idx_hdr($i);
 			}
-			nl;
 			unless ($opt_head) { print_fil_trl($i);	}
 		}
 	}
