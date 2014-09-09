@@ -455,7 +455,7 @@ sub print_idx_hdr {
 	my ($p) = @_;
 	
 	my $level = page_level($p);
-	
+	nl;
 	printf "------ INDEX Header\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
