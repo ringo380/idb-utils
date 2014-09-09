@@ -454,7 +454,7 @@ sub csum_calc {
 		my $lsn = fil_head_lsn($p);
 		my $lsn_field = fil_trailer_low32_lsn($p);
 		if ($lsn != $lsn_field) {
-			printf(stderr, "page %lu invalid (fails log sequence number check)\n", $ct);
+			sprintf STDERR ("page %lu invalid (fails log sequence number check)\n", $ct);
 			printf("page %lu: log sequence number: first = 0x%08X; second = 0x%08X\n", $ct, $lsn, $lsn_field);
 		}
 		my $csum = buf_calc_page_new_checksum($p);
