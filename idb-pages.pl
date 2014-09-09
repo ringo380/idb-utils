@@ -457,9 +457,8 @@ sub print_idx_hdr {
 	
 	my ($p) = @_;
 	
-	printf "--------------------\n";
 	printf "INDEX Header\n";
-	printf "--------------------\n";
+	nl; 
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
