@@ -477,7 +477,7 @@ sub print_idx_hdr {
 	printf "Records in Heap: " . page_n_heap($p) . "\n";
 		verbose "-- Number of records in heap\n";
 	printf "Start of Free Record List: " . page_free($p) . "\n";
-	printf "Garbage Bytes: " . page_garbage . "\n";
+	printf "Garbage Bytes: " . page_garbage($p) . "\n";
 		verbose "-- Number of bytes in deleted records.\n";
 }
 
