@@ -485,8 +485,6 @@ sub process_page {
 sub process_pages {
 	print_fsp_hdr;
 	nl;
-	unless ($opt_empty) { print "Pages containing data in $filename:\n"; } else { print "All pages in $filename:\n"; }
-	print "--------------------\n";
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
 			
 		my $type = fil_head_page_type($i);
@@ -499,8 +497,7 @@ sub process_pages {
 		}			
 		my $this_csum = fil_head_checksum($i);
 		if ($this_csum) {
-			unless ($opt_head) { print_fil_hdr($i); }
-			nl;
+			unless ($opt_head) { print_fil_hdr($i); nl; }
 			#if ( $type == '17855' ) {
 			print_idx_hdr($i);
 				#}
