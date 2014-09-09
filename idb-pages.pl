@@ -454,9 +454,15 @@ sub print_idx_hdr {
 	
 	my ($p) = @_;
 	
+	my $level = page_level($p);
+	
 	printf "------ INDEX Header\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
-	printf "Node Level: " . page_level($p) . "\n";
+	printf "Node Level: $level ";
+	if ($level == 0) { 
+		printf "-- Leaf Level";
+	}
+	nl;
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
