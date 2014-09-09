@@ -487,11 +487,11 @@ sub print_idx_hdr {
 		verbose "-- Number of bytes in deleted records.\n";
 	printf "Last Insert: " . page_last_insert($p) . "\n";
 	printf "Page Direction: $dir\n";
-		$dir == PAGE_LEFT ? print "-- Left\n";
-		$dir == PAGE_RIGHT ? print "-- Right\n";
-		$dir == PAGE_SAME_REC ? print "-- Page Same Record\n";
-		$dir == PAGE_SAME_PAGE ? print "-- Page Same Page\n";
-		$dir == PAGE_NO_DIRECTION ? print "-- No Direction\n";
+		$dir == PAGE_LEFT ? print "-- Left\n" : continue;
+		$dir == PAGE_RIGHT ? print "-- Right\n" : continue;
+		$dir == PAGE_SAME_REC ? print "-- Page Same Record\n" : continue;
+		$dir == PAGE_SAME_PAGE ? print "-- Page Same Page\n" : continue;
+		$dir == PAGE_NO_DIRECTION ? print "-- No Direction\n" : continue;
 	printf "Inserts in this direction: " . page_n_direction($p) . "\n";
 		verbose "-- Number of consecutive inserts in this direction.\n";
 }
