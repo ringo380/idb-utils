@@ -467,7 +467,7 @@ sub print_idx_hdr {
 	if ($max_tid) {
 		printf "Max Transaction ID: $max_tid\n";
 	} else {
-		printf "-- Secondary Index"
+		printf "-- Secondary Index\n"
 	}
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
@@ -609,6 +609,7 @@ if ($set_page) {
 	process_pages;
 }
 
+nl;
 # 
 # END Toggled routines
 # ----------------------------------
