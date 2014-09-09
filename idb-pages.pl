@@ -455,6 +455,8 @@ sub print_idx_hdr {
 	my ($p) = @_;
 	
 	my $level = page_level($p);
+	my $max_tid = page_max_trx_id($p);
+	
 	nl;
 	printf "------ INDEX Header\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
@@ -462,7 +464,11 @@ sub print_idx_hdr {
 	if ($level == 0) { 
 		printf "-- Leaf Level\n";
 	}
-	printf "Max Transaction ID: " . page_max_trx_id($p) . "\n";
+	if ($max_tid) {
+		printf "Max Transaction ID: $max_tid\n";
+	} else {
+		printf "-- Secondary Index"
+	}
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
@@ -494,8 +500,11 @@ sub process_pages {
 	
 	my ($p) = @_;
 	
-	print_fsp_hdr;
-	nl;
+	unless ($set_type  eq 'INDEX') {
+		print_fsp_hdr;
+		nl;
+	}
+	
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
 			
 		my $type = fil_head_page_type($i);
@@ -508,12 +517,12 @@ sub process_pages {
 		}			
 		my $this_csum = fil_head_checksum($i);
 		if ($this_csum) {
-			unless ($opt_head) { print_fil_hdr($i); nl; }
+			unless ($set_type  eq 'INDEX') { print_fil_hdr($i); nl; }
 			#if ( $type == '17855' ) {
 			if ($type == '17855') {
 				print_idx_hdr($i);
 			}
-			unless ($opt_head) { print_fil_trl($i);	}
+			unless ($set_type  eq 'INDEX') { print_fil_trl($i);	}
 		}
 	}
 }
