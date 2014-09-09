@@ -499,13 +499,13 @@ sub process_pages {
 		}			
 		my $this_csum = fil_head_checksum($i);
 		if ($this_csum) {
-			print_fil_hdr($i);
+			unless ($opt_head) { print_fil_hdr($i); }
 			nl;
 			#if ( $type == '17855' ) {
 			print_idx_hdr($i);
 				#}
 			nl;
-			print_fil_trl($i);	
+			unless ($opt_head) { print_fil_trl($i);	}
 		}
 	}
 }
