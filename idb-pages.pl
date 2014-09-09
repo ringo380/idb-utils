@@ -110,7 +110,7 @@ our (
 	$opt_quiet,
 	$opt_verbose,
 	$opt_vv,
-	$opt_noempty,
+	$opt_empty,
 	$opt_records,
 	$set_page,
 	$set_type,
@@ -132,7 +132,7 @@ GetOptions(
     'i'   => \$opt_ibdata,
     'v'	  => \$opt_verbose,
     'vv'  => \$opt_vv,
-    'e'	  => \$opt_noempty,
+    'e'	  => \$opt_empty,	# Show empty pages
     'r'	  => \$opt_records
 ) or die("Could not get options.\n");
 
@@ -162,7 +162,7 @@ Usage:
          [-x]      		 			Displays debug information.
          [-r]						Displays page record information.
          [-k]						Displays only page header data.
-         [-e]						Omits empty pages.
+         [-e]						Displays empty pages.
          [-h[elp]]               	Displays this Usage information.
 END_OF_USAGE
 }
@@ -421,10 +421,10 @@ sub process_page {
 sub process_pages {
 	print_fsp_hdr;
 	nl;
-	print "Pages containing data in $filename:\n";
+	unless ($opt_empty) { print "Pages containing data in $filename:\n"; } else { print "All pages in $filename:\n"; }
 	print "--------------------\n";
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
-		unless ( !$opt_noempty and !fil_head_checksum($i) ) {
+		unless ( $opt_empty and !fil_head_checksum($i) ) {
 			if ($set_type) {
 				unless (uc $set_type eq 'INDEX' and fil_head_page_type($i) == '17855') { next; }
 			}
@@ -434,6 +434,10 @@ sub process_pages {
 			print_fil_hdr($i);
 			nl;
 			print_fil_trl($i);			
+		} else {
+			print_fil_hdr($i);
+			nl;
+			print_fil_trl($i);
 		}
 	}
 }
