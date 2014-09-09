@@ -486,7 +486,7 @@ sub print_idx_hdr {
 	printf "Garbage Bytes: " . page_garbage($p) . "\n";
 		verbose "-- Number of bytes in deleted records.\n";
 	printf "Last Insert: " . page_last_insert($p) . "\n";
-	printf "Page Direction: $dir";
+	printf "Last Insert Direction: $dir";
 		if ($dir == PAGE_LEFT) {print " - Left";}
 		if ($dir == PAGE_RIGHT) {print " - Right";}
 		if ($dir == PAGE_SAME_REC) {print " - Page Same Record";}
