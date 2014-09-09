@@ -473,6 +473,7 @@ sub print_idx_hdr {
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
 		verbose "-- Pointer to record heap top\n";
+		printf "Records in Page: " . page_n_recs($p) . "\n";
 	printf "Records in Heap: " . page_n_heap($p) . "\n";
 		verbose "-- Number of records in heap\n";
 	printf "Start of Free Record List: " . page_free($p) . "\n";
