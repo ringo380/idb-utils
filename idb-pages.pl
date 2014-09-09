@@ -392,11 +392,14 @@ sub print_fil_trl {
 
 sub print_fsp_hdr {
     printf "--------------------\n";
-	printf "FSP_HDR - Filespace Header\n";
+	printf "File Header\n";
     printf "--------------------\n";
     printf "Space ID: " . fsp_space_id . "\n";
+		vv "-- Offset 38, Len 4\n";
     printf "High Page: " . fsp_high_page . "\n";
+	printf "Flags: " . fsp_flags . "\n";
 }
+
 
 sub process_page {
 	my $page_start = SIZE_PAGE * $set_page;
