@@ -4,7 +4,6 @@
 use strict 'vars';
 use warnings;
 
-use bytes;
 use Data::Dumper qw(Dumper);
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
@@ -15,6 +14,14 @@ use constant {
     SIZE_FIL_HEAD    		=> 38,			# Page Header Size - Default 38
     SIZE_FIL_TRAILER 		=> 8,			# Page Trailer Size - Default: 8
     SIZE_PAGE        		=> 16384,		# Page Size - Default: 16384
+    UT_HASH_RANDOM_MASK    	=> 1463735687,
+	UT_HASH_RANDOM_MASK2    => 1653893711,
+	FIL_PAGE_LSN          	=> 16,
+	FIL_PAGE_FILE_FLUSH_LSN => 26,
+	FIL_PAGE_OFFSET     	=> 4,
+	FIL_PAGE_DATA       	=> 38,
+	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
+	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
 };
 
 my ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
@@ -97,6 +104,7 @@ our (
 	$opt_help,
 	$opt_head,
 	$opt_chop,
+	$opt_csum,
 	$opt_ibdata,
 	$opt_debug,			# -x
 	$opt_quiet,
@@ -116,6 +124,7 @@ GetOptions(
     'p=i' => \$set_page,
     'f=s' => \$file,
     'c'   => \$opt_chop,	# Split into page file(s).
+    's'	  => \$opt_csum,
     'x'   => \$opt_debug,
 	't=s' => \$set_type,
     'd'   => \$datadir,
@@ -429,6 +438,29 @@ sub process_pages {
 # 
 # END Data print/output subs
 # ----------------------------------
+
+sub csum_calc {
+	
+	my ($p) = @_;
+	
+	my $lastt 	= 0;
+	my $ct		= $p;
+	
+	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
+	binmode($fh) or die "Can't binmode $filename: $!";
+	
+	while (!eof($fh)) {
+		my $mod = 0;
+		my $lsn = fil_head_lsn($p);
+		my $lsn_field = fil_trailer_low32_lsn($p);
+		if ($lsn != $lsn_field) {
+			printf(stderr, "page %lu invalid (fails log sequence number check)\n", $ct);
+			printf("page %lu: log sequence number: first = 0x%08X; second = 0x%08X\n", $ct, $lsn, $lsn_field);
+		}
+		my $csum = buf_calc_page_new_checksum($p);
+		my $csum_field = fil_head_checksum($p);
+	}
+}
 
 if ($opt_help) {
 	usage;
