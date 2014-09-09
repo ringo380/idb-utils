@@ -44,12 +44,12 @@ our $PAGE_SIZE	 				= SIZE_PAGE;
 #
 
 our $PAGE_DATA					= PAGE_HEADER + 36 + 2 * FSEG_HEADER_SIZE; # Default = 94; defines start of page data
-our $PAGE_OLD_INFIMUM			= PAGE_DATA + 1 + REC_N_OLD_EXTRA_BYTES; # Default = 101; offset of the page infimum record on an old-style page
-our $PAGE_OLD_SUPREMUM			= PAGE_DATA + 2 + 2 * REC_N_OLD_EXTRA_BYTES + 8; # Default = 112; offset of the page supremum record on an old-style page
-our $PAGE_OLD_SUPREMUM_END 		= PAGE_OLD_SUPREMUM + 9; # Default = 121; offset of the page supremum record end on an old-style page
-our $PAGE_NEW_INFIMUM			= PAGE_DATA + REC_N_NEW_EXTRA_BYTES; # Default = 99; offset of the page infimum record on a new-style compact page
-our $PAGE_NEW_SUPREMUM			= PAGE_DATA + 2 * REC_N_NEW_EXTRA_BYTES + 8; # Default = 109; offset of the page supremum record on a new-style compact page
-our $PAGE_NEW_SUPREMUM_END 		= PAGE_NEW_SUPREMUM + 8; # Default = 117; offset of the page supremum record end on a new-style compact page
+our $PAGE_OLD_INFIMUM			= $PAGE_DATA + 1 + REC_N_OLD_EXTRA_BYTES; # Default = 101; offset of the page infimum record on an old-style page
+our $PAGE_OLD_SUPREMUM			= $PAGE_DATA + 2 + 2 * REC_N_OLD_EXTRA_BYTES + 8; # Default = 112; offset of the page supremum record on an old-style page
+our $PAGE_OLD_SUPREMUM_END 		= $PAGE_OLD_SUPREMUM + 9; # Default = 121; offset of the page supremum record end on an old-style page
+our $PAGE_NEW_INFIMUM			= $PAGE_DATA + REC_N_NEW_EXTRA_BYTES; # Default = 99; offset of the page infimum record on a new-style compact page
+our $PAGE_NEW_SUPREMUM			= $PAGE_DATA + 2 * REC_N_NEW_EXTRA_BYTES + 8; # Default = 109; offset of the page supremum record on a new-style compact page
+our $PAGE_NEW_SUPREMUM_END 		= $PAGE_NEW_SUPREMUM + 8; # Default = 117; offset of the page supremum record end on a new-style compact page
 
 # Heap numbers
 our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
