@@ -431,7 +431,7 @@ sub process_pages {
 				writepage( cur_pos($i), $i );
 			}			
 			my $this_csum = fil_head_checksum($i);
-			if (!$this_csum) {
+			if ($this_csum) {
 				print_fil_hdr($i);
 				nl;
 				print_fil_trl($i);	
