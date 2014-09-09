@@ -458,11 +458,10 @@ sub print_idx_hdr {
 	
 	printf "------ INDEX Header\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
-	printf "Node Level: $level ";
+	printf "Node Level: $level\n";
 	if ($level == 0) { 
-		printf "-- Leaf Level";
+		printf "-- Leaf Level\n";
 	}
-	nl;
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
@@ -507,8 +506,9 @@ sub process_pages {
 		if ($this_csum) {
 			unless ($opt_head) { print_fil_hdr($i); nl; }
 			#if ( $type == '17855' ) {
-			print_idx_hdr($i);
-				#}
+			if ($type == '17855'( {
+				print_idx_hdr($i);
+			}
 			nl;
 			unless ($opt_head) { print_fil_trl($i);	}
 		}
