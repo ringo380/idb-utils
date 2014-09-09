@@ -457,11 +457,13 @@ sub print_idx_hdr {
 	
 	my ($p) = @_;
 	
-	printf "INDEX Header\n";
-	nl; 
+	printf "---- INDEX Header\n";
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
+		verbose "-- Pointer to record heap top\n";
+	printf "Records in Heap: " . page_n_heap . "\n";
+		verbose "-- Number of records in heap\n";
 }
 
 
