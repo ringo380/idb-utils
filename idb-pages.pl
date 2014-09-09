@@ -18,10 +18,12 @@ use constant {
 	UT_HASH_RANDOM_MASK2    => 1653893711,
 	FIL_PAGE_LSN          	=> 16,
 	FIL_PAGE_FILE_FLUSH_LSN => 26,
+	PAGE_HEADER_PRIV_END	=> 26, 			# end of private data structure of the page header which are set in a page create
 	FIL_PAGE_OFFSET     	=> 4,
 	FIL_PAGE_DATA       	=> 38,
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
+	FSEG_HEADER_SIZE		=> 10
 };
 
 my ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
@@ -106,6 +108,7 @@ our (
 	$opt_chop,
 	$opt_csum,
 	$opt_ibdata,
+	$opt_indexes,
 	$opt_debug,			# -x
 	$opt_quiet,
 	$opt_verbose,
@@ -129,7 +132,8 @@ GetOptions(
 	't=s' => \$set_type,
     'd'   => \$datadir,
     'q'   => \$opt_quiet,
-    'i'   => \$opt_ibdata,
+    'b'   => \$opt_ibdata,
+	'i:i'   => \$opt_index,	# Index information
     'v'	  => \$opt_verbose,
     'vv'  => \$opt_vv,
     'e'	  => \$opt_empty,	# Show empty pages
@@ -292,6 +296,8 @@ sub cur_pos {
 # Subs defined below to represent values retrieved via byte position/length, 
 # passed to get_bytes to grab the data from the binary files.
 #
+# get_bytes at current page offset + offset, with this length
+#
 
 # FIL Header data
 sub fil_head_offset { get_bytes( ( cur_pos(@_) + 4 ), 4 ); }
@@ -305,6 +311,24 @@ sub fil_head_page_type { get_bytes( ( cur_pos(@_) + 24 ), 2 ); }
 # FIL Trailer data
 sub fil_trailer_checksum { get_bytes( ( cur_pos(@_) + 16376 ), 4 ); }
 sub fil_trailer_low32_lsn { get_bytes( ( cur_pos(@_) + 16380 ), 4 ); }
+
+# INDEX Header data
+sub page_n_dir_slots 	{ get_bytes ( cur_pos(@_), 2 ); }		# number of slots in page directory
+sub page_heap_top		{ get_bytes ( cur_pos(@_) + 2, 2 ); }	# pointer to record heap top
+sub page_n_heap			{ get_bytes ( cur_pos(@_) + 4, 2 ); }	# number of records in the heap ( bit 15=flag: new-style compact page format)
+sub page_free			{ get_bytes ( cur_pos(@_) + 6, 2 ); }	# pointer to start of page free record list
+sub page_garbage		{ get_bytes ( cur_pos(@_) + 8, 2 ); }	# number of bytes in deleted records
+sub page_last_insert	{ get_bytes ( cur_pos(@_) + 10, 2 ); }	# pointer to the last inserted record, or NULL if info has been reset by a delete (for example)
+sub page_direction		{ get_bytes ( cur_pos(@_) + 12, 2 ); }	# last insert direction: PAGE_LEFT, ...  
+sub page_n_direction	{ get_bytes ( cur_pos(@_) + 14, 2 ); }	# number of consecutive inserts to the same direction
+sub page_n_recs 		{ get_bytes ( cur_pos(@_) + 16, 2 ); }	# number of user records on the page
+sub page_max_trx_id		{ get_bytes ( cur_pos(@_) + 18, 8 ); }	# highest id of a trx which may have modified a record on the page; trx_id_t; defined only in secondary indexes and in the insert buffer tree
+
+# INDEX Private Data Structure Header
+sub page_level			{ get_bytes ( cur_pos(@_) + 26, 2 ); } 	# level of the node in an index tree; the leaf level is the level 0.  This field should not be written to after page creation.
+sub page_index_id		{ get_bytes ( cur_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
+sub page_btr_seg_leaf	{ get_bytes ( cur_pos(@_) + 36, 
+
 
 # Page Header data
 sub page_n_heap { get_bytes( ( cur_pos(@_) + SIZE_FIL_HEAD + 4, 2 ) ); }
