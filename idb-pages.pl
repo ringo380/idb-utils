@@ -506,7 +506,7 @@ sub process_pages {
 		if ($this_csum) {
 			unless ($opt_head) { print_fil_hdr($i); nl; }
 			#if ( $type == '17855' ) {
-			if ($type == '17855'( {
+			if ($type == '17855') {
 				print_idx_hdr($i);
 			}
 			nl;
