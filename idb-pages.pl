@@ -473,12 +473,16 @@ sub print_idx_hdr {
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
 		verbose "-- Pointer to record heap top\n";
-		printf "Records in Page: " . page_n_recs($p) . "\n";
+	printf "Records in Page: " . page_n_recs($p) . "\n";
 	printf "Records in Heap: " . page_n_heap($p) . "\n";
 		verbose "-- Number of records in heap\n";
 	printf "Start of Free Record List: " . page_free($p) . "\n";
 	printf "Garbage Bytes: " . page_garbage($p) . "\n";
 		verbose "-- Number of bytes in deleted records.\n";
+	printf "Last Insert: " . page_last_insert($p) . "\n";
+	printf "Page Direction: " . page_direction($p) . "\n";
+	printf "Inserts in this direction: " . page_n_direction($p) . "\n";
+		verbose "-- Number of consecutive inserts in this direction.\n";
 }
 
 
