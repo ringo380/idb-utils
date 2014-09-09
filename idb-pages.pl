@@ -411,11 +411,10 @@ sub print_fil_hdr {
 
     printf "Page: $offset\n";
     printf "--------------------\n";
-    printf "HEADER\n";
+    printf "------ HEADER\n";
     printf "Byte Start: $cur_pos (" . tohex $cur_pos;
     printf ")\n";
     printf "Page Type: $type\n-- $nam: $desc - $use\n";
-    verbose "PAGE_N_HEAP (Amount of records in page): $pheap\n";
     printf "Prev Page: ";
     if   ( $prev == 4294967295 or !$prev ) { printf "Not used.\n"; }
     else                                           { printf "$prev\n"; }
@@ -433,7 +432,7 @@ sub print_fil_trl {
 	my $csum = fil_trailer_checksum($p);	# Old-style checksum
 	my $lsn  = fil_trailer_low32_lsn($p);	# Low 32 bits of LSN
 	
-	printf "TRAILER\n";
+	printf "------ TRAILER\n";
     printf "Old-style Checksum: $csum\n";
     printf "Low 32 bits of LSN: $lsn\n";
     printf "Byte End: "
@@ -444,9 +443,7 @@ sub print_fil_trl {
 }
 
 sub print_fsp_hdr {
-    printf "--------------------\n";
-	printf "File Header\n";
-    printf "--------------------\n";
+	printf "------------ File Header\n";
     printf "Space ID: " . fsp_space_id . "\n";
 		vv "-- Offset 38, Len 4\n";
     printf "High Page: " . fsp_high_page . "\n";
@@ -457,13 +454,14 @@ sub print_idx_hdr {
 	
 	my ($p) = @_;
 	
-	printf "---- INDEX Header\n";
+	printf "------ INDEX Header\n";
 	printf "Directory Slots: " . page_n_dir_slots($p) . "\n";
 		verbose "-- Number of slots in page directory\n";
 	printf "Heap Top: " . page_heap_top($p) . "\n";
 		verbose "-- Pointer to record heap top\n";
-	printf "Records in Heap: " . page_n_heap . "\n";
+	printf "Records in Heap: " . page_n_heap($p) . "\n";
 		verbose "-- Number of records in heap\n";
+	printf "Start of Free Record List: " . page_free($p) . "\n";
 }
 
 
