@@ -441,7 +441,6 @@ sub process_pages {
 				print_fil_trl($i);	
 			}
 		
-		}
 	}
 }
 
