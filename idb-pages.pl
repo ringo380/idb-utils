@@ -381,7 +381,6 @@ sub fseg_hdr_int_offset { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 18, 2 ); 
 
 # INODE List Node Data
 
-
 # FSP Header data
 sub fsp_space_id { get_bytes( SIZE_FIL_HEAD, 4 ); }
 sub fsp_size { get_bytes( SIZE_FIL_HEAD + 8, 4); }
@@ -389,9 +388,8 @@ sub fsp_free_limit { get_bytes ( SIZE_FIL_HEAD + 12, 4); }
 sub fsp_space_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
 sub fsp_frag_n_used { get_bytes ( SIZE_FIL_HEAD + 20, 4); }
 sub fsp_free { get_bytes ( SIZE_FIL_HEAD + 24, 4); }
-sub fsp_seg_id { get_bytes ( SIZE_FIL_HEAD + 72, 8); }
+sub fsp_seg_id { get_bytes ( SIZE_FIL_HEAD + 72, 8); }			# First unused segment ID
 sub fsp_seg_inodes_full { get_bytes ( SIZE_FIL_HEAD + 80, )}
-
 
 #
 # END byte position definition subs
@@ -469,9 +467,13 @@ sub print_fil_trl {
 sub print_fsp_hdr {
 	printf "=== File Header\n";
     printf "Space ID: " . fsp_space_id . "\n";
-		vv "-- Offset 38, Len 4\n";
-    printf "High Page: " . fsp_high_page . "\n";
-	printf "Flags: " . fsp_flags . "\n";
+		verbose "-- Offset 38, Length 4\n";
+    printf "Size: " . fsp_size . "\n";
+		verbose "-- Offset: " . (38 + 8) . " (" . tohex (38+8) . "), Length 4\n";
+	printf "Flags: " . fsp_space_flags . "\n";
+	printf "First Unused Segment ID: " . fsp_seg_id . "\n";
+	printf "Page Free Limit: " . fsp_free_limit . " (this should always be 64 on a single-table file)\n";
+		verbose "-- Offset: 12 (" . tohex(12) . "), Length 4\n";
 }
 
 sub print_idx_hdr {
@@ -481,12 +483,13 @@ sub print_idx_hdr {
 	my $level   = page_level($p);
 	my $max_tid = page_max_trx_id($p);
 	my $dir     = page_direction($p);
+	my $segleaf = page_btr_seg_leaf($p);
 
 	printf "=== INDEX Header: Page " . fil_head_offset($p) . "\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
-	if ($level == 0) { 
-		printf "-- Leaf Level\n";
+	if ($segleaf) { 
+		printf "-- Root-level Leaf Page\n";
 	}
 	if ($max_tid) {
 		printf "Max Transaction ID: $max_tid\n";
@@ -572,7 +575,6 @@ sub process_pages {
 	
 	unless ($set_type eq 'INDEX' or $p) {
 		print_fsp_hdr;
-		nl;
 	}
 	
 	if ($p) { 
