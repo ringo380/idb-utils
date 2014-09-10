@@ -37,7 +37,7 @@ use constant {
 	PAGE_NO_DIRECTION		=> 5
 };
 
-my ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
+our ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
 
 our $POS_PAGE_BODY   			= SIZE_FIL_HEAD;
 our $POS_FIL_TRAILER 			= SIZE_PAGE - SIZE_FIL_TRAILER;
@@ -61,7 +61,7 @@ our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
 our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
 our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
 				
-my %page_types = (
+our %page_types = (
     'ALLOCATED' => {
         'value'       => 0,
         'description' => 'Freshly allocated.',
@@ -464,7 +464,7 @@ sub print_idx_hdr {
 	my $dir = page_direction($p);
 	
 	nl;
-	printf "------ INDEX Header: Page " . fil_head_offset($p) . "\n";
+	printf "=== INDEX Header: Page " . fil_head_offset($p) . "\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
 	if ($level == 0) { 
