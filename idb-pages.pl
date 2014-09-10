@@ -17,7 +17,8 @@ use constant {
     UT_HASH_RANDOM_MASK    	=> 1463735687,
 	UT_HASH_RANDOM_MASK2    => 1653893711,
 	FIL_PAGE_DATA			=> 38,			# Start of data on page
-	FSEG_PAGE_DATA			=> 38, 			# Should be the same as FIL_PAGE_DATA
+	FSEG_PAGE_DATA			=> 38, 			# Should be the same as FIL_PAGE_DATA - Start of file segment information n in
+	IDX_HDR_SIZE			=> 36,
 	FSEG_HEADER_SIZE		=> 10,			# Length of file system header, in bytes
 	FIL_PAGE_LSN          	=> 16,
 	FIL_PAGE_FILE_FLUSH_LSN => 26,
@@ -273,13 +274,14 @@ sub get_page {
     my $offset = SIZE_PAGE * $page;
 
     # Get FIL Header
-    push @attr, get_bytes( ( $offset + 4 ), 4 );    	# 0 page number
+	push @attr, get_bytes( ( $offset + 4 ), 4 );    	# 0 page number
     push @attr, get_bytes( $offset, 4 );            	# 1 checksum
     push @attr, get_bytes( ( $offset + 8 ),  4 );   	# 2 prev page
     push @attr, get_bytes( ( $offset + 12 ), 4 );   	# 3 next page
     push @attr, get_bytes( ( $offset + 34 ), 4 );   	# 4 space id
     push @attr, get_bytes( ( $offset + 20 ), 4 );   	# 5 lsn
     push @attr, get_bytes( ( $offset + 24 ), 2 );   	# 6 page type
+
 
     # Get Page Header
     push @attr, get_bytes( ( $offset + 38 + 4 ), 2 );   # 7 PAGE_N_HEAP
@@ -342,6 +344,7 @@ sub fil_head_space_id { get_bytes( ( cur_pos(@_) + 34 ), 4 ); }
 sub fil_head_lsn { get_bytes( ( cur_pos(@_) + 20 ), 4 ); }
 sub fil_head_page_type { get_bytes( ( cur_pos(@_) + 24 ), 2 ); }
 
+
 # FIL Trailer data
 sub fil_trailer_checksum { get_bytes( ( cur_pos(@_) + 16376 ), 4 ); }
 sub fil_trailer_low32_lsn { get_bytes( ( cur_pos(@_) + 16380 ), 4 ); }
@@ -363,14 +366,19 @@ sub page_level			{ get_bytes ( cur_idx_pos(@_) + 26, 2 ); } 	# level of the node
 sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
 sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
 
+# FSEG_HDR, File Segment Pointer Data
+sub fseg_hdr_space		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE, 4 ); } # Space ID of the Inode
+sub fseg_hdr_page_no	{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 4, 4 ); } # Page number of the inode
+sub fseg_hdr_offset		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 8, 2 ); } # Byte offset of the inode
 
-# Page Header data
-sub page_n_heap { get_bytes( ( cur_pos(@_) + SIZE_FIL_HEAD + 4, 2 ) ); }
+# INODE List Node Data
+
 
 # FSP Header data
 sub fsp_space_id { get_bytes( SIZE_FIL_HEAD, 4 ); }
 sub fsp_high_page { get_bytes( SIZE_FIL_HEAD + 8, 4); }
 sub fsp_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
+
 
 #
 # END byte position definition subs
@@ -415,8 +423,7 @@ sub print_fil_hdr {
 	#my $checksum = fil_head_checksum($p);
 
     printf "Page: $offset\n";
-    printf "--------------------\n";
-    printf "------ HEADER\n";
+    printf "=== HEADER\n";
     printf "Byte Start: $cur_pos (" . tohex $cur_pos;
     printf ")\n";
     printf "Page Type: $type\n-- $nam: $desc - $use\n";
@@ -437,18 +444,17 @@ sub print_fil_trl {
 	my $csum = fil_trailer_checksum($p);	# Old-style checksum
 	my $lsn  = fil_trailer_low32_lsn($p);	# Low 32 bits of LSN
 	
-	printf "------ TRAILER\n";
+	printf "=== TRAILER\n";
     printf "Old-style Checksum: $csum\n";
     printf "Low 32 bits of LSN: $lsn\n";
     printf "Byte End: "
       . ( cur_pos($p) + SIZE_PAGE ) . " ("
       . tohex( cur_pos($p) + SIZE_PAGE );
     printf ")\n";
-    print "--------------------\n";
 }
 
 sub print_fsp_hdr {
-	printf "------------ File Header\n";
+	printf "=== File Header\n";
     printf "Space ID: " . fsp_space_id . "\n";
 		vv "-- Offset 38, Len 4\n";
     printf "High Page: " . fsp_high_page . "\n";
@@ -459,11 +465,10 @@ sub print_idx_hdr {
 	
 	my ($p) = @_;
 	
-	my $level = page_level($p);
+	my $level   = page_level($p);
 	my $max_tid = page_max_trx_id($p);
-	my $dir = page_direction($p);
-	
-	nl;
+	my $dir     = page_direction($p);
+
 	printf "=== INDEX Header: Page " . fil_head_offset($p) . "\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
@@ -497,6 +502,26 @@ sub print_idx_hdr {
 		verbose "-- Number of consecutive inserts in this direction.\n";
 }
 
+sub print_fseg_hdr {
+	
+	my ($p) = @_;
+	
+	my $sid = fseg_hdr_space($p); # space id
+	my $ipn = fseg_hdr_page_no($p); # inode page number
+	my $off = fseg_hdr_offset($p); # inode offset
+	
+	my $inc = IDX_HDR_SIZE; # increment
+	
+	printf "=== FSEG_HDR - File Segment Header\n";
+	printf "Inode Space ID: $sid\n";
+		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc ) . " (" . tohex ( cur_idx_pos($p) + $inc ) . "), Length: 4\n";
+	printf "Inode Page Number: $ipn\n";
+		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 4 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 4 ) . "), Length: 4\n";
+	printf "Inode Offset: $off\n";
+		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 8 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 8 ) . "), Length: 2\n";
+	
+}
+
 
 sub process_page {
 	my $page_start = SIZE_PAGE * $set_page;
@@ -518,15 +543,37 @@ sub process_page {
 sub process_pages {
 	
 	my ($p) = @_;
+	$set_type //= 0;
 	
-	unless ($set_type) {
-		$set_type = 0;
-	}
-	
-	unless ($set_type eq 'INDEX') {
+	unless ($set_type eq 'INDEX' or $p) {
 		print_fsp_hdr;
 		nl;
 	}
+	
+	if ($p) { 
+		my $page_start = SIZE_PAGE * $p; 
+		my $type = fil_head_page_type($p);
+		if ( $page_start < $file_size and looks_like_number $p) {
+			if ($opt_chop) {
+				print "Writing page $p to $filename.page.$p..\n";
+				writepage( cur_pos($p), $p );
+				exit 0;
+			}
+			nl;
+			print_fil_hdr( $p );
+			if ($type == '17855') {
+				nl;
+				print_idx_hdr($p);
+				nl;
+				print_fseg_hdr( $p );
+			}
+			nl;
+			print_fil_trl( $p );
+		}
+		exit 0;
+	}
+		
+
 	
 	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
 			
@@ -540,13 +587,20 @@ sub process_pages {
 		}			
 		my $this_csum = fil_head_checksum($i);
 		if ($this_csum) {		
-			unless ($set_type  eq 'INDEX') { nl; print_fil_hdr($i); }
+			unless ($set_type  eq 'INDEX') { 
+				nl; 
+				print_fil_hdr($i); 
+			}
 			#if ( $type == '17855' ) {
 			if ($type == '17855') {
 				nl;
 				print_idx_hdr($i);
+				nl;
+				print_fseg_hdr( $p );
 			}
-			unless ($set_type  eq 'INDEX') { nl; print_fil_trl($i);	}
+			unless ($set_type  eq 'INDEX') { 
+				nl; 
+				print_fil_trl($i);	}
 		}
 	}
 }
@@ -570,7 +624,7 @@ sub csum_calc {
 		my $lsn = fil_head_lsn($p);
 		my $lsn_field = fil_trailer_low32_lsn($p);
 		if ($lsn != $lsn_field) {
-			sprintf STDERR ("page %lu invalid (fails log sequence number check)\n", $ct);
+			printf STDERR ("page %lu invalid (fails log sequence number check)\n", $ct);
 			printf("page %lu: log sequence number: first = 0x%08X; second = 0x%08X\n", $ct, $lsn, $lsn_field);
 		}
 		my $csum = buf_calc_page_new_checksum($p);
@@ -617,8 +671,9 @@ if ($opt_records) {
 	binmode($fh) or die "Can't binmode $filename: $!";
 	
 	my $log_file_size = -s $filename;
-	my $block_size = SIZE_LOG_BLOCK;
-	my $block_count = $log_file_size / $block_size;
+	my $block_size    = SIZE_LOG_BLOCK;
+	my $block_count   = $log_file_size / $block_size;
+
 	close $fh;
 	exit;
 }
@@ -628,7 +683,7 @@ if ($opt_chop) {
 }
 
 if ($set_page) {
-	process_page;
+	process_pages($set_page);
 } else {
 	process_pages;
 }
