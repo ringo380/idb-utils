@@ -519,7 +519,11 @@ sub process_pages {
 	
 	my ($p) = @_;
 	
-	unless ($set_type  eq 'INDEX') {
+	unless ($set_type) {
+		$set_type = 0;
+	}
+	
+	unless ($set_type eq 'INDEX') {
 		print_fsp_hdr;
 		nl;
 	}
@@ -535,13 +539,14 @@ sub process_pages {
 			writepage( cur_pos($i), $i );
 		}			
 		my $this_csum = fil_head_checksum($i);
-		if ($this_csum) {
-			unless ($set_type  eq 'INDEX') { print_fil_hdr($i); nl; }
+		if ($this_csum) {		
+			unless ($set_type  eq 'INDEX') { nl; print_fil_hdr($i); }
 			#if ( $type == '17855' ) {
 			if ($type == '17855') {
+				nl;
 				print_idx_hdr($i);
 			}
-			unless ($set_type  eq 'INDEX') { print_fil_trl($i);	}
+			unless ($set_type  eq 'INDEX') { nl; print_fil_trl($i);	}
 		}
 	}
 }
