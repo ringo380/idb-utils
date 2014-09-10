@@ -31,6 +31,7 @@ our (
 	$opt_verbose,
 	$opt_records,
 	$opt_head,
+	$mode,
 	$multiplier,
 	$page,
 	$set_offset,
@@ -41,7 +42,8 @@ GetOptions(
     'h'   => \$opt_help,
     'p=i' => \$page,
     'f=s' => \$file,
-    'b=i' => \$multiplier,
+	'm=s' => \$mode,
+    'b=i' => \$multiplier,	# change to bytes
 	'o=i' => \$set_offset,
 	'k'   => \$opt_head,
 	'r'	  => \$opt_records,
@@ -130,10 +132,12 @@ sub corrupt_page {
 	
 	my ($offset, $f, $m, $l) = @_;
 	my $len;
+	my $n = 0;
 	my $string = '';
 	
-	for (1 .. $m ) {
+	while ($n < $m) {
 		$string .= sprintf "%02X\n", rand(0xff);
+		$n++
 	}
 	
 	chomp($f);
