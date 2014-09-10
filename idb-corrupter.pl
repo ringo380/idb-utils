@@ -68,6 +68,14 @@ if ($file and $file =~ /ibd$/ ) {
 	exit 0;
 }
 
+$file_size = -s $filename or print STDERR "Warning: Could not retrieve file size.\n";
+$page_count = $file_size / PAGE_SIZE;
+if (!$page) {
+	print "No page specified. Choosing a random page..\n";
+	$page = int(rand($page_count));
+	print "Page number $page selected.\n";
+}
+
 sub usage {
 	
     print <<END_OF_USAGE
@@ -147,7 +155,7 @@ sub corrupt_page {
 		print "\$string = $string\n";
 	}
 	
-	print "Writing $len bytes of data to $f at offset $offset..\n";
+	print "Writing $len bytes of data to $f, in page $page at offset $offset..\n";
 	open MODF, "+<$f"
       or die "Can't open $f for writing: $!\n";
 	binmode MODF;
@@ -155,6 +163,9 @@ sub corrupt_page {
 	  or die "Can't seek to $offset bytes in $f: $!\n";
     syswrite( MODF, $data, $len )
 	  or die "Can't write $string to $f: $!\n";
+	print "Data written: ";
+	print unpack "H*", $data;
+	nl;
 	print "Completed.\n"; 
     close MODF;
 }
@@ -167,18 +178,20 @@ if ($opt_debug) {
 }
 
 if ($opt_head) {
-	$byte_start += rand(38);
+	$byte_start += int(rand(38));
 	corrupt_page($byte_start, $filename, $multiplier)
 	  or die "Could not corrupt $filename: $!\n";
+	exit 0;
 }
 
 if ($opt_records) {
 	my $increment = 128;
-	my $val = rand(16248); # 16384 - 128 - 8
+	my $val = int(rand(16248)); # 16384 - 128 - 8
 	$byte_start += $increment;
-	$byte_start += rand(16248);
+	$byte_start += int(rand(16248));
 	corrupt_page($byte_start, $filename, $multiplier)
 	  or die "Could not corrupt $filename: $!\n";
+	 exit 0;
 };
 
 corrupt_page($byte_start, $filename, $multiplier)
