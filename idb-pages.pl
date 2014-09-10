@@ -26,10 +26,12 @@ use constant {
 	PAGE_HEADER_PRIV_END	=> 26, 			# end of private data structure of the page header which are set in a page create
 	FIL_PAGE_OFFSET     	=> 4,
 	FIL_PAGE_DATA       	=> 38,
+	FLST_BASE_NODE_SIZE		=> 16,			# The physical size of a list base node in bytes
 	REC_N_OLD_EXTRA_BYTES	=> 6,			# Number of extra bytes in an old-style record, in addition to the data and the offsets
 	REC_N_NEW_EXTRA_BYTES	=> 5,			# Number of extra bytes in a new-style record, in addition to the data and the offsets
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
+	FSP_HEADER_SIZE			=> 112,			# File space header size
 	# Directions of cursor movement:
 	PAGE_LEFT				=> 1,
 	PAGE_RIGHT				=> 2,
@@ -145,6 +147,7 @@ our (
 	$opt_vv,
 	$opt_empty,
 	$opt_records,
+	$mode,
 	$set_page,
 	$set_type,
 	$datadir,
@@ -160,6 +163,7 @@ GetOptions(
     's'	  => \$opt_csum,
     'x'   => \$opt_debug,
 	't=s' => \$set_type,
+	'm=s' => \$mode,
     'd'   => \$datadir,
     'q'   => \$opt_quiet,
     'b'   => \$opt_ibdata,
@@ -380,8 +384,13 @@ sub fseg_hdr_int_offset { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 18, 2 ); 
 
 # FSP Header data
 sub fsp_space_id { get_bytes( SIZE_FIL_HEAD, 4 ); }
-sub fsp_high_page { get_bytes( SIZE_FIL_HEAD + 8, 4); }
-sub fsp_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
+sub fsp_size { get_bytes( SIZE_FIL_HEAD + 8, 4); }
+sub fsp_free_limit { get_bytes ( SIZE_FIL_HEAD + 12, 4); }
+sub fsp_space_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
+sub fsp_frag_n_used { get_bytes ( SIZE_FIL_HEAD + 20, 4); }
+sub fsp_free { get_bytes ( SIZE_FIL_HEAD + 24, 4); }
+sub fsp_seg_id { get_bytes ( SIZE_FIL_HEAD + 72, 8); }
+sub fsp_seg_inodes_full { get_bytes ( SIZE_FIL_HEAD + 80, )}
 
 
 #
