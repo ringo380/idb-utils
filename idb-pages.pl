@@ -371,6 +371,10 @@ sub fseg_hdr_space		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE, 4 ); } # Space
 sub fseg_hdr_page_no	{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 4, 4 ); } # Page number of the inode
 sub fseg_hdr_offset		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 8, 2 ); } # Byte offset of the inode
 
+sub fseg_hdr_int_space	{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 10, 4 ); } # Internal non-leaf space ID
+sub fseg_hdr_int_page_no { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 14, 4 ); } # Internal non-leaf page number
+sub fseg_hdr_int_offset { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 18, 2 ); } # Internal non-leaf offset
+
 # INODE List Node Data
 
 
@@ -510,6 +514,10 @@ sub print_fseg_hdr {
 	my $ipn = fseg_hdr_page_no($p); # inode page number
 	my $off = fseg_hdr_offset($p); # inode offset
 	
+	my $int_sid = fseg_hdr_int_offset($p); 
+	my $int_ipn = fseg_hdr_int_page_no($p);
+	my $int_off = fseg_hdr_int_offset($p);
+	
 	my $inc = IDX_HDR_SIZE; # increment
 	
 	printf "=== FSEG_HDR - File Segment Header\n";
@@ -519,6 +527,14 @@ sub print_fseg_hdr {
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 4 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 4 ) . "), Length: 4\n";
 	printf "Inode Offset: $off\n";
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 8 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 8 ) . "), Length: 2\n";
+	if (page_level($p)) {
+		printf "Non-leaf Space ID: $int_sid\n";
+			verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 10 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 10 ) . "), Length: 2\n";
+		printf "Non-leaf Page Number: $int_ipn\n";
+			verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 14 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 14 ) . "), Length: 2\n";
+		printf "Non-leaf Offset: $int_off\n";
+			verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 18 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 18 ) . "), Length: 2\n";
+	}
 	
 }
 
@@ -596,7 +612,7 @@ sub process_pages {
 				nl;
 				print_idx_hdr($i);
 				nl;
-				print_fseg_hdr( $p );
+				print_fseg_hdr($i);
 			}
 			unless ($set_type  eq 'INDEX') { 
 				nl; 
