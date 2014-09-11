@@ -32,6 +32,7 @@ use constant {
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
 	FSP_HEADER_SIZE			=> 112,			# File space header size
+	SYS_REC_START			=> 94,
 	# Directions of cursor movement:
 	PAGE_LEFT				=> 1,
 	PAGE_RIGHT				=> 2,
@@ -65,10 +66,13 @@ our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
 our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
 				
 # Record status values
-our $REC_STATUS_ORDINARY 	= 0;
-our $REC_STATUS_NODE_PTR	= 1;
-our $REC_STATUS_INFIMUM		= 2;
-our $REC_STATUS_SUPREMUM	= 3;				
+our %rec_types = (
+	0 	=> 'REC_STATUS_ORDINARY',
+	1	=> 'REC_STATUS_NODE_PTR',
+	2 	=> 'REC_STATUS_INFIMUM',
+	3	=> 'REC_STATUS_SUPREMUM'
+);
+			
 
 our %page_types = (
     'ALLOCATED' => {
@@ -219,6 +223,14 @@ sub tohex {
     my $tohex = sprintf( "0x%x", $_[0] );
 }
 
+sub tobin {
+	printf "%b\n", $_;
+}
+
+sub bin2dec {
+    return unpack("N", pack("B32", substr("0" x 32 . shift, -32)));
+}
+
 sub hr {
 	printf "--------------------\n";
 }
@@ -274,6 +286,28 @@ sub get_bytes {
     else                       { $int = unpack "H*", $buffer; }
     close ($fh);
     return $int;
+}
+
+sub get_bin {
+	open( $fh, "<", $filename ) or die "Can't open $filename: $!\n";
+	binmode($fh) or die "Can't binmode $filename: $!\n";
+	
+    my ( $byte_pos, $byte_count, $bin );
+    ( $byte_pos, $byte_count ) = @_;
+    sysseek( $fh, $byte_pos, SEEK_SET )
+      or die "Couldn't seek to byte $byte_pos in $filename: $!\n";
+    sysread( $fh, $buffer, $byte_count )
+      or die "Could not read to byte $byte_pos in $filename: $!\n";
+      
+    if ($opt_debug) {
+		print "Printing buffer: ";
+		printf '[%vd]', $buffer;
+		print "\n";
+	}
+	
+	$bin = unpack "b*", $buffer;
+    close ($fh);
+    return $bin;
 }
 
 sub get_page {
@@ -377,7 +411,8 @@ sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where 
 sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
 
 # INDEX System Records
-sub 
+sub idx_rec_status 	{ get_bin ( cur_pos(@_) + SYS_REC_START, 1 ); }
+
 
 # FSEG_HDR, File Segment Pointer Data
 sub fseg_hdr_space		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE, 4 ); } # Space ID of the Inode
@@ -399,7 +434,7 @@ sub fsp_space_flags { get_bytes( SIZE_FIL_HEAD + 16, 4); }
 sub fsp_frag_n_used { get_bytes ( SIZE_FIL_HEAD + 20, 4); }
 sub fsp_free { get_bytes ( SIZE_FIL_HEAD + 24, 4); }
 sub fsp_seg_id { get_bytes ( SIZE_FIL_HEAD + 72, 8); }			# First unused segment ID
-sub fsp_seg_inodes_full { get_bytes ( SIZE_FIL_HEAD + 80, )}
+# sub fsp_seg_inodes_full { get_bytes ( SIZE_FIL_HEAD + 80, )}
 
 #
 # END byte position definition subs
@@ -407,18 +442,33 @@ sub fsp_seg_inodes_full { get_bytes ( SIZE_FIL_HEAD + 80, )}
 
 sub get_page_type {
     my ($p) = @_;
-    foreach my $k1 ( keys %page_types ) {
-        if ( $page_types{$k1}{'value'} == $p ) {
+    foreach my $k ( keys %page_types ) {
+        if ( $page_types{$k}{'value'} == $p ) {
             return (
-                $k1,
-                $page_types{$k1}{'description'},
-                $page_types{$k1}{'usage'}
+                $k,
+                $page_types{$k}{'description'},
+                $page_types{$k}{'usage'}
             );
         }
         else {
             next;
         }
     }
+}
+
+sub get_rec_type {
+	my ($r) = @_;
+	my $v = oct("0b".$r);
+	dbg "\nget_rec_type data:\n";
+	dbg "\$v = $v\n";
+	foreach my $k ( keys %rec_types ) {
+		#dbg "Looping through \%rec_types, key: $k\n";
+		if ( $k == $v ) {
+			return ($rec_types{$k});
+		} else {
+			next;
+		}
+	}
 }
 
 # ----------------------------------
@@ -560,6 +610,42 @@ sub print_fseg_hdr {
 	
 }
 
+sub print_sys_rec {
+	my ($p) = @_;
+	my ($name, $value, $offset, $len, $type);
+	# my $rec_status = idx_rec_status($p);
+	my %recs = (
+		'REC_STATUS' => {
+			'name'		=> 'Index Record Status',
+			'value'		=> substr(idx_rec_status($p), 0, 2), 	# Cutting it down to the first 2 bits
+			'offset'	=> cur_pos(@_) + SYS_REC_START,
+			'len'		=> length(idx_rec_status($p))
+		}	
+	);
+	
+	dbg "\nDumping \%recs..\n";
+	dbg Dumper (\%recs);
+	dbg "\n";
+	
+	printf "=== INDEX System Records\n";
+	foreach my $k ( keys %recs ) {
+        #if ( $recs{$k}{'value'} == $p ) {
+		$name 	= $recs{$k}{'name'};
+		$value 	= $recs{$k}{'value'};
+		$offset = $recs{$k}{'offset'};
+		$len	= $recs{$k}{'len'};
+		$type 	= get_rec_type($value);
+		
+		dbg "\$name = $name\n";
+		dbg "\$value = $value\n";
+		dbg "\$offset = $offset\n";
+		dbg "\$len = $len\n";
+		
+		printf "$name: $value - $type\n";
+			verbose "-- Offset $offset, Length $len bits\n";
+    }
+	
+}
 
 sub process_page {
 	my $page_start = SIZE_PAGE * $set_page;
@@ -602,7 +688,9 @@ sub process_pages {
 				nl;
 				print_idx_hdr($p);
 				nl;
-				print_fseg_hdr( $p );
+				print_fseg_hdr($p);
+				nl;
+				print_sys_rec($p);
 			}
 			nl;
 			print_fil_trl( $p );
@@ -634,6 +722,8 @@ sub process_pages {
 				print_idx_hdr($i);
 				nl;
 				print_fseg_hdr($i);
+				nl;
+				print_sys_rec($i);
 			}
 			unless ($set_type  eq 'INDEX') { 
 				nl; 
