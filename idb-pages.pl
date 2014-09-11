@@ -64,6 +64,12 @@ our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
 our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
 our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
 				
+# Record status values
+our $REC_STATUS_ORDINARY 	= 0;
+our $REC_STATUS_NODE_PTR	= 1;
+our $REC_STATUS_INFIMUM		= 2;
+our $REC_STATUS_SUPREMUM	= 3;				
+
 our %page_types = (
     'ALLOCATED' => {
         'value'       => 0,
@@ -370,6 +376,9 @@ sub page_level			{ get_bytes ( cur_idx_pos(@_) + 26, 2 ); } 	# level of the node
 sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
 sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
 
+# INDEX System Records
+sub 
+
 # FSEG_HDR, File Segment Pointer Data
 sub fseg_hdr_space		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE, 4 ); } # Space ID of the Inode
 sub fseg_hdr_page_no	{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 4, 4 ); } # Page number of the inode
@@ -378,6 +387,7 @@ sub fseg_hdr_offset		{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 8, 2 ); } # 
 sub fseg_hdr_int_space	{ get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 10, 4 ); } # Internal non-leaf space ID
 sub fseg_hdr_int_page_no { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 14, 4 ); } # Internal non-leaf page number
 sub fseg_hdr_int_offset { get_bytes ( cur_idx_pos(@_) + IDX_HDR_SIZE + 18, 2 ); } # Internal non-leaf offset
+
 
 # INODE List Node Data
 
