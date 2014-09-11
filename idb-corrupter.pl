@@ -20,6 +20,7 @@ use constant {
 		FIL_PAGE_DATA        => 38,
 		FSEG_HEADER_SIZE     => 10,
 		PAGE_HEADER_PRIV_END => 26,
+		USER_DATA_START		 => 120
 };
 
 our ( $fh, $filename, $hex, $buffer, $page_count, $file_size);
@@ -68,14 +69,6 @@ if ($file and $file =~ /ibd$/ ) {
 } else {
 	print STDERR "Error: Filename invalid or no filename specified.\n";
 	exit 0;
-}
-
-$file_size = -s $filename or print STDERR "Warning: Could not retrieve file size.\n";
-$page_count = $file_size / PAGE_SIZE;
-if (!$page) {
-	print "No page specified. Choosing a random page..\n";
-	$page = int(rand($page_count));
-	print "Page number $page selected.\n";
 }
 
 sub usage {
@@ -136,7 +129,7 @@ sub corrupt_page {
 	my $string = '';
 	
 	while ($n < $m) {
-		$string .= sprintf "%02X\n", rand(0xff);
+		$string .= sprintf "%01X\n", rand(0xff);
 		$n++
 	}
 	
@@ -174,12 +167,22 @@ sub corrupt_page {
     close MODF;
 }
 
-my $byte_start = $page * PAGE_SIZE;
-if ($opt_debug) {
-	print "Byte Start: $byte_start\n";
-	print "\$Filename: $filename\n";
-	print "\$Multiplier: $multiplier\n";
+$file_size = -s $filename or print STDERR "Warning: Could not retrieve file size.\n";
+	dbg "File size calculated as $file_size..\n";
+$page_count = $file_size / PAGE_SIZE;
+	dbg "Page count set to $page_count..\n";
+	
+if (!$page) {
+	print "No page specified. Choosing a random page..\n";
+	$page = int(rand($page_count));
+	print "Page number $page selected.\n";
 }
+
+my $byte_start = $page * PAGE_SIZE;
+
+	dbg "Byte Start: $byte_start\n";
+	dbg "\$Filename: $filename\n";
+	dbg "\$Multiplier: $multiplier\n";
 
 if ($opt_head) {
 	$byte_start += int(rand(38));
@@ -189,13 +192,17 @@ if ($opt_head) {
 }
 
 if ($opt_records) {
-	my $increment = 128;
-	my $val = int(rand(16248)); # 16384 - 128 - 8
+	my $increment = 120;
+	my $val = int(rand(16256)); # 16384 - 120 - 8
+		dbg "Random record data offset $val generated...\n";
 	$byte_start += $increment;
-	$byte_start += int(rand(16248));
+	$byte_start += $val;
+		dbg "Byte start set to $byte_start..\n";
+		dbg "Corrupting page in $filename at $byte_start, x$multiplier..\n";
 	corrupt_page($byte_start, $filename, $multiplier)
 	  or die "Could not corrupt $filename: $!\n";
-	 exit 0;
+	print "Corrupted $multiplier bytes at $byte_start in $filename successfully.\n";
+	exit 0;
 };
 
 corrupt_page($byte_start, $filename, $multiplier)

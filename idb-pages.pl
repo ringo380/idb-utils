@@ -32,6 +32,7 @@ use constant {
 	FIL_PAGE_END_LSN_OLD_CHKSUM 	=> 8,
 	FIL_PAGE_SPACE_OR_CHKSUM 		=> 0,
 	FSP_HEADER_SIZE			=> 112,			# File space header size
+	USR_REC_START			=> 120,
 	SYS_REC_START			=> 94,
 	# Directions of cursor movement:
 	PAGE_LEFT				=> 1,
@@ -65,6 +66,8 @@ our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
 our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
 our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
 				
+our $i = 0;				
+
 # Record status values
 our %rec_types = (
 	0 	=> 'REC_STATUS_ORDINARY',
@@ -77,7 +80,7 @@ our %rec_types = (
 our %page_types = (
     'ALLOCATED' => {
         'value'       => 0,
-        'description' => 'Freshly allocated.',
+        'description' => 'Freshly allocated',
         'usage'       => 'Page type field not initialized.',
     },
     'UNDO_LOG' => {
@@ -157,6 +160,7 @@ our (
 	$opt_vv,
 	$opt_empty,
 	$opt_records,
+	$opt_list,
 	$mode,
 	$set_page,
 	$set_type,
@@ -171,6 +175,7 @@ GetOptions(
     'f=s' => \$file,
     'c'   => \$opt_chop,	# Split into page file(s).
     's'	  => \$opt_csum,
+	'l'   => \$opt_list,
     'x'   => \$opt_debug,
 	't=s' => \$set_type,
 	'm=s' => \$mode,
@@ -310,7 +315,8 @@ sub get_bin {
 		print "\$bit_count = $bit_count\n";
 	}
 	$bin = unpack "b*", $buffer;
-	$val = vec($bin, $bit_pos, $bit_count);
+	# $val = vec($bin, $bit_pos, $bit_count);
+	$val = substr($bin, $bit_pos, $bit_count);
 
 	dbg "\$bin = $bin\n";
 	dbg "\$val = $val\n";
@@ -421,12 +427,17 @@ sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); }
 # INDEX System Records
 sub idx_rec_status 	{ 
 	dbg "Debugging rec_status on page @_..";
-	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 0, 4 ); 
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 0, 2 ); 
 }
 sub idx_del_flag	{ 
 	dbg "Debugging del_flag on page @_..";
 	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 2, 1 ); 
 }
+sub idx_inf_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 97, 2); }
+sub idx_sup_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 110, 2); }
+
+# Record Data
+#sub usr_rec_
 
 
 # FSEG_HDR, File Segment Pointer Data
@@ -641,6 +652,18 @@ sub print_sys_rec {
 			'value'		=> idx_del_flag($p),
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> length(idx_del_flag($p))
+		},
+		'REC_INF_NEXT' => {
+			'name'		=> 'Next Record Offset (Infimum)',
+			'value'		=> idx_inf_next($p),
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 97,
+			'len'		=> length(idx_inf_next($p))
+		},
+		'REC_SUP_NEXT' => {
+			'name'		=> 'Next Record Offset (Supremum)',
+			'value'		=> idx_sup_next($p),
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 110,
+			'len'		=> length(idx_sup_next($p))
 		}
 	);
 	
@@ -655,17 +678,32 @@ sub print_sys_rec {
 		$value 	= $recs{$k}{'value'};
 		$offset = $recs{$k}{'offset'};
 		$len	= $recs{$k}{'len'};
-		$type 	= get_rec_type($value);
+		if ($k eq "REC_STATUS") { $type = get_rec_type(oct("0b".$value)); }
 		
 		dbg "\$name = $name\n";
 		dbg "\$value = $value\n";
 		dbg "\$offset = $offset\n";
 		dbg "\$len = $len\n";
 		
-		printf "$name: $value - $type\n";
+		printf "$name: $value";
+		if ($type) { printf " - (Decimal: " . oct("0b".$value) . ") $type"; }
+		nl;
 			verbose "-- Offset $offset, Length $len bits\n";
     }
 	
+}
+
+sub list_page {
+	my ($p) = @_;
+	my $type = fil_head_page_type($p);
+	my $realp = fil_head_offset($p);
+	my ( $nam, $desc, $use ) = get_page_type($type);
+	my $idxid = page_index_id($p);
+	my $cur_pos 	= cur_pos( fil_head_offset($p) );
+	
+	print "-- Page $p - $nam: $desc,";
+	if ($type == '17855') { print " Index ID: $idxid,"; }
+	print " Byte Start: $cur_pos (" . tohex($cur_pos) . ")\n"; 
 }
 
 sub process_page {
@@ -721,7 +759,7 @@ sub process_pages {
 		
 
 	
-	for ( my $i = 0 ; $i < $page_count ; $i++ ) {
+	for ( $i = 0 ; $i < $page_count ; $i++ ) {
 			
 		my $type = fil_head_page_type($i);
 		
@@ -824,6 +862,13 @@ if ($opt_records) {
 
 	close $fh;
 	exit;
+}
+
+if ($opt_list) {
+	for ($i = 0 ; $i < $page_count ; $i++ ) {
+		list_page $i;
+	}
+	exit 0;
 }
 
 if ($opt_chop) {
