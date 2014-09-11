@@ -292,8 +292,8 @@ sub get_bin {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!\n";
 	binmode($fh) or die "Can't binmode $filename: $!\n";
 	
-    my ( $byte_pos, $byte_count, $bin );
-    ( $byte_pos, $byte_count ) = @_;
+    my ( $byte_pos, $byte_count, $bit_pos, $bit_count, $bin, $val );
+    ( $byte_pos, $byte_count, $bit_pos, $bit_count ) = @_;
     sysseek( $fh, $byte_pos, SEEK_SET )
       or die "Couldn't seek to byte $byte_pos in $filename: $!\n";
     sysread( $fh, $buffer, $byte_count )
@@ -303,11 +303,19 @@ sub get_bin {
 		print "Printing buffer: ";
 		printf '[%vd]', $buffer;
 		print "\n";
+		print "Printing input: \n";
+		print "\$byte_pos = $byte_pos\n";
+		print "\$byte_count = $byte_count\n";
+		print "\$bit_pos = $bit_pos\n";
+		print "\$bit_count = $bit_count\n";
 	}
-	
 	$bin = unpack "b*", $buffer;
+	$val = vec($bin, $bit_pos, $bit_count);
+
+	dbg "\$bin = $bin\n";
+	dbg "\$val = $val\n";
     close ($fh);
-    return $bin;
+    return $val;
 }
 
 sub get_page {
@@ -411,7 +419,14 @@ sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where 
 sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
 
 # INDEX System Records
-sub idx_rec_status 	{ get_bin ( cur_pos(@_) + SYS_REC_START, 1 ); }
+sub idx_rec_status 	{ 
+	dbg "Debugging rec_status on page @_..";
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 0, 4 ); 
+}
+sub idx_del_flag	{ 
+	dbg "Debugging del_flag on page @_..";
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 2, 1 ); 
+}
 
 
 # FSEG_HDR, File Segment Pointer Data
@@ -458,12 +473,12 @@ sub get_page_type {
 
 sub get_rec_type {
 	my ($r) = @_;
-	my $v = oct("0b".$r);
+	#my $v = oct("0b".$r);
 	dbg "\nget_rec_type data:\n";
-	dbg "\$v = $v\n";
+	dbg "\$r = $r\n";
 	foreach my $k ( keys %rec_types ) {
 		#dbg "Looping through \%rec_types, key: $k\n";
-		if ( $k == $v ) {
+		if ( $k == $r ) {
 			return ($rec_types{$k});
 		} else {
 			next;
@@ -617,10 +632,16 @@ sub print_sys_rec {
 	my %recs = (
 		'REC_STATUS' => {
 			'name'		=> 'Index Record Status',
-			'value'		=> substr(idx_rec_status($p), 0, 2), 	# Cutting it down to the first 2 bits
+			'value'		=> idx_rec_status($p), 
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> length(idx_rec_status($p))
-		}	
+		},
+		'REC_DELETE' => {
+			'name'		=> 'Deleted',
+			'value'		=> idx_del_flag($p),
+			'offset'	=> cur_pos(@_) + SYS_REC_START,
+			'len'		=> length(idx_del_flag($p))
+		}
 	);
 	
 	dbg "\nDumping \%recs..\n";
