@@ -293,6 +293,30 @@ sub get_bytes {
     return $int;
 }
 
+sub get_int16 {
+	
+	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
+	binmode($fh) or die "Can't binmode $filename: $!";
+	
+    my ( $byte_pos, $byte_count, $int );
+    ( $byte_pos, $byte_count ) = @_;
+    sysseek( $fh, $byte_pos, SEEK_SET )
+      or die "Couldn't seek to byte $byte_pos in $filename";
+    sysread( $fh, $buffer, $byte_count )
+      or die "Could not read to byte $byte_pos in $filename";
+      
+	if ($opt_debug) {
+		print "Printing buffer: ";
+		printf '[%vd]', $buffer;
+		print "\n";
+	}
+	
+    $int = unpack "v*", $buffer; }
+
+    close ($fh);
+    return $int;
+}
+
 sub get_bin {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!\n";
 	binmode($fh) or die "Can't binmode $filename: $!\n";
@@ -625,7 +649,7 @@ sub print_fseg_hdr {
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 4 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 4 ) . "), Length: 4\n";
 	printf "Inode Offset: $off\n";
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 8 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 8 ) . "), Length: 2\n";
-	if (page_level($p)) {
+	if (!page_level($p)) {
 		printf "Non-leaf Space ID: $int_sid\n";
 			verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 10 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 10 ) . "), Length: 2\n";
 		printf "Non-leaf Page Number: $int_ipn\n";
