@@ -520,7 +520,7 @@ sub print_fil_hdr {
 	#my $checksum = fil_head_checksum($p);
 
     printf "Page: $offset\n";
-    printf "=== HEADER\n";
+    printf "=== HEADER: Page " . fil_head_offset($p) . "\n";
     printf "Byte Start: $cur_pos (" . tohex $cur_pos;
     printf ")\n";
     printf "Page Type: $type\n-- $nam: $desc - $use\n";
@@ -541,7 +541,7 @@ sub print_fil_trl {
 	my $csum = fil_trailer_checksum($p);	# Old-style checksum
 	my $lsn  = fil_trailer_low32_lsn($p);	# Low 32 bits of LSN
 	
-	printf "=== TRAILER\n";
+	printf "=== TRAILER: Page " . fil_head_offset($p) . "\n";
     printf "Old-style Checksum: $csum\n";
     printf "Low 32 bits of LSN: $lsn\n";
     printf "Byte End: "
@@ -618,7 +618,7 @@ sub print_fseg_hdr {
 	
 	my $inc = IDX_HDR_SIZE; # increment
 	
-	printf "=== FSEG_HDR - File Segment Header\n";
+	printf "=== FSEG_HDR - File Segment Header: Page " . fil_head_offset($p) . "\n";
 	printf "Inode Space ID: $sid\n";
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc ) . " (" . tohex ( cur_idx_pos($p) + $inc ) . "), Length: 4\n";
 	printf "Inode Page Number: $ipn\n";
@@ -671,7 +671,7 @@ sub print_sys_rec {
 	dbg Dumper (\%recs);
 	dbg "\n";
 	
-	printf "=== INDEX System Records\n";
+	printf "=== INDEX System Records: Page " . fil_head_offset($p) . "\n";
 	foreach my $k ( keys %recs ) {
         #if ( $recs{$k}{'value'} == $p ) {
 		$name 	= $recs{$k}{'name'};
