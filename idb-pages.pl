@@ -311,7 +311,7 @@ sub get_int16 {
 		print "\n";
 	}
 	
-    $int = unpack "v*", $buffer; }
+    $int = unpack "v*", $buffer;
 
     close ($fh);
     return $int;
