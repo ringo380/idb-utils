@@ -338,7 +338,7 @@ sub get_bin {
 		print "\$bit_pos = $bit_pos\n";
 		print "\$bit_count = $bit_count\n";
 	}
-	$bin = unpack "b*", $buffer;
+	$bin = unpack "B*", $buffer;
 	# $val = vec($bin, $bit_pos, $bit_count);
 	$val = substr($bin, $bit_pos, $bit_count);
 
@@ -451,14 +451,26 @@ sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); }
 # INDEX System Records
 sub idx_rec_status 	{ 
 	dbg "Debugging rec_status on page @_..";
-	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 0, 2 ); 
+	get_bin ( cur_pos(@_) + SYS_REC_START + 1, 2, 13, 3 ); 
 }
 sub idx_del_flag	{ 
 	dbg "Debugging del_flag on page @_..";
 	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 2, 1 ); 
 }
-sub idx_inf_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 97, 2); }
-sub idx_sup_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 110, 2); }
+sub idx_heap_num	{
+	dbg "Debugging heap_num on page @_..";
+	get_bin ( cur_pos(@_) + SYS_REC_START + 1, 2, 0, 12 );
+}
+sub idx_num_owned	{
+	dbg "Debugging num_owned on page @_..";
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 4, 4 );
+}
+sub idx_min_rec		{
+	dbg "Debugging min_rec on page @_..";
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 3, 1 );
+}
+sub idx_inf_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 3, 2); }
+sub idx_sup_next	{ get_bytes ( cur_pos(@_) + SYS_REC_START + 16, 2); }
 
 # Record Data
 #sub usr_rec_
@@ -666,28 +678,53 @@ sub print_sys_rec {
 	# my $rec_status = idx_rec_status($p);
 	my %recs = (
 		'REC_STATUS' => {
+			'id'		=> '1',
 			'name'		=> 'Index Record Status',
 			'value'		=> idx_rec_status($p), 
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 1,
+			'len'		=> '3 lowest bits'
+		},
+		'REC_N_OWNED' => {
+			'id'		=> '2',
+			'name'		=> 'Number of records owned',
+			'value'		=> hex idx_num_owned($p), 
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
-			'len'		=> length(idx_rec_status($p))
+			'len'		=> '4 lowest bits'
 		},
 		'REC_DELETE' => {
+			'id'		=> '3',
 			'name'		=> 'Deleted',
-			'value'		=> idx_del_flag($p),
+			'value'		=> idx_del_flag($p) or 'None',
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> length(idx_del_flag($p))
 		},
+		'REC_HEAP_NO' => {
+			'id'		=> '4',
+			'name'		=> 'Heap Number',
+			'value'		=> bin2dec(idx_heap_num($p)) or 'Empty',
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 1,
+			'len'		=> '15 highest bits'
+		},
 		'REC_INF_NEXT' => {
+			'id'		=> '5',
 			'name'		=> 'Next Record Offset (Infimum)',
-			'value'		=> idx_inf_next($p),
-			'offset'	=> cur_pos(@_) + SYS_REC_START + 97,
+			'value'		=> idx_inf_next($p) + 99,
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 3,
 			'len'		=> length(idx_inf_next($p))
 		},
 		'REC_SUP_NEXT' => {
+			'id'		=> '6',
 			'name'		=> 'Next Record Offset (Supremum)',
-			'value'		=> idx_sup_next($p),
-			'offset'	=> cur_pos(@_) + SYS_REC_START + 110,
+			'value'		=> idx_sup_next($p) + 112,
+			'offset'	=> cur_pos(@_) + SYS_REC_START + 16,
 			'len'		=> length(idx_sup_next($p))
+		},
+		'REC_MIN_REC' => {
+			'id'		=> '7',
+			'name'		=> 'Left-most node on non-leaf level',
+			'value'		=> idx_min_rec($p) or 'N/A',
+			'offset'	=> cur_pos(@_) + SYS_REC_START,
+			'len'		=> 'Single bit flag - 00010000'
 		}
 	);
 	
@@ -696,12 +733,13 @@ sub print_sys_rec {
 	dbg "\n";
 	
 	printf "=== INDEX System Records: Page " . fil_head_offset($p) . "\n";
-	foreach my $k ( keys %recs ) {
+	foreach my $k ( sort { $recs{$a}{'id'} <=> $recs{$b}{'id'} } keys %recs ) {
         #if ( $recs{$k}{'value'} == $p ) {
 		$name 	= $recs{$k}{'name'};
 		$value 	= $recs{$k}{'value'};
 		$offset = $recs{$k}{'offset'};
 		$len	= $recs{$k}{'len'};
+		
 		if ($k eq "REC_STATUS") { $type = get_rec_type(oct("0b".$value)); }
 		
 		dbg "\$name = $name\n";
@@ -710,7 +748,8 @@ sub print_sys_rec {
 		dbg "\$len = $len\n";
 		
 		printf "$name: $value";
-		if ($type) { printf " - (Decimal: " . oct("0b".$value) . ") $type"; }
+		if ($k eq "REC_STATUS") { printf " - (Decimal: " . oct("0b".$value) . ") $type"; }
+		#if ($type) {  }
 		nl;
 			verbose "-- Offset $offset, Length $len bits\n";
     }
@@ -895,6 +934,10 @@ if ($opt_list) {
 	exit 0;
 }
 
+if ($opt_head) {
+	
+}
+
 if ($opt_chop) {
     print "Splitting into page files..\n";
 }
@@ -909,3 +952,6 @@ nl;
 # 
 # END Toggled routines
 # ----------------------------------
+
+usage;
+exit 0; 
