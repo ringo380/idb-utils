@@ -51,7 +51,46 @@ This script is designed to find specific pages within a database file. It includ
 
 ### idb-corrupter.pl
 
-This script is used to manipulate database files, potentially for testing corruption scenarios. It includes options for setting the mode, multiplier, and offset.
+The idb-corrupter.pl script is used to corrupt pages in a table for demonstration or testing purposes. It provides various options to specify how and where the corruption should occur.
+
+**Usage:**
+
+```bash
+perl idb-corrupter.pl [-f <file>] [-p <page #>] [-b <bytes>] [-v] [-d] [-k] [-r] [-o <offset>] [-h]
+```
+
+**Options:**
+
+```bash
+- -f, --file <file>: Path to the InnoDB data file. This is a required option unless specified otherwise.
+- -p, --page <page #>: Specify the page number to corrupt. If not specified, a random page will be chosen.
+- -b, --bytes <bytes>: Sets the amount of bytes to corrupt. Default is 1 byte.
+- -v, --verbose: Displays additional information during execution.
+- -d, --debug: Displays debug output for troubleshooting.
+- -k: Corrupt the page's FIL header area.
+- -r, --records: Corrupt the record area specifically.
+- -o, --offset <offset>: Set the exact byte offset you'd like to corrupt.
+- -h, --help: Displays usage information.
+```
+
+**Examples:**
+
+1. Corrupt a specific page in a file:
+   perl idb-corrupter.pl -f city2.ibd -p 5
+
+2. Corrupt a random page with verbose output:
+   perl idb-corrupter.pl -f city2.ibd -v
+
+3. Corrupt the FIL header area of a specific page:
+   perl idb-corrupter.pl -f city2.ibd -p 3 -k
+
+4. Corrupt a specific number of bytes at a given offset:
+   perl idb-corrupter.pl -f city2.ibd -o 100 -b 10
+
+Notes:
+
+- Ensure you have the necessary permissions to modify the specified file.
+- Use this script with caution, as it will intentionally corrupt data.
 
 ### idb-findtsid.pl
 
