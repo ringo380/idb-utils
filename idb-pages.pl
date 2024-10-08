@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/opt/local/bin/perl
 
 
 use strict 'vars';
@@ -8,6 +8,8 @@ use Data::Dumper qw(Dumper);
 use Fcntl qw(:seek);
 use Getopt::Long qw(:config gnu_getopt);
 use Scalar::Util qw(looks_like_number);
+
+#use lib 'includes/';
 use Math::Int64 qw( :native_if_available int64 hex_to_uint64 uint64_to_hex );
 
 use constant {
@@ -49,7 +51,7 @@ our $POS_FIL_TRAILER 			= SIZE_PAGE - SIZE_FIL_TRAILER;
 our $PAGE_SIZE	 				= SIZE_PAGE;
 
 #------------------------------------------------------------------------------
-# Most of the following grabbed from page0page.h in MySQL source to define 
+# Most of the following grabbed from page0page.h in MySQL source to define
 # various page offset constants.
 #
 
@@ -65,8 +67,8 @@ our $PAGE_NEW_SUPREMUM_END 		= $PAGE_NEW_SUPREMUM + 8; # Default = 117; offset o
 our $PAGE_HEAP_NO_INFIMUM	= 0; # page infimum
 our $PAGE_HEAP_NO_SUPREMUM	= 1; # page supremum
 our $PAGE_HEAP_NO_USER_LOW	= 2; # first user record in	creation (insertion) order, not necessarily collation order; this record may have been deleted
-				
-our $i = 0;				
+
+our $i = 0;
 
 # Record status values
 our %rec_types = (
@@ -75,7 +77,7 @@ our %rec_types = (
 	2 	=> 'REC_STATUS_INFIMUM',
 	3	=> 'REC_STATUS_SUPREMUM'
 );
-			
+
 
 our %page_types = (
     'ALLOCATED' => {
@@ -147,7 +149,7 @@ our %page_types = (
     }
 );
 
-our ( 
+our (
 	$opt_help,
 	$opt_head,
 	$opt_chop,
@@ -189,7 +191,7 @@ GetOptions(
     'r'	  => \$opt_records
 ) or die("Could not get options.\n");
 
-if ($opt_debug) { 
+if ($opt_debug) {
 	print "Debugging enabled..\n";
 }
 
@@ -203,10 +205,10 @@ unless ($datadir) {
 #       Displays usage information.
 #
 sub usage {
-	
+
     print <<END_OF_USAGE
 Usage:
-    idb-pages [-f <file>] [-p <page #>] [-e] [-r] [-k] [-v] [-vv] [-q] [-h] 
+    idb-pages [-f <file>] [-p <page #>] [-e] [-r] [-k] [-v] [-vv] [-q] [-h]
     where
          [-f[ile]] <file>        	Path to InnoDB data file. (Default behavior)
          [-p[age]] <page #>		 	Specify a single page to get information from.
@@ -222,7 +224,7 @@ END_OF_USAGE
 
 # ----------------------------------
 # Utility Subs
-# 
+#
 
 sub tohex {
     my $tohex = sprintf( "0x%x", $_[0] );
@@ -242,7 +244,7 @@ sub hr {
 
 sub verbose {
 	my ($string) = @_;
-	if ($opt_verbose) { printf $string; } 
+	if ($opt_verbose) { printf $string; }
 }
 
 sub vv { # Very verbose
@@ -268,23 +270,23 @@ sub nl { # newline
 #
 
 sub get_bytes {
-	
+
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
-	
+
     my ( $byte_pos, $byte_count, $int );
     ( $byte_pos, $byte_count ) = @_;
     sysseek( $fh, $byte_pos, SEEK_SET )
       or die "Couldn't seek to byte $byte_pos in $filename";
     sysread( $fh, $buffer, $byte_count )
       or die "Could not read to byte $byte_pos in $filename";
-      
+
 	if ($opt_debug) {
 		print "Printing buffer: ";
 		printf '[%vd]', $buffer;
 		print "\n";
 	}
-	
+
     if    ( $byte_count == 8 ) { $int = hex_to_uint64 unpack "H*", $buffer; }
     elsif ( $byte_count == 4 ) { $int = unpack "N*", $buffer; }
     elsif ( $byte_count == 2 ) { $int = unpack "n*", $buffer; }
@@ -294,23 +296,23 @@ sub get_bytes {
 }
 
 sub get_int16 {
-	
+
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
-	
+
     my ( $byte_pos, $byte_count, $int );
     ( $byte_pos, $byte_count ) = @_;
     sysseek( $fh, $byte_pos, SEEK_SET )
       or die "Couldn't seek to byte $byte_pos in $filename";
     sysread( $fh, $buffer, $byte_count )
       or die "Could not read to byte $byte_pos in $filename";
-      
+
 	if ($opt_debug) {
 		print "Printing buffer: ";
 		printf '[%vd]', $buffer;
 		print "\n";
 	}
-	
+
     $int = unpack "v*", $buffer;
 
     close ($fh);
@@ -320,14 +322,14 @@ sub get_int16 {
 sub get_bin {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!\n";
 	binmode($fh) or die "Can't binmode $filename: $!\n";
-	
+
     my ( $byte_pos, $byte_count, $bit_pos, $bit_count, $bin, $val );
     ( $byte_pos, $byte_count, $bit_pos, $bit_count ) = @_;
     sysseek( $fh, $byte_pos, SEEK_SET )
       or die "Couldn't seek to byte $byte_pos in $filename: $!\n";
     sysread( $fh, $buffer, $byte_count )
       or die "Could not read to byte $byte_pos in $filename: $!\n";
-      
+
     if ($opt_debug) {
 		print "Printing buffer: ";
 		printf '[%vd]', $buffer;
@@ -380,14 +382,14 @@ sub get_page {
 sub writepage {
     my ( $byte_pos, $this_page ) = @_;
     my $destfile = "$filename.page." . $this_page;
-    
+
     open OUTF, ">$destfile"
       or die "Can't open $destfile for writing: $!\n";
     binmode OUTF;
-    
+
     open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
-	
+
     sysseek( $fh, $byte_pos, SEEK_SET );
     sysread( $fh, $buffer, 16384 );
     syswrite( OUTF, $buffer );
@@ -411,7 +413,7 @@ sub cur_idx_pos {
 
 
 # ----------------------------------
-# Subs defined below to represent values retrieved via byte position/length, 
+# Subs defined below to represent values retrieved via byte position/length,
 # passed to get_bytes to grab the data from the binary files.
 #
 # get_bytes at current page offset + offset, with this length
@@ -438,7 +440,7 @@ sub page_n_heap			{ get_bytes ( cur_idx_pos(@_) + 4, 2 ); }	# number of records 
 sub page_free			{ get_bytes ( cur_idx_pos(@_) + 6, 2 ); }	# pointer to start of page free record list
 sub page_garbage		{ get_bytes ( cur_idx_pos(@_) + 8, 2 ); }	# number of bytes in deleted records
 sub page_last_insert	{ get_bytes ( cur_idx_pos(@_) + 10, 2 ); }	# pointer to the last inserted record, or NULL if info has been reset by a delete (for example)
-sub page_direction		{ get_bytes ( cur_idx_pos(@_) + 12, 2 ); }	# last insert direction: PAGE_LEFT, ...  
+sub page_direction		{ get_bytes ( cur_idx_pos(@_) + 12, 2 ); }	# last insert direction: PAGE_LEFT, ...
 sub page_n_direction	{ get_bytes ( cur_idx_pos(@_) + 14, 2 ); }	# number of consecutive inserts to the same direction
 sub page_n_recs 		{ get_bytes ( cur_idx_pos(@_) + 16, 2 ); }	# number of user records on the page
 sub page_max_trx_id		{ get_bytes ( cur_idx_pos(@_) + 18, 8 ); }	# highest id of a trx which may have modified a record on the page; trx_id_t; defined only in secondary indexes and in the insert buffer tree
@@ -446,16 +448,16 @@ sub page_max_trx_id		{ get_bytes ( cur_idx_pos(@_) + 18, 8 ); }	# highest id of 
 # INDEX Private Data Structure Header
 sub page_level			{ get_bytes ( cur_idx_pos(@_) + 26, 2 ); } 	# level of the node in an index tree; the leaf level is the level 0.  This field should not be written to after page creation.
 sub page_index_id		{ get_bytes ( cur_idx_pos(@_) + 28, 8 ); } 	# index id where the page belongs. This field should not be written to after	page creation.
-sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); } 
+sub page_btr_seg_leaf	{ get_bytes ( cur_idx_pos(@_) + 36, 8 ); }
 
 # INDEX System Records
-sub idx_rec_status 	{ 
+sub idx_rec_status 	{
 	dbg "Debugging rec_status on page @_..";
-	get_bin ( cur_pos(@_) + SYS_REC_START + 1, 2, 13, 3 ); 
+	get_bin ( cur_pos(@_) + SYS_REC_START + 1, 2, 13, 3 );
 }
-sub idx_del_flag	{ 
+sub idx_del_flag	{
 	dbg "Debugging del_flag on page @_..";
-	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 2, 1 ); 
+	get_bin ( cur_pos(@_) + SYS_REC_START, 1, 2, 1 );
 }
 sub idx_heap_num	{
 	dbg "Debugging heap_num on page @_..";
@@ -539,7 +541,7 @@ sub get_rec_type {
 
 sub print_fil_hdr {
 	my ($p) = @_; 	# Get page number
-	
+
 	my $cur_pos 	= cur_pos( fil_head_offset($p) );
     my $prev		= fil_head_prev($p);
     my $next		= fil_head_next($p);
@@ -549,10 +551,10 @@ sub print_fil_hdr {
     my $lsn			= fil_head_lsn($p);
     my $id			= fil_head_space_id($p);
     my $checksum	= fil_head_checksum($p);
-    
-	
+
+
     my ( $nam, $desc, $use ) = get_page_type($type);
-       
+
 	#my $checksum = fil_head_checksum($p);
 
     printf "Page: $offset\n";
@@ -573,10 +575,10 @@ sub print_fil_hdr {
 
 sub print_fil_trl {
 	my ($p) = @_;
-	
+
 	my $csum = fil_trailer_checksum($p);	# Old-style checksum
 	my $lsn  = fil_trailer_low32_lsn($p);	# Low 32 bits of LSN
-	
+
 	printf "=== TRAILER: Page " . fil_head_offset($p) . "\n";
     printf "Old-style Checksum: $csum\n";
     printf "Low 32 bits of LSN: $lsn\n";
@@ -599,9 +601,9 @@ sub print_fsp_hdr {
 }
 
 sub print_idx_hdr {
-	
+
 	my ($p) = @_;
-	
+
 	my $level   = page_level($p);
 	my $max_tid = page_max_trx_id($p);
 	my $dir     = page_direction($p);
@@ -610,7 +612,7 @@ sub print_idx_hdr {
 	printf "=== INDEX Header: Page " . fil_head_offset($p) . "\n";
 	printf "Index ID: " . page_index_id($p) . "\n";
 	printf "Node Level: $level\n";
-	if ($segleaf) { 
+	if ($segleaf) {
 		printf "-- Root-level Leaf Page\n";
 	}
 	if ($max_tid) {
@@ -641,19 +643,19 @@ sub print_idx_hdr {
 }
 
 sub print_fseg_hdr {
-	
+
 	my ($p) = @_;
-	
+
 	my $sid = fseg_hdr_space($p); # space id
 	my $ipn = fseg_hdr_page_no($p); # inode page number
 	my $off = fseg_hdr_offset($p); # inode offset
-	
-	my $int_sid = fseg_hdr_int_offset($p); 
+
+	my $int_sid = fseg_hdr_int_offset($p);
 	my $int_ipn = fseg_hdr_int_page_no($p);
 	my $int_off = fseg_hdr_int_offset($p);
-	
+
 	my $inc = IDX_HDR_SIZE; # increment
-	
+
 	printf "=== FSEG_HDR - File Segment Header: Page " . fil_head_offset($p) . "\n";
 	printf "Inode Space ID: $sid\n";
 		verbose "-- Offset: " . ( cur_idx_pos($p) + $inc ) . " (" . tohex ( cur_idx_pos($p) + $inc ) . "), Length: 4\n";
@@ -669,7 +671,7 @@ sub print_fseg_hdr {
 		printf "Non-leaf Offset: $int_off\n";
 			verbose "-- Offset: " . ( cur_idx_pos($p) + $inc + 18 ) . " (" . tohex ( cur_idx_pos($p) + $inc + 18 ) . "), Length: 2\n";
 	}
-	
+
 }
 
 sub print_sys_rec {
@@ -680,28 +682,28 @@ sub print_sys_rec {
 		'REC_STATUS' => {
 			'id'		=> '1',
 			'name'		=> 'Index Record Status',
-			'value'		=> idx_rec_status($p), 
+			'value'		=> idx_rec_status($p),
 			'offset'	=> cur_pos(@_) + SYS_REC_START + 1,
 			'len'		=> '3 lowest bits'
 		},
 		'REC_N_OWNED' => {
 			'id'		=> '2',
 			'name'		=> 'Number of records owned',
-			'value'		=> hex idx_num_owned($p), 
+			'value'		=> hex idx_num_owned($p),
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> '4 lowest bits'
 		},
 		'REC_DELETE' => {
 			'id'		=> '3',
 			'name'		=> 'Deleted',
-			'value'		=> idx_del_flag($p) or 'None',
+			'value'		=> idx_del_flag($p) // 'None',
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> length(idx_del_flag($p))
 		},
 		'REC_HEAP_NO' => {
 			'id'		=> '4',
 			'name'		=> 'Heap Number',
-			'value'		=> bin2dec(idx_heap_num($p)) or 'Empty',
+			'value'		=> bin2dec(idx_heap_num($p)) // 'Empty',
 			'offset'	=> cur_pos(@_) + SYS_REC_START + 1,
 			'len'		=> '15 highest bits'
 		},
@@ -722,16 +724,16 @@ sub print_sys_rec {
 		'REC_MIN_REC' => {
 			'id'		=> '7',
 			'name'		=> 'Left-most node on non-leaf level',
-			'value'		=> idx_min_rec($p) or 'N/A',
+			'value'		=> idx_min_rec($p) // 'N/A',
 			'offset'	=> cur_pos(@_) + SYS_REC_START,
 			'len'		=> 'Single bit flag - 00010000'
 		}
 	);
-	
+
 	dbg "\nDumping \%recs..\n";
 	dbg Dumper (\%recs);
 	dbg "\n";
-	
+
 	printf "=== INDEX System Records: Page " . fil_head_offset($p) . "\n";
 	foreach my $k ( sort { $recs{$a}{'id'} <=> $recs{$b}{'id'} } keys %recs ) {
         #if ( $recs{$k}{'value'} == $p ) {
@@ -739,21 +741,21 @@ sub print_sys_rec {
 		$value 	= $recs{$k}{'value'};
 		$offset = $recs{$k}{'offset'};
 		$len	= $recs{$k}{'len'};
-		
+
 		if ($k eq "REC_STATUS") { $type = get_rec_type(oct("0b".$value)); }
-		
+
 		dbg "\$name = $name\n";
 		dbg "\$value = $value\n";
 		dbg "\$offset = $offset\n";
 		dbg "\$len = $len\n";
-		
+
 		printf "$name: $value";
 		if ($k eq "REC_STATUS") { printf " - (Decimal: " . oct("0b".$value) . ") $type"; }
 		#if ($type) {  }
 		nl;
 			verbose "-- Offset $offset, Length $len bits\n";
     }
-	
+
 }
 
 sub list_page {
@@ -763,10 +765,10 @@ sub list_page {
 	my ( $nam, $desc, $use ) = get_page_type($type);
 	my $idxid = page_index_id($p);
 	my $cur_pos 	= cur_pos( fil_head_offset($p) );
-	
+
 	print "-- Page $p - $nam: $desc,";
 	if ($type == '17855') { print " Index ID: $idxid,"; }
-	print " Byte Start: $cur_pos (" . tohex($cur_pos) . ")\n"; 
+	print " Byte Start: $cur_pos (" . tohex($cur_pos) . ")\n";
 }
 
 sub process_page {
@@ -787,16 +789,16 @@ sub process_page {
 }
 
 sub process_pages {
-	
+
 	my ($p) = @_;
 	$set_type //= 0;
-	
+
 	unless ($set_type eq 'INDEX' or $p) {
 		print_fsp_hdr;
 	}
-	
-	if ($p) { 
-		my $page_start = SIZE_PAGE * $p; 
+
+	if ($p) {
+		my $page_start = SIZE_PAGE * $p;
 		my $type = fil_head_page_type($p);
 		if ( $page_start < $file_size and looks_like_number $p) {
 			if ($opt_chop) {
@@ -819,24 +821,24 @@ sub process_pages {
 		}
 		exit 0;
 	}
-		
 
-	
+
+
 	for ( $i = 0 ; $i < $page_count ; $i++ ) {
-			
+
 		my $type = fil_head_page_type($i);
-		
+
 		if ($set_type) {
 			unless (uc $set_type eq 'INDEX' and $type == '17855') { next; }
 		}
 		if ($opt_chop) {
 			writepage( cur_pos($i), $i );
-		}			
+		}
 		my $this_csum = fil_head_checksum($i);
-		if ($this_csum) {		
-			unless ($set_type  eq 'INDEX') { 
-				nl; 
-				print_fil_hdr($i); 
+		if ($this_csum) {
+			unless ($set_type  eq 'INDEX') {
+				nl;
+				print_fil_hdr($i);
 			}
 			#if ( $type == '17855' ) {
 			if ($type == '17855') {
@@ -847,27 +849,27 @@ sub process_pages {
 				nl;
 				print_sys_rec($i);
 			}
-			unless ($set_type  eq 'INDEX') { 
-				nl; 
+			unless ($set_type  eq 'INDEX') {
+				nl;
 				print_fil_trl($i);	}
 		}
 	}
 }
 
-# 
+#
 # END Data print/output subs
 # ----------------------------------
 
 sub csum_calc {
-	
+
 	my ($p) = @_;
-	
+
 	my $lastt 	= 0;
 	my $ct		= $p;
-	
+
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
-	
+
 	while (!eof($fh)) {
 		my $mod = 0;
 		my $lsn = fil_head_lsn($p);
@@ -886,29 +888,29 @@ if ($opt_help) {
 	exit 0;
 }
 
-if ($file) { 
-	$filename = $file; 
-} elsif ($ARGV[-1]) { 
-	$filename = $ARGV[-1]; 
+if ($file) {
+	$filename = $file;
+} elsif ($ARGV[-1]) {
+	$filename = $ARGV[-1];
 } else {
 	print STDERR "Warning: Filename invalid or no filename specified.\n";
 }
 
 unless (!$filename) {
-	
+
 	if ( !-e $filename ) {
 		print STDERR "File path provided does not exist.\n";
 		exit;
 	}
-	
+
 	if ( !-r $filename ) {
 		print STDERR "File path provided is not readable.\n";
 		exit;
 	}
-	
+
 	$file_size  = -s $filename or die "Could not retrieve size of $filename: $!";
 	$page_count = $file_size / SIZE_PAGE;
-	
+
 }
 
 # ----------------------------------
@@ -918,7 +920,7 @@ unless (!$filename) {
 if ($opt_records) {
 	open( $fh, "<", $filename ) or die "Can't open $filename: $!";
 	binmode($fh) or die "Can't binmode $filename: $!";
-	
+
 	my $log_file_size = -s $filename;
 	my $block_size    = SIZE_LOG_BLOCK;
 	my $block_count   = $log_file_size / $block_size;
@@ -935,7 +937,7 @@ if ($opt_list) {
 }
 
 if ($opt_head) {
-	
+
 }
 
 if ($opt_chop) {
@@ -949,9 +951,9 @@ if ($set_page) {
 }
 
 nl;
-# 
+#
 # END Toggled routines
 # ----------------------------------
 
 usage;
-exit 0; 
+exit 0;
