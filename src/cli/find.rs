@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
@@ -9,6 +11,24 @@ pub struct FindOptions {
     pub page: u64,
     pub checksum: Option<u32>,
     pub space_id: Option<u32>,
+    pub first: bool,
+    pub json: bool,
+}
+
+#[derive(Serialize)]
+struct FindResultJson {
+    datadir: String,
+    target_page: u64,
+    matches: Vec<FindMatchJson>,
+    files_searched: usize,
+}
+
+#[derive(Serialize)]
+struct FindMatchJson {
+    file: String,
+    page_number: u64,
+    checksum: u32,
+    space_id: u32,
 }
 
 pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
@@ -24,18 +44,37 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
     let ibd_files = find_ibd_files(datadir)?;
 
     if ibd_files.is_empty() {
-        println!("No .ibd files found in {}", opts.datadir);
+        if opts.json {
+            let result = FindResultJson {
+                datadir: opts.datadir.clone(),
+                target_page: opts.page,
+                matches: Vec::new(),
+                files_searched: 0,
+            };
+            let json = serde_json::to_string_pretty(&result)
+                .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+            println!("{}", json);
+        } else {
+            println!("No .ibd files found in {}", opts.datadir);
+        }
         return Ok(());
     }
 
+    let mut matches: Vec<FindMatchJson> = Vec::new();
+    let mut files_searched = 0;
+
     for ibd_path in &ibd_files {
         let display_path = ibd_path.strip_prefix(datadir).unwrap_or(ibd_path);
-        println!("Checking {}.. ", display_path.display());
+        if !opts.json {
+            println!("Checking {}.. ", display_path.display());
+        }
 
         let mut ts = match Tablespace::open(ibd_path) {
             Ok(t) => t,
             Err(_) => continue,
         };
+
+        files_searched += 1;
 
         for page_num in 0..ts.page_count() {
             let page_data = match ts.read_page(page_num) {
@@ -62,19 +101,55 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
                     }
                 }
 
-                println!(
-                    "Found page {} in {} (checksum: {}, space_id: {})",
-                    opts.page,
-                    display_path.display(),
-                    header.checksum,
-                    header.space_id
-                );
-                return Ok(());
+                if !opts.json {
+                    println!(
+                        "Found page {} in {} (checksum: {}, space_id: {})",
+                        opts.page,
+                        display_path.display(),
+                        header.checksum,
+                        header.space_id
+                    );
+                }
+
+                matches.push(FindMatchJson {
+                    file: display_path.display().to_string(),
+                    page_number: header.page_number as u64,
+                    checksum: header.checksum,
+                    space_id: header.space_id,
+                });
+
+                if opts.first {
+                    break;
+                }
             }
+        }
+
+        if opts.first && !matches.is_empty() {
+            break;
         }
     }
 
-    println!("Page {} not found in any .ibd file.", opts.page);
+    if opts.json {
+        let result = FindResultJson {
+            datadir: opts.datadir.clone(),
+            target_page: opts.page,
+            matches,
+            files_searched,
+        };
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+        println!("{}", json);
+    } else if matches.is_empty() {
+        println!("Page {} not found in any .ibd file.", opts.page);
+    } else {
+        println!();
+        println!(
+            "Found {} match(es) in {} file(s) searched.",
+            matches.len(),
+            files_searched
+        );
+    }
+
     Ok(())
 }
 

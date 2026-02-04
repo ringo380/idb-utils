@@ -1,10 +1,13 @@
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 
+use colored::Colorize;
 use rand::Rng;
+use serde::Serialize;
 
 use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
 use crate::innodb::tablespace::Tablespace;
+use crate::util::hex::format_bytes;
 use crate::IdbError;
 
 pub struct CorruptOptions {
@@ -13,15 +16,24 @@ pub struct CorruptOptions {
     pub bytes: usize,
     pub header: bool,
     pub records: bool,
+    pub offset: Option<u64>,
+    pub json: bool,
     pub page_size: Option<u32>,
 }
 
+#[derive(Serialize)]
+struct CorruptResultJson {
+    file: String,
+    offset: u64,
+    page: Option<u64>,
+    bytes_written: usize,
+    data: String,
+}
+
 pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
-    // Validate file extension
-    if !opts.file.ends_with(".ibd") {
-        return Err(IdbError::Argument(
-            "File must have .ibd extension".to_string(),
-        ));
+    // Absolute offset mode: bypass page calculation entirely
+    if let Some(abs_offset) = opts.offset {
+        return corrupt_at_offset(opts, abs_offset);
     }
 
     // Open tablespace to get page size and count
@@ -48,7 +60,12 @@ pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
         }
         None => {
             let p = rng.random_range(0..page_count);
-            println!("No page specified. Choosing random page {}.", p);
+            if !opts.json {
+                println!(
+                    "No page specified. Choosing random page {}.",
+                    format!("{}", p).yellow()
+                );
+            }
             p
         }
     };
@@ -74,29 +91,96 @@ pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
     // Generate random bytes (full bytes, not nibbles like the Perl version)
     let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
 
+    if opts.json {
+        return output_json(opts, corrupt_offset, Some(page_num), &random_data);
+    }
+
     println!(
         "Writing {} bytes of random data to {} at offset {} (page {})...",
-        opts.bytes, opts.file, corrupt_offset, page_num
+        opts.bytes,
+        opts.file,
+        corrupt_offset,
+        format!("{}", page_num).yellow()
     );
 
-    // Write the corruption
+    write_corruption(&opts.file, corrupt_offset, &random_data)?;
+
+    println!("Data written: {}", format_bytes(&random_data).red());
+    println!("Completed.");
+
+    Ok(())
+}
+
+fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64) -> Result<(), IdbError> {
+    // Validate offset is within file
+    let file_size = File::open(&opts.file)
+        .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", opts.file, e)))?
+        .metadata()
+        .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", opts.file, e)))?
+        .len();
+
+    if abs_offset >= file_size {
+        return Err(IdbError::Argument(format!(
+            "Offset {} is beyond file size {}",
+            abs_offset, file_size
+        )));
+    }
+
+    let mut rng = rand::rng();
+    let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
+
+    if opts.json {
+        return output_json(opts, abs_offset, None, &random_data);
+    }
+
+    println!(
+        "Writing {} bytes of random data to {} at offset {}...",
+        opts.bytes, opts.file, abs_offset
+    );
+
+    write_corruption(&opts.file, abs_offset, &random_data)?;
+
+    println!("Data written: {}", format_bytes(&random_data).red());
+    println!("Completed.");
+
+    Ok(())
+}
+
+fn write_corruption(file_path: &str, offset: u64, data: &[u8]) -> Result<(), IdbError> {
     let mut file = OpenOptions::new()
         .write(true)
-        .open(&opts.file)
-        .map_err(|e| IdbError::Io(format!("Cannot open {} for writing: {}", opts.file, e)))?;
+        .open(file_path)
+        .map_err(|e| IdbError::Io(format!("Cannot open {} for writing: {}", file_path, e)))?;
 
-    file.seek(SeekFrom::Start(corrupt_offset))
-        .map_err(|e| IdbError::Io(format!("Cannot seek to offset {}: {}", corrupt_offset, e)))?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| IdbError::Io(format!("Cannot seek to offset {}: {}", offset, e)))?;
 
-    file.write_all(&random_data)
+    file.write_all(data)
         .map_err(|e| IdbError::Io(format!("Cannot write corruption data: {}", e)))?;
 
-    print!("Data written: ");
-    for b in &random_data {
-        print!("{:02x}", b);
-    }
-    println!();
-    println!("Completed.");
+    Ok(())
+}
+
+fn output_json(
+    opts: &CorruptOptions,
+    offset: u64,
+    page: Option<u64>,
+    data: &[u8],
+) -> Result<(), IdbError> {
+    // Still write the corruption before outputting JSON
+    write_corruption(&opts.file, offset, data)?;
+
+    let result = CorruptResultJson {
+        file: opts.file.clone(),
+        offset,
+        page,
+        bytes_written: data.len(),
+        data: format_bytes(data),
+    };
+
+    let json = serde_json::to_string_pretty(&result)
+        .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+    println!("{}", json);
 
     Ok(())
 }

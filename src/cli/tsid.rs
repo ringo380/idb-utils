@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use byteorder::{BigEndian, ByteOrder};
+use serde::Serialize;
 
 use crate::innodb::constants::FIL_PAGE_DATA;
 use crate::innodb::tablespace::Tablespace;
@@ -11,6 +12,19 @@ pub struct TsidOptions {
     pub datadir: String,
     pub list: bool,
     pub tablespace_id: Option<u32>,
+    pub json: bool,
+}
+
+#[derive(Serialize)]
+struct TsidResultJson {
+    datadir: String,
+    tablespaces: Vec<TsidEntryJson>,
+}
+
+#[derive(Serialize)]
+struct TsidEntryJson {
+    file: String,
+    space_id: u32,
 }
 
 pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
@@ -25,7 +39,17 @@ pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
     let ibd_files = find_ibd_and_ibu_files(datadir)?;
 
     if ibd_files.is_empty() {
-        println!("No .ibd/.ibu files found in {}", opts.datadir);
+        if opts.json {
+            let result = TsidResultJson {
+                datadir: opts.datadir.clone(),
+                tablespaces: Vec::new(),
+            };
+            let json = serde_json::to_string_pretty(&result)
+                .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+            println!("{}", json);
+        } else {
+            println!("No .ibd/.ibu files found in {}", opts.datadir);
+        }
         return Ok(());
     }
 
@@ -71,14 +95,33 @@ pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
         results.insert(display_path, space_id);
     }
 
-    // Print results
-    for (path, space_id) in &results {
-        println!("{} - Space ID: {}", path, space_id);
-    }
+    if opts.json {
+        let tablespaces: Vec<TsidEntryJson> = results
+            .iter()
+            .map(|(path, &space_id)| TsidEntryJson {
+                file: path.clone(),
+                space_id,
+            })
+            .collect();
 
-    if results.is_empty() {
-        if let Some(target_id) = opts.tablespace_id {
-            println!("Tablespace ID {} not found.", target_id);
+        let result = TsidResultJson {
+            datadir: opts.datadir.clone(),
+            tablespaces,
+        };
+
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+        println!("{}", json);
+    } else {
+        // Print results
+        for (path, space_id) in &results {
+            println!("{} - Space ID: {}", path, space_id);
+        }
+
+        if results.is_empty() {
+            if let Some(target_id) = opts.tablespace_id {
+                println!("Tablespace ID {} not found.", target_id);
+            }
         }
     }
 

@@ -1,109 +1,260 @@
 # IDB Utils
 
-IDB Utils is a collection of Perl scripts designed to assist with various database-related tasks. These utilities provide functionalities such as parsing, finding pages, and handling configurations for database files.
-
-## Table of Contents
-
-- [IDB Utils](#idb-utils)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Scripts](#scripts)
-    - [idb-liveinfo.pl](#idb-liveinfopl)
-    - [idb-parse.pl](#idb-parsepl)
-    - [idb-findpage.pl](#idb-findpagepl)
-    - [idb-corrupter.pl](#idb-corrupterpl)
-    - [idb-findtsid.pl](#idb-findtsidpl)
-  - [Testing](#testing)
-  - [Contributing](#contributing)
+A command-line toolkit for analyzing, parsing, and manipulating InnoDB database files. Written in Rust for performance and reliability, `idb` operates directly on `.ibd` tablespace files, redo logs, and system tablespaces without requiring a running MySQL instance.
 
 ## Installation
 
-To use these scripts, ensure you have Perl installed on your system. Clone the repository to your local machine:
+### From source
 
 ```bash
 git clone https://github.com/ringo380/idb-utils.git
+cd idb-utils
+cargo build --release
 ```
 
-## Usage
+The binary will be at `target/release/idb`.
 
-Each script has its own set of options and functionalities. You can run them using Perl:
+### With MySQL support
+
+To enable live MySQL instance queries (`idb info -D <db> -t <table>`):
 
 ```bash
-perl scriptname.pl [options]
+cargo build --release --features mysql
 ```
 
-For detailed usage instructions, refer to the help option for each script (usually -h or --help).
-
-## Scripts
-
-### idb-liveinfo.pl
-
-This script is used to parse configuration files and extract relevant information. It reads a configuration file and creates a hash of name-value pairs.
-
-### idb-parse.pl
-
-This script reads a G2++ file and converts it into XML. It offers various options for customization, such as verbosity and debugging.
-
-### idb-findpage.pl
-
-This script is designed to find specific pages within a database file. It includes options for specifying the data directory, page size, and more.
-
-### idb-corrupter.pl
-
-The idb-corrupter.pl script is used to corrupt pages in a table for demonstration or testing purposes. It provides various options to specify how and where the corruption should occur.
-
-**Usage:**
+## Quick Start
 
 ```bash
-perl idb-corrupter.pl [-f <file>] [-p <page #>] [-b <bytes>] [-v] [-d] [-k] [-r] [-o <offset>] [-h]
+# Parse an InnoDB tablespace and show page summary
+idb parse -f /var/lib/mysql/mydb/users.ibd
+
+# Validate all page checksums
+idb checksum -f users.ibd
+
+# Hex dump page 3
+idb dump -f users.ibd -p 3
+
+# Extract MySQL 8.0+ SDI metadata
+idb sdi -f users.ibd --pretty
+
+# Search a data directory for a specific page number
+idb find -d /var/lib/mysql -p 42
+
+# Compare ibdata1 and redo log LSNs
+idb info --lsn-check -d /var/lib/mysql
 ```
 
-**Options:**
+## Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `idb parse` | Parse .ibd file and display page headers with type summary |
+| `idb pages` | Detailed page structure analysis (INDEX, UNDO, LOB, SDI) |
+| `idb dump` | Hex dump of raw page bytes |
+| `idb checksum` | Validate page checksums (CRC-32C and legacy InnoDB) |
+| `idb corrupt` | Intentionally corrupt pages for testing |
+| `idb find` | Search for pages across a MySQL data directory |
+| `idb tsid` | List or find tablespace IDs |
+| `idb sdi` | Extract SDI metadata from MySQL 8.0+ tablespaces |
+| `idb log` | Analyze InnoDB redo log files |
+| `idb info` | Inspect ibdata1 headers, compare LSNs, query table info |
+
+All subcommands support `--help` for full option details.
+
+## Subcommand Reference
+
+### idb parse
+
+Parse an `.ibd` file and display page-level information including FIL headers, FSP data, checksums, and a page type summary.
 
 ```bash
-- -f, --file <file>: Path to the InnoDB data file. This is a required option unless specified otherwise.
-- -p, --page <page #>: Specify the page number to corrupt. If not specified, a random page will be chosen.
-- -b, --bytes <bytes>: Sets the amount of bytes to corrupt. Default is 1 byte.
-- -v, --verbose: Displays additional information during execution.
-- -d, --debug: Displays debug output for troubleshooting.
-- -k: Corrupt the page's FIL header area.
-- -r, --records: Corrupt the record area specifically.
-- -o, --offset <offset>: Set the exact byte offset you'd like to corrupt.
-- -h, --help: Displays usage information.
+idb parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>]
 ```
 
-**Examples:**
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Path to .ibd file |
+| `-p, --page` | Display a specific page number |
+| `-v, --verbose` | Show additional details |
+| `-e, --no-empty` | Skip empty/allocated pages |
+| `--json` | Output in JSON format |
+| `--page-size` | Override page size (default: auto-detect) |
 
-1. Corrupt a specific page in a file:
-   perl idb-corrupter.pl -f city2.ibd -p 5
+### idb pages
 
-2. Corrupt a random page with verbose output:
-   perl idb-corrupter.pl -f city2.ibd -v
-
-3. Corrupt the FIL header area of a specific page:
-   perl idb-corrupter.pl -f city2.ibd -p 3 -k
-
-4. Corrupt a specific number of bytes at a given offset:
-   perl idb-corrupter.pl -f city2.ibd -o 100 -b 10
-
-Notes:
-
-- Ensure you have the necessary permissions to modify the specified file.
-- Use this script with caution, as it will intentionally corrupt data.
-
-### idb-findtsid.pl
-
-This script helps in locating tablespace IDs within a database directory. It provides options for listing and setting database paths.
-
-## Testing
-
-The project includes a test script located in the IdbHelpers/t directory. You can run the tests using:
+Detailed analysis of page internals: INDEX page record headers, UNDO segments, LOB/BLOB pages, and SDI content.
 
 ```bash
-perl IdbHelpers/t/001_load.t
+idb pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-size <size>]
 ```
 
-## Contributing
+| Flag | Description |
+|------|-------------|
+| `-l, --list` | Compact one-line-per-page mode |
+| `-t, --type` | Filter by page type (e.g., `INDEX`) |
+| `-e, --show-empty` | Include empty/allocated pages |
 
-Contributions are welcome! Please fork the repository and submit a pull request for any improvements or bug fixes.
+### idb dump
+
+Hex dump of raw page bytes in standard offset/hex/ASCII format.
+
+```bash
+idb dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-p, --page` | Page number to dump (default: 0) |
+| `--offset` | Absolute byte offset (bypasses page mode) |
+| `-l, --length` | Number of bytes to dump |
+| `--raw` | Output raw binary bytes (no formatting) |
+
+### idb checksum
+
+Validate page checksums using both CRC-32C and legacy InnoDB algorithms.
+
+```bash
+idb checksum -f <file> [-v] [--json] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-v, --verbose` | Show per-page checksum details |
+| `--json` | Output summary and per-page results as JSON |
+
+### idb corrupt
+
+Intentionally corrupt page bytes for testing InnoDB recovery scenarios.
+
+```bash
+idb corrupt -f <file> [-p <page>] [-b <bytes>] [-k] [-r] [--offset <byte>] [--json] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-p, --page` | Page to corrupt (random if not specified) |
+| `-b, --bytes` | Number of bytes to corrupt (default: 1) |
+| `-k, --header` | Corrupt the FIL header area |
+| `-r, --records` | Corrupt the record data area |
+| `--offset` | Absolute byte offset (bypasses page calculation) |
+| `--json` | Output corruption details as JSON |
+
+Works on any file type (`.ibd`, `ibdata1`, redo logs).
+
+### idb find
+
+Search recursively through a MySQL data directory for pages matching criteria.
+
+```bash
+idb find -d <datadir> -p <page> [-c <checksum>] [-s <space_id>] [--first] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-d, --datadir` | MySQL data directory path |
+| `-p, --page` | Page number to search for |
+| `-c, --checksum` | Filter by checksum value |
+| `-s, --space-id` | Filter by space ID |
+| `--first` | Stop at first match |
+| `--json` | Output matches as JSON |
+
+### idb tsid
+
+List tablespace IDs across all `.ibd` and `.ibu` files in a data directory.
+
+```bash
+idb tsid -d <datadir> [-l] [-t <tsid>] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-l, --list` | List all tablespace IDs |
+| `-t, --tsid` | Find file by tablespace ID |
+| `--json` | Output as JSON |
+
+### idb sdi
+
+Extract and decompress SDI (Serialized Dictionary Information) metadata from MySQL 8.0+ tablespaces.
+
+```bash
+idb sdi -f <file> [--pretty] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--pretty` | Pretty-print JSON output |
+
+Supports multi-page SDI records that span across linked pages.
+
+### idb log
+
+Analyze InnoDB redo log files (both legacy `ib_logfile*` and MySQL 8.0.30+ `#ib_redo*`).
+
+```bash
+idb log -f <file> [-b <blocks>] [--no-empty] [-v] [--json]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-b, --blocks` | Limit to first N data blocks |
+| `--no-empty` | Skip empty blocks |
+| `-v, --verbose` | Show additional block details |
+| `--json` | Output as JSON |
+
+### idb info
+
+Inspect InnoDB system files and optionally query a live MySQL instance for table metadata.
+
+```bash
+# Read ibdata1 page 0 header
+idb info --ibdata -d /var/lib/mysql
+
+# Compare ibdata1 LSN with redo log checkpoint LSN
+idb info --lsn-check -d /var/lib/mysql
+
+# Query table and index info from MySQL (requires --features mysql)
+idb info -D mydb -t users --host 127.0.0.1 --user root
+```
+
+| Flag | Description |
+|------|-------------|
+| `--ibdata` | Inspect ibdata1 page 0 header |
+| `--lsn-check` | Compare ibdata1 and redo log LSNs |
+| `-d, --datadir` | MySQL data directory path |
+| `-D, --database` | Database name (MySQL query mode) |
+| `-t, --table` | Table name (MySQL query mode) |
+| `--host` | MySQL host |
+| `--port` | MySQL port |
+| `--user` | MySQL user |
+| `--password` | MySQL password |
+| `--defaults-file` | Path to .my.cnf |
+| `--json` | Output as JSON |
+
+## Supported MySQL Versions
+
+- MySQL 5.7 (legacy system tables, `ib_logfile*` redo logs)
+- MySQL 8.0 (`innodb_tables`/`innodb_indexes`, SDI metadata)
+- MySQL 8.0.30+ (`#innodb_redo/` directory format)
+- MySQL 8.4 / 9.x
+
+## Building from Source
+
+Requires Rust 1.70+.
+
+```bash
+# Standard build
+cargo build --release
+
+# With MySQL query support
+cargo build --release --features mysql
+
+# Run tests
+cargo test
+
+# Run linter
+cargo clippy -- -D warnings
+```
+
+## Legacy Perl Scripts
+
+The original Perl scripts (`idb-parse.pl`, `idb-corrupter.pl`, etc.) remain in the repository root. The Rust `idb` binary replaces all of them with a unified interface and additional capabilities.

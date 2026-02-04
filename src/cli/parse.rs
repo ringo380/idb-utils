@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
 
@@ -65,12 +67,16 @@ pub fn execute(opts: &ParseOptions) -> Result<(), IdbError> {
         );
         println!("{}", "-".repeat(50));
 
+        let mut type_counts: HashMap<PageType, u64> = HashMap::new();
+
         for page_num in 0..ts.page_count() {
             let page_data = ts.read_page(page_num)?;
             let header = match FilHeader::parse(&page_data) {
                 Some(h) => h,
                 None => continue,
             };
+
+            *type_counts.entry(header.page_type).or_insert(0) += 1;
 
             // Skip empty pages if --no-empty
             if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
@@ -83,6 +89,16 @@ pub fn execute(opts: &ParseOptions) -> Result<(), IdbError> {
             }
 
             print_page_info(&page_data, page_num, page_size, opts.verbose);
+        }
+
+        // Print page type summary
+        println!();
+        println!("{}", "Page Type Summary".bold());
+        let mut sorted_types: Vec<_> = type_counts.iter().collect();
+        sorted_types.sort_by(|a, b| b.1.cmp(a.1));
+        for (pt, count) in sorted_types {
+            let label = if *count == 1 { "page" } else { "pages" };
+            println!("  {:20} {:>6} {}", pt.name(), count, label);
         }
     }
 

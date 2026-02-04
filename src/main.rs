@@ -76,9 +76,36 @@ enum Commands {
         page_size: Option<u32>,
     },
 
+    /// Hex dump of raw page bytes
+    Dump {
+        /// Path to InnoDB data file
+        #[arg(short, long)]
+        file: String,
+
+        /// Page number to dump (default: 0)
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Absolute byte offset to start dumping (bypasses page mode)
+        #[arg(long)]
+        offset: Option<u64>,
+
+        /// Number of bytes to dump (default: page size or 256 for offset mode)
+        #[arg(short, long)]
+        length: Option<usize>,
+
+        /// Output raw binary bytes (no formatting)
+        #[arg(long)]
+        raw: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+    },
+
     /// Intentionally corrupt pages for testing
     Corrupt {
-        /// Path to InnoDB data file (.ibd)
+        /// Path to data file
         #[arg(short, long)]
         file: String,
 
@@ -97,6 +124,14 @@ enum Commands {
         /// Corrupt the record data area
         #[arg(short, long)]
         records: bool,
+
+        /// Absolute byte offset to corrupt (bypasses page calculation)
+        #[arg(long)]
+        offset: Option<u64>,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
 
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
@@ -120,6 +155,14 @@ enum Commands {
         /// Space ID to match
         #[arg(short, long)]
         space_id: Option<u32>,
+
+        /// Stop at first match
+        #[arg(long)]
+        first: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 
     /// List/find tablespace IDs
@@ -135,6 +178,10 @@ enum Commands {
         /// Find table file by tablespace ID
         #[arg(short = 't', long = "tsid")]
         tablespace_id: Option<u32>,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 
     /// Extract SDI metadata (MySQL 8.0+)
@@ -175,11 +222,66 @@ enum Commands {
         json: bool,
     },
 
+    /// Show InnoDB file and system information
+    Info {
+        /// Inspect ibdata1 page 0 header
+        #[arg(long)]
+        ibdata: bool,
+
+        /// Compare ibdata1 and redo log LSNs
+        #[arg(long = "lsn-check")]
+        lsn_check: bool,
+
+        /// MySQL data directory path
+        #[arg(short, long)]
+        datadir: Option<String>,
+
+        /// Database name (for table/index info)
+        #[arg(short = 'D', long)]
+        database: Option<String>,
+
+        /// Table name (for table/index info)
+        #[arg(short, long)]
+        table: Option<String>,
+
+        /// MySQL host
+        #[arg(long)]
+        host: Option<String>,
+
+        /// MySQL port
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// MySQL user
+        #[arg(long)]
+        user: Option<String>,
+
+        /// MySQL password
+        #[arg(long)]
+        password: Option<String>,
+
+        /// Path to MySQL defaults file (.my.cnf)
+        #[arg(long = "defaults-file")]
+        defaults_file: Option<String>,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Validate page checksums
     Checksum {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]
         file: String,
+
+        /// Show per-page checksum details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
 
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
@@ -227,12 +329,30 @@ fn main() {
             json,
         }),
 
+        Commands::Dump {
+            file,
+            page,
+            offset,
+            length,
+            raw,
+            page_size,
+        } => cli::dump::execute(&cli::dump::DumpOptions {
+            file,
+            page,
+            offset,
+            length,
+            raw,
+            page_size,
+        }),
+
         Commands::Corrupt {
             file,
             page,
             bytes,
             header,
             records,
+            offset,
+            json,
             page_size,
         } => cli::corrupt::execute(&cli::corrupt::CorruptOptions {
             file,
@@ -240,6 +360,8 @@ fn main() {
             bytes,
             header,
             records,
+            offset,
+            json,
             page_size,
         }),
 
@@ -248,21 +370,27 @@ fn main() {
             page,
             checksum,
             space_id,
+            first,
+            json,
         } => cli::find::execute(&cli::find::FindOptions {
             datadir,
             page,
             checksum,
             space_id,
+            first,
+            json,
         }),
 
         Commands::Tsid {
             datadir,
             list,
             tablespace_id,
+            json,
         } => cli::tsid::execute(&cli::tsid::TsidOptions {
             datadir,
             list,
             tablespace_id,
+            json,
         }),
 
         Commands::Sdi {
@@ -289,9 +417,43 @@ fn main() {
             json,
         }),
 
-        Commands::Checksum { file, page_size } => {
-            cli::checksum::execute(&cli::checksum::ChecksumOptions { file, page_size })
-        }
+        Commands::Info {
+            ibdata,
+            lsn_check,
+            datadir,
+            database,
+            table,
+            host,
+            port,
+            user,
+            password,
+            defaults_file,
+            json,
+        } => cli::info::execute(&cli::info::InfoOptions {
+            ibdata,
+            lsn_check,
+            datadir,
+            database,
+            table,
+            host,
+            port,
+            user,
+            password,
+            defaults_file,
+            json,
+        }),
+
+        Commands::Checksum {
+            file,
+            verbose,
+            json,
+            page_size,
+        } => cli::checksum::execute(&cli::checksum::ChecksumOptions {
+            file,
+            verbose,
+            json,
+            page_size,
+        }),
     };
 
     if let Err(e) = result {

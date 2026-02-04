@@ -25,57 +25,52 @@ pub fn execute(opts: &SdiOptions) -> Result<(), IdbError> {
 
     println!("Found {} SDI page(s): {:?}", sdi_pages.len(), sdi_pages);
 
-    let mut total_records = 0;
+    // Use multi-page reassembly to extract records
+    let records = sdi::extract_sdi_from_pages(&mut ts, &sdi_pages)?;
 
-    for page_num in &sdi_pages {
-        let page_data = ts.read_page(*page_num)?;
+    if records.is_empty() {
+        println!("No SDI records found (pages may be non-leaf or empty).");
+        return Ok(());
+    }
 
-        if let Some(records) = sdi::extract_sdi_from_page(&page_data) {
-            for rec in &records {
-                total_records += 1;
-                println!();
-                println!(
-                    "=== SDI Record: type={} ({}), id={}",
-                    rec.sdi_type,
-                    sdi::sdi_type_name(rec.sdi_type),
-                    rec.sdi_id
-                );
-                println!(
-                    "Compressed: {} bytes, Uncompressed: {} bytes",
-                    rec.compressed_len, rec.uncompressed_len
-                );
+    for rec in &records {
+        println!();
+        println!(
+            "=== SDI Record: type={} ({}), id={}",
+            rec.sdi_type,
+            sdi::sdi_type_name(rec.sdi_type),
+            rec.sdi_id
+        );
+        println!(
+            "Compressed: {} bytes, Uncompressed: {} bytes",
+            rec.compressed_len, rec.uncompressed_len
+        );
 
-                if rec.data.is_empty() {
-                    println!("(Data could not be decompressed - may span multiple pages)");
-                    continue;
+        if rec.data.is_empty() {
+            println!("(Data could not be decompressed - may span multiple pages)");
+            continue;
+        }
+
+        if opts.pretty {
+            // Pretty-print JSON
+            match serde_json::from_str::<serde_json::Value>(&rec.data) {
+                Ok(json) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json).unwrap_or(rec.data.clone())
+                    );
                 }
-
-                if opts.pretty {
-                    // Pretty-print JSON
-                    match serde_json::from_str::<serde_json::Value>(&rec.data) {
-                        Ok(json) => {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&json).unwrap_or(rec.data.clone())
-                            );
-                        }
-                        Err(_) => {
-                            println!("{}", rec.data);
-                        }
-                    }
-                } else {
+                Err(_) => {
                     println!("{}", rec.data);
                 }
             }
+        } else {
+            println!("{}", rec.data);
         }
     }
 
-    if total_records == 0 {
-        println!("No SDI records found (pages may be non-leaf or empty).");
-    } else {
-        println!();
-        println!("Total SDI records: {}", total_records);
-    }
+    println!();
+    println!("Total SDI records: {}", records.len());
 
     Ok(())
 }

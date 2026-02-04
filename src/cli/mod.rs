@@ -1,6 +1,8 @@
 pub mod checksum;
 pub mod corrupt;
+pub mod dump;
 pub mod find;
+pub mod info;
 pub mod log;
 pub mod pages;
 pub mod parse;

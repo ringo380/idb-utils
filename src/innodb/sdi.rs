@@ -2,7 +2,7 @@ use byteorder::{BigEndian, ByteOrder};
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 
-use crate::innodb::constants::{FIL_PAGE_DATA, FSP_HEADER_SIZE};
+use crate::innodb::constants::{FIL_PAGE_DATA, FSP_HEADER_SIZE, SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
 use crate::innodb::index::IndexHeader;
 use crate::innodb::page::FilHeader;
 use crate::innodb::page_types::PageType;
@@ -21,6 +21,19 @@ pub struct SdiRecord {
     pub compressed_len: u32,
     /// Decompressed JSON string.
     pub data: String,
+}
+
+/// Parsed fields from an SDI record before decompression.
+#[derive(Debug, Clone)]
+pub struct SdiRecordHeader {
+    pub sdi_type: u32,
+    pub sdi_id: u64,
+    pub uncompressed_len: u32,
+    pub compressed_len: u32,
+    /// Offset within the page where compressed data starts.
+    pub data_offset_in_page: usize,
+    /// Whether the data fits entirely within the page.
+    pub data_complete: bool,
 }
 
 /// SDI record field offsets relative to the record origin.
@@ -80,6 +93,147 @@ pub fn extract_sdi_from_page(page_data: &[u8]) -> Option<Vec<SdiRecord>> {
     Some(sdi_records)
 }
 
+/// Extract SDI records with multi-page reassembly support.
+///
+/// When a record's compressed data spans beyond the current page, this function
+/// follows the next-page chain to collect all compressed bytes before decompression.
+pub fn extract_sdi_from_pages(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    sdi_pages: &[u64],
+) -> Result<Vec<SdiRecord>, crate::IdbError> {
+    let mut all_records = Vec::new();
+
+    for &page_num in sdi_pages {
+        let page_data = ts.read_page(page_num)?;
+
+        let header = match FilHeader::parse(&page_data) {
+            Some(h) => h,
+            None => continue,
+        };
+        if header.page_type != PageType::Sdi {
+            continue;
+        }
+
+        let idx_header = match IndexHeader::parse(&page_data) {
+            Some(h) => h,
+            None => continue,
+        };
+
+        if !idx_header.is_leaf() || idx_header.n_recs == 0 {
+            continue;
+        }
+
+        let records = walk_compact_records(&page_data);
+
+        for rec in &records {
+            if rec.header.rec_type != RecordType::Ordinary {
+                continue;
+            }
+
+            if let Some(rec_header) = parse_sdi_record_header(&page_data, rec.offset) {
+                if rec_header.data_complete {
+                    // Data fits in single page
+                    let data_start = rec.offset + SDI_DATA_OFFSET;
+                    let compressed = &page_data[data_start..data_start + rec_header.compressed_len as usize];
+                    let json = decompress_sdi_data(compressed, rec_header.uncompressed_len)
+                        .unwrap_or_default();
+                    all_records.push(SdiRecord {
+                        sdi_type: rec_header.sdi_type,
+                        sdi_id: rec_header.sdi_id,
+                        uncompressed_len: rec_header.uncompressed_len,
+                        compressed_len: rec_header.compressed_len,
+                        data: json,
+                    });
+                } else {
+                    // Data spans multiple pages — collect from current and continuation pages
+                    let data_start = rec.offset + SDI_DATA_OFFSET;
+                    let available_this_page = page_data.len() - data_start;
+                    let mut compressed_data = Vec::with_capacity(rec_header.compressed_len as usize);
+                    compressed_data.extend_from_slice(&page_data[data_start..data_start + available_this_page]);
+
+                    let remaining = rec_header.compressed_len as usize - available_this_page;
+                    collect_continuation_data(ts, header.next_page, remaining, &mut compressed_data)?;
+
+                    let json = decompress_sdi_data(&compressed_data, rec_header.uncompressed_len)
+                        .unwrap_or_default();
+                    all_records.push(SdiRecord {
+                        sdi_type: rec_header.sdi_type,
+                        sdi_id: rec_header.sdi_id,
+                        uncompressed_len: rec_header.uncompressed_len,
+                        compressed_len: rec_header.compressed_len,
+                        data: json,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(all_records)
+}
+
+/// Collect continuation data from linked SDI pages.
+///
+/// Reads data from the page body (after FIL header, before FIL trailer) of successive pages.
+fn collect_continuation_data(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    mut next_page: u32,
+    mut remaining: usize,
+    buf: &mut Vec<u8>,
+) -> Result<(), crate::IdbError> {
+    while remaining > 0 && next_page != crate::innodb::constants::FIL_NULL && next_page != 0 {
+        let page_data = ts.read_page(next_page as u64)?;
+        let page_size = page_data.len();
+
+        // Data area: after FIL header, before FIL trailer
+        let data_start = SIZE_FIL_HEAD;
+        let data_end = page_size - SIZE_FIL_TRAILER;
+        let available = data_end - data_start;
+        let to_read = remaining.min(available);
+
+        buf.extend_from_slice(&page_data[data_start..data_start + to_read]);
+        remaining -= to_read;
+
+        // Follow the chain
+        let header = match FilHeader::parse(&page_data) {
+            Some(h) => h,
+            None => break,
+        };
+        next_page = header.next_page;
+    }
+
+    Ok(())
+}
+
+/// Parse SDI record header fields without decompressing data.
+fn parse_sdi_record_header(page_data: &[u8], origin: usize) -> Option<SdiRecordHeader> {
+    if origin + SDI_DATA_OFFSET > page_data.len() {
+        return None;
+    }
+
+    let data = &page_data[origin..];
+
+    let sdi_type = BigEndian::read_u32(&data[SDI_TYPE_OFFSET..]);
+    let sdi_id = BigEndian::read_u64(&data[SDI_ID_OFFSET..]);
+    let uncompressed_len = BigEndian::read_u32(&data[SDI_UNCOMP_LEN_OFFSET..]);
+    let compressed_len = BigEndian::read_u32(&data[SDI_COMP_LEN_OFFSET..]);
+
+    if compressed_len == 0 {
+        return None;
+    }
+
+    let data_end = origin + SDI_DATA_OFFSET + compressed_len as usize;
+    let data_complete = data_end <= page_data.len();
+
+    Some(SdiRecordHeader {
+        sdi_type,
+        sdi_id,
+        uncompressed_len,
+        compressed_len,
+        data_offset_in_page: origin + SDI_DATA_OFFSET,
+        data_complete,
+    })
+}
+
 /// Parse a single SDI record from the page data at the given origin offset.
 fn parse_sdi_record(page_data: &[u8], origin: usize) -> Option<SdiRecord> {
     // Check we have enough data for the fixed fields
@@ -101,8 +255,7 @@ fn parse_sdi_record(page_data: &[u8], origin: usize) -> Option<SdiRecord> {
     // Bounds check for compressed data
     let data_end = origin + SDI_DATA_OFFSET + compressed_len as usize;
     if data_end > page_data.len() {
-        // Data may span multiple pages (SDI_BLOB pages). For now, extract
-        // what we can from this page.
+        // Data spans multiple pages — extract what we can from this page
         let available = page_data.len() - (origin + SDI_DATA_OFFSET);
         let compressed = &data[SDI_DATA_OFFSET..SDI_DATA_OFFSET + available];
         let json = decompress_sdi_data(compressed, uncompressed_len).unwrap_or_default();
@@ -383,5 +536,34 @@ mod tests {
         BigEndian::write_u32(&mut page0[offset..], 1);
         BigEndian::write_u32(&mut page0[offset + 4..], 200); // > page_count=100
         assert_eq!(read_sdi_root_page(&page0, page_size, 100), None);
+    }
+
+    #[test]
+    fn test_parse_sdi_record_header() {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let json = r#"{"test": true}"#;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(json.as_bytes()).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Build a mock page with an SDI record at offset 200
+        let mut page = vec![0u8; 16384];
+        let origin = 200;
+
+        BigEndian::write_u32(&mut page[origin + SDI_TYPE_OFFSET..], 1); // Table
+        BigEndian::write_u64(&mut page[origin + SDI_ID_OFFSET..], 42);
+        BigEndian::write_u32(&mut page[origin + SDI_UNCOMP_LEN_OFFSET..], json.len() as u32);
+        BigEndian::write_u32(&mut page[origin + SDI_COMP_LEN_OFFSET..], compressed.len() as u32);
+        page[origin + SDI_DATA_OFFSET..origin + SDI_DATA_OFFSET + compressed.len()]
+            .copy_from_slice(&compressed);
+
+        let header = parse_sdi_record_header(&page, origin).unwrap();
+        assert_eq!(header.sdi_type, 1);
+        assert_eq!(header.sdi_id, 42);
+        assert!(header.data_complete);
+        assert_eq!(header.compressed_len, compressed.len() as u32);
     }
 }
