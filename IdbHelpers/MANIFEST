@@ -1,8 +1,0 @@
-MANIFEST
-README
-LICENSE
-Todo
-Changes
-Makefile.PL
-lib/IdbHelpers.pm
-t/001_load.t
