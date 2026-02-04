@@ -3,3 +3,8 @@
 CLAUDE.md
 .claude/
 .worktrees/
+
+
+# Added by cargo
+
+/target
