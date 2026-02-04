@@ -4,6 +4,7 @@ pub mod constants;
 pub mod encryption;
 pub mod index;
 pub mod lob;
+pub mod log;
 pub mod page;
 pub mod page_types;
 pub mod record;

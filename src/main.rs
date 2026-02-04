@@ -152,6 +152,29 @@ enum Commands {
         page_size: Option<u32>,
     },
 
+    /// Analyze InnoDB redo log files
+    Log {
+        /// Path to redo log file (ib_logfile0, ib_logfile1, or #ib_redo*)
+        #[arg(short, long)]
+        file: String,
+
+        /// Limit to first N data blocks
+        #[arg(short, long)]
+        blocks: Option<u64>,
+
+        /// Skip empty blocks
+        #[arg(long)]
+        no_empty: bool,
+
+        /// Display additional information
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Validate page checksums
     Checksum {
         /// Path to InnoDB data file (.ibd)
@@ -250,6 +273,20 @@ fn main() {
             file,
             pretty,
             page_size,
+        }),
+
+        Commands::Log {
+            file,
+            blocks,
+            no_empty,
+            verbose,
+            json,
+        } => cli::log::execute(&cli::log::LogOptions {
+            file,
+            blocks,
+            no_empty,
+            verbose,
+            json,
         }),
 
         Commands::Checksum { file, page_size } => {
