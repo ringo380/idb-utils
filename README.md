@@ -1,10 +1,23 @@
 # IDB Utils
 
-A command-line toolkit for analyzing, parsing, and manipulating InnoDB database files. Written in Rust for performance and reliability, `idb` operates directly on `.ibd` tablespace files, redo logs, and system tablespaces without requiring a running MySQL instance.
+A command-line toolkit for inspecting, validating, and manipulating InnoDB database files. Written in Rust for performance and reliability, the `idb` binary operates directly on `.ibd` tablespace files, redo logs, and system tablespaces — no running MySQL instance required.
+
+## What It Does
+
+IDB Utils gives you low-level visibility into InnoDB's on-disk structures. Use it to:
+
+- **Inspect tablespace files** — parse page headers, examine B+Tree index structures, walk undo logs, inspect BLOB/LOB chains
+- **Validate data integrity** — verify CRC-32C and legacy InnoDB checksums, detect LSN mismatches between headers and trailers
+- **Extract metadata** — read MySQL 8.0+ SDI (Serialized Dictionary Information) directly from `.ibd` files without a running server
+- **Analyze redo logs** — parse log file headers, checkpoints, and data blocks from both legacy and MySQL 8.0.30+ formats
+- **Test recovery scenarios** — intentionally corrupt specific pages or byte ranges to exercise InnoDB recovery mechanisms
+- **Audit a data directory** — search for pages across files, list tablespace IDs, compare LSNs between ibdata1 and redo logs
 
 ## Installation
 
-### From source
+### From Source
+
+Requires Rust 1.70+.
 
 ```bash
 git clone https://github.com/ringo380/idb-utils.git
@@ -12,234 +25,565 @@ cd idb-utils
 cargo build --release
 ```
 
-The binary will be at `target/release/idb`.
+The binary will be at `target/release/idb`. Copy it to a directory in your `$PATH`:
 
-### With MySQL support
+```bash
+cp target/release/idb /usr/local/bin/
+```
 
-To enable live MySQL instance queries (`idb info -D <db> -t <table>`):
+### With MySQL Query Support
+
+To enable live MySQL instance queries via `idb info`:
 
 ```bash
 cargo build --release --features mysql
 ```
 
+This adds the `mysql_async` and `tokio` dependencies for connecting to a running MySQL server.
+
+### Verify Installation
+
+```bash
+idb --help
+idb --version
+```
+
 ## Quick Start
 
 ```bash
-# Parse an InnoDB tablespace and show page summary
+# Parse a tablespace and show a page type summary
 idb parse -f /var/lib/mysql/mydb/users.ibd
 
-# Validate all page checksums
+# Validate every page checksum in a tablespace
 idb checksum -f users.ibd
+
+# Get detailed INDEX page structure (record counts, B+Tree levels)
+idb pages -f users.ibd -t INDEX
 
 # Hex dump page 3
 idb dump -f users.ibd -p 3
 
-# Extract MySQL 8.0+ SDI metadata
+# Extract table/column definitions from MySQL 8.0+ SDI
 idb sdi -f users.ibd --pretty
 
-# Search a data directory for a specific page number
+# Analyze redo log checkpoints
+idb log -f /var/lib/mysql/ib_logfile0
+
+# Search an entire data directory for page number 42
 idb find -d /var/lib/mysql -p 42
 
-# Compare ibdata1 and redo log LSNs
+# Check if ibdata1 and redo log LSNs are in sync
 idb info --lsn-check -d /var/lib/mysql
 ```
+
+Every subcommand supports `--json` for machine-readable output and `--help` for full option details.
 
 ## Subcommands
 
 | Command | Description |
 |---------|-------------|
-| `idb parse` | Parse .ibd file and display page headers with type summary |
-| `idb pages` | Detailed page structure analysis (INDEX, UNDO, LOB, SDI) |
-| `idb dump` | Hex dump of raw page bytes |
-| `idb checksum` | Validate page checksums (CRC-32C and legacy InnoDB) |
-| `idb corrupt` | Intentionally corrupt pages for testing |
-| `idb find` | Search for pages across a MySQL data directory |
-| `idb tsid` | List or find tablespace IDs |
-| `idb sdi` | Extract SDI metadata from MySQL 8.0+ tablespaces |
-| `idb log` | Analyze InnoDB redo log files |
-| `idb info` | Inspect ibdata1 headers, compare LSNs, query table info |
+| [`parse`](#idb-parse) | Parse .ibd file and display page headers with type summary |
+| [`pages`](#idb-pages) | Detailed page structure analysis (INDEX, UNDO, LOB, SDI) |
+| [`dump`](#idb-dump) | Hex dump of raw page bytes |
+| [`checksum`](#idb-checksum) | Validate page checksums (CRC-32C and legacy InnoDB) |
+| [`corrupt`](#idb-corrupt) | Intentionally corrupt pages for recovery testing |
+| [`find`](#idb-find) | Search for pages across a MySQL data directory |
+| [`tsid`](#idb-tsid) | List or find tablespace IDs |
+| [`sdi`](#idb-sdi) | Extract SDI metadata from MySQL 8.0+ tablespaces |
+| [`log`](#idb-log) | Analyze InnoDB redo log files |
+| [`info`](#idb-info) | Inspect ibdata1 headers, compare LSNs, query MySQL |
 
-All subcommands support `--help` for full option details.
+---
 
 ## Subcommand Reference
 
 ### idb parse
 
-Parse an `.ibd` file and display page-level information including FIL headers, FSP data, checksums, and a page type summary.
+Parse an `.ibd` file and display page-level information. Shows FIL headers, FSP metadata, checksums, and a page type summary across the entire tablespace.
 
-```bash
+```
 idb parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-f, --file` | Path to .ibd file |
-| `-p, --page` | Display a specific page number |
-| `-v, --verbose` | Show additional details |
-| `-e, --no-empty` | Skip empty/allocated pages |
-| `--json` | Output in JSON format |
-| `--page-size` | Override page size (default: auto-detect) |
+| `-f, --file` | Path to .ibd file (required) |
+| `-p, --page` | Show a single page instead of all pages |
+| `-v, --verbose` | Include checksum validation, record counts, LSN details |
+| `-e, --no-empty` | Skip pages with zero checksum and Allocated type |
+| `--json` | Output as JSON array |
+| `--page-size` | Override page size in bytes (default: auto-detect from FSP flags) |
+
+**All-pages mode** (default) iterates every page and prints a summary table showing how many pages of each type exist in the tablespace. **Single-page mode** (`-p N`) displays the full FIL header for that page including checksum, page type, LSN, prev/next page chain, and space ID.
+
+```bash
+# Overview of a tablespace
+idb parse -f users.ibd
+
+# Detailed look at the FSP header page
+idb parse -f users.ibd -p 0 -v
+
+# Machine-readable output for scripting
+idb parse -f users.ibd --json | jq '.[] | select(.page_type == "INDEX")'
+```
+
+---
 
 ### idb pages
 
-Detailed analysis of page internals: INDEX page record headers, UNDO segments, LOB/BLOB pages, and SDI content.
+Detailed structural analysis of page internals. Goes deeper than `parse` by decoding type-specific headers: INDEX page B+Tree metadata, UNDO segment state, LOB/BLOB chain headers, and SDI content.
 
-```bash
+```
 idb pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-l, --list` | Compact one-line-per-page mode |
-| `-t, --type` | Filter by page type (e.g., `INDEX`) |
-| `-e, --show-empty` | Include empty/allocated pages |
+| `-f, --file` | Path to .ibd file (required) |
+| `-p, --page` | Analyze a single page |
+| `-v, --verbose` | Show additional structural details |
+| `-e, --show-empty` | Include empty/Allocated pages (hidden by default) |
+| `-l, --list` | Compact one-line-per-page listing |
+| `-t, --type` | Filter by page type name |
+| `--json` | Output as JSON |
+| `--page-size` | Override page size |
+
+**Type filter** accepts exact type names and aliases:
+
+| Filter value | Matches |
+|-------------|---------|
+| `INDEX` | B+Tree index pages |
+| `UNDO` | Undo log pages |
+| `BLOB` | Old-style BLOB, ZBlob, ZBlob2 |
+| `LOB` | MySQL 8.0+ LobIndex, LobData, LobFirst |
+| `SDI` | SDI and SDI BLOB pages |
+| `COMPRESSED` or `COMP` | Compressed and CompressedEncrypted |
+| `ENCRYPTED` or `ENC` | Encrypted, CompressedEncrypted, EncryptedRtree |
+
+**What it shows per page type:**
+
+- **INDEX pages** — index header (n_recs, level, index_id, heap_top, direction), FSEG headers (leaf/non-leaf segment pointers), system records (infimum/supremum next pointers), compact vs redundant format flag
+- **UNDO pages** — undo page header (type: INSERT or UPDATE, log start/free offsets), undo segment header (state: Active/Cached/ToFree/ToPurge/Prepared)
+- **BLOB pages** — part_len (bytes stored on this page), next_page_no in chain
+- **LOB_FIRST pages** — version, flags, total data_len, trx_id
+- **FSP_HDR pages** — space_id, tablespace size, free limit, compression algorithm, encryption flag, first unused segment ID
+
+```bash
+# List all INDEX pages with their B+Tree levels
+idb pages -f users.ibd -t INDEX -l
+
+# Deep inspection of a specific undo page
+idb pages -f undo_001.ibu -p 5 -v
+
+# Find all BLOB pages in a tablespace
+idb pages -f users.ibd -t BLOB -l
+```
+
+---
 
 ### idb dump
 
-Hex dump of raw page bytes in standard offset/hex/ASCII format.
+Hex dump of raw page bytes. Output follows the standard `offset | hex bytes | ASCII` format with 16 bytes per line.
 
-```bash
+```
 idb dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
+| `-f, --file` | Path to file (required) |
 | `-p, --page` | Page number to dump (default: 0) |
-| `--offset` | Absolute byte offset (bypasses page mode) |
-| `-l, --length` | Number of bytes to dump |
-| `--raw` | Output raw binary bytes (no formatting) |
+| `--offset` | Absolute byte offset into the file (bypasses page mode) |
+| `-l, --length` | Number of bytes to dump (default: full page or 256 in offset mode) |
+| `--raw` | Output raw binary bytes to stdout (no hex formatting) |
+| `--page-size` | Override page size |
+
+```bash
+# Dump the FIL header of page 0 (first 38 bytes)
+idb dump -f users.ibd -p 0 -l 38
+
+# Dump raw bytes at a specific file offset
+idb dump -f users.ibd --offset 16384 -l 64
+
+# Extract a raw page to a file
+idb dump -f users.ibd -p 3 --raw > page3.bin
+```
+
+---
 
 ### idb checksum
 
-Validate page checksums using both CRC-32C and legacy InnoDB algorithms.
+Validate page checksums across an entire tablespace. Supports both CRC-32C (MySQL 5.7.7+ default) and legacy InnoDB checksum algorithms. Also validates LSN consistency between the FIL header and trailer of each page.
 
-```bash
+```
 idb checksum -f <file> [-v] [--json] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-v, --verbose` | Show per-page checksum details |
-| `--json` | Output summary and per-page results as JSON |
+| `-f, --file` | Path to .ibd file (required) |
+| `-v, --verbose` | Show per-page checksum status |
+| `--json` | Output as JSON with summary statistics |
+| `--page-size` | Override page size |
+
+**Validation logic:**
+1. Pages with the magic checksum `0xDEADBEEF` are skipped (no checksum set)
+2. All-zero pages are treated as valid (freshly allocated)
+3. CRC-32C is tried first (covers bytes 4-25 and 38 to page_size-8)
+4. Falls back to legacy InnoDB algorithm (`ut_fold_binary`) if CRC-32C doesn't match
+5. LSN low 32 bits from the FIL header (offset 16) are compared against the trailer (last 4 bytes)
+
+**Exit code:** Returns `1` if any invalid checksums are found.
+
+```bash
+# Quick validation
+idb checksum -f users.ibd
+
+# Detailed per-page report
+idb checksum -f users.ibd -v
+
+# JSON output for monitoring
+idb checksum -f users.ibd --json
+```
+
+**JSON output structure:**
+```json
+{
+  "file": "users.ibd",
+  "page_size": 16384,
+  "total_pages": 100,
+  "empty_pages": 10,
+  "valid_pages": 88,
+  "invalid_pages": 2,
+  "lsn_mismatches": 0,
+  "pages": [...]
+}
+```
+
+---
 
 ### idb corrupt
 
-Intentionally corrupt page bytes for testing InnoDB recovery scenarios.
+Intentionally corrupt page bytes for testing InnoDB crash recovery, backup validation, or checksum detection. Writes random bytes to specified locations in the file.
 
-```bash
+**Warning:** This command modifies files. Always work on copies, not production data.
+
+```
 idb corrupt -f <file> [-p <page>] [-b <bytes>] [-k] [-r] [--offset <byte>] [--json] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-p, --page` | Page to corrupt (random if not specified) |
-| `-b, --bytes` | Number of bytes to corrupt (default: 1) |
-| `-k, --header` | Corrupt the FIL header area |
-| `-r, --records` | Corrupt the record data area |
-| `--offset` | Absolute byte offset (bypasses page calculation) |
+| `-f, --file` | Path to file to corrupt (required) |
+| `-p, --page` | Page number to corrupt (random page if omitted) |
+| `-b, --bytes` | Number of bytes to overwrite with random data (default: 1) |
+| `-k, --header` | Target the FIL header area (first 38 bytes of the page) |
+| `-r, --records` | Target the user data area (bytes 120 through page_size-8) |
+| `--offset` | Absolute byte offset (bypasses page calculation entirely) |
 | `--json` | Output corruption details as JSON |
+| `--page-size` | Override page size |
 
-Works on any file type (`.ibd`, `ibdata1`, redo logs).
+Works on any InnoDB file type: `.ibd` tablespaces, `ibdata1`, undo tablespaces, redo logs.
+
+```bash
+# Corrupt 4 bytes in the record area of page 5
+idb corrupt -f users_copy.ibd -p 5 -b 4 -r
+
+# Corrupt the FIL header of a random page
+idb corrupt -f users_copy.ibd -k
+
+# Corrupt at a specific file offset
+idb corrupt -f ibdata1_copy -b 8 --offset 65536
+
+# Get corruption details as JSON for test automation
+idb corrupt -f users_copy.ibd -p 3 -b 2 --json
+```
+
+---
 
 ### idb find
 
-Search recursively through a MySQL data directory for pages matching criteria.
+Recursively search a MySQL data directory for `.ibd` files containing a specific page number. Useful for locating which tablespace owns a particular page when debugging InnoDB errors that reference page numbers.
 
-```bash
+```
 idb find -d <datadir> -p <page> [-c <checksum>] [-s <space_id>] [--first] [--json]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-d, --datadir` | MySQL data directory path |
-| `-p, --page` | Page number to search for |
-| `-c, --checksum` | Filter by checksum value |
-| `-s, --space-id` | Filter by space ID |
-| `--first` | Stop at first match |
-| `--json` | Output matches as JSON |
+| `-d, --datadir` | MySQL data directory path (required) |
+| `-p, --page` | Page number to search for (required) |
+| `-c, --checksum` | Also match this checksum value |
+| `-s, --space-id` | Also match this space ID |
+| `--first` | Stop after the first match |
+| `--json` | Output as JSON |
+
+```bash
+# Find which tablespace contains page 42
+idb find -d /var/lib/mysql -p 42
+
+# Find page 0 with a specific space ID
+idb find -d /var/lib/mysql -p 0 -s 15
+
+# Stop at first match for speed
+idb find -d /var/lib/mysql -p 100 --first
+```
+
+---
 
 ### idb tsid
 
-List tablespace IDs across all `.ibd` and `.ibu` files in a data directory.
+List tablespace IDs from all `.ibd` and `.ibu` files in a data directory. Reads the space ID from the FSP header on page 0 of each file.
 
-```bash
+```
 idb tsid -d <datadir> [-l] [-t <tsid>] [--json]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-l, --list` | List all tablespace IDs |
-| `-t, --tsid` | Find file by tablespace ID |
+| `-d, --datadir` | MySQL data directory path (required) |
+| `-l, --list` | List all tablespace IDs found |
+| `-t, --tsid` | Find the file with this specific tablespace ID |
 | `--json` | Output as JSON |
+
+```bash
+# List all tablespace IDs
+idb tsid -d /var/lib/mysql -l
+
+# Find which file has tablespace ID 42
+idb tsid -d /var/lib/mysql -t 42
+```
+
+---
 
 ### idb sdi
 
-Extract and decompress SDI (Serialized Dictionary Information) metadata from MySQL 8.0+ tablespaces.
+Extract SDI (Serialized Dictionary Information) metadata from MySQL 8.0+ tablespaces. SDI records contain the full table and tablespace definitions (column types, indexes, partitions, etc.) stored as compressed JSON directly in the `.ibd` file.
 
-```bash
+```
 idb sdi -f <file> [--pretty] [--page-size <size>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--pretty` | Pretty-print JSON output |
+| `-f, --file` | Path to .ibd file (required) |
+| `--pretty` | Pretty-print the JSON output |
+| `--page-size` | Override page size |
 
-Supports multi-page SDI records that span across linked pages.
+SDI records are zlib-compressed and may span multiple linked pages. The tool handles multi-page reassembly automatically by following the page chain.
+
+Each record has a type (1 = Table definition, 2 = Tablespace definition) and contains the full JSON representation of the object as MySQL's data dictionary sees it.
+
+```bash
+# Extract and pretty-print SDI
+idb sdi -f users.ibd --pretty
+
+# Pipe to jq for specific fields
+idb sdi -f users.ibd | jq '.dd_object.columns[].name'
+```
+
+---
 
 ### idb log
 
-Analyze InnoDB redo log files (both legacy `ib_logfile*` and MySQL 8.0.30+ `#ib_redo*`).
+Analyze InnoDB redo log files. Supports both legacy format (`ib_logfile0`, `ib_logfile1`) and the MySQL 8.0.30+ directory format (`#innodb_redo/#ib_redo*`).
 
-```bash
+Redo logs are structured as a sequence of 512-byte blocks. The first 4 blocks are reserved: block 0 is the file header, blocks 1 and 3 are checkpoints, and data blocks start at block 4.
+
+```
 idb log -f <file> [-b <blocks>] [--no-empty] [-v] [--json]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-b, --blocks` | Limit to first N data blocks |
-| `--no-empty` | Skip empty blocks |
-| `-v, --verbose` | Show additional block details |
+| `-f, --file` | Path to redo log file (required) |
+| `-b, --blocks` | Limit output to the first N data blocks |
+| `--no-empty` | Skip blocks with no data |
+| `-v, --verbose` | Show MLOG record type breakdown per block |
 | `--json` | Output as JSON |
+
+**Verbose mode** scans each data block for MLOG record type bytes and reports counts. This gives a rough breakdown of the types of operations recorded in each block (inserts, updates, page creates, file operations, etc.).
+
+```bash
+# Show log file header and checkpoints
+idb log -f /var/lib/mysql/ib_logfile0
+
+# Analyze first 100 data blocks with record type breakdown
+idb log -f /var/lib/mysql/ib_logfile0 -b 100 -v
+
+# Skip empty blocks
+idb log -f /var/lib/mysql/ib_logfile0 --no-empty
+```
+
+---
 
 ### idb info
 
-Inspect InnoDB system files and optionally query a live MySQL instance for table metadata.
+Inspect InnoDB system files and optionally query a live MySQL instance. Has three modes of operation.
+
+```
+idb info [--ibdata] [--lsn-check] [-d <datadir>]
+         [-D <database> -t <table>] [--host <host>] [--port <port>]
+         [--user <user>] [--password <pass>] [--defaults-file <path>]
+         [--json]
+```
+
+**Mode 1: ibdata1 inspection (`--ibdata`)**
+
+Reads page 0 of `ibdata1` and displays the FIL header fields (checksum, page type, LSN, flush LSN, space ID). Also reads the redo log checkpoint LSN for reference.
 
 ```bash
-# Read ibdata1 page 0 header
 idb info --ibdata -d /var/lib/mysql
+```
 
-# Compare ibdata1 LSN with redo log checkpoint LSN
+**Mode 2: LSN consistency check (`--lsn-check`)**
+
+Compares the LSN from `ibdata1` page 0 with the redo log checkpoint LSN. Reports whether they are `IN SYNC` or `OUT OF SYNC`. Returns exit code `1` if out of sync.
+
+Tries MySQL 8.0.30+ format (`#innodb_redo/`) first, falls back to legacy `ib_logfile0`.
+
+```bash
 idb info --lsn-check -d /var/lib/mysql
+```
 
-# Query table and index info from MySQL (requires --features mysql)
-idb info -D mydb -t users --host 127.0.0.1 --user root
+**Mode 3: MySQL query mode (`-D`, `-t`)**
+
+Requires the `mysql` feature. Connects to a running MySQL instance and queries `information_schema` for table metadata: space_id, table_id, indexes (name, index_id, root_page), and current LSN from `SHOW ENGINE INNODB STATUS`.
+
+```bash
+# Using credentials from ~/.my.cnf
+idb info -D mydb -t users
+
+# Explicit connection parameters
+idb info -D mydb -t users --host 127.0.0.1 --user root --password secret
+
+# Using a specific defaults file
+idb info -D mydb -t users --defaults-file /etc/mysql/my.cnf
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--ibdata` | Inspect ibdata1 page 0 header |
-| `--lsn-check` | Compare ibdata1 and redo log LSNs |
-| `-d, --datadir` | MySQL data directory path |
+| `--lsn-check` | Compare ibdata1 and redo log checkpoint LSNs |
+| `-d, --datadir` | MySQL data directory (default: `/var/lib/mysql`) |
 | `-D, --database` | Database name (MySQL query mode) |
 | `-t, --table` | Table name (MySQL query mode) |
 | `--host` | MySQL host |
 | `--port` | MySQL port |
 | `--user` | MySQL user |
 | `--password` | MySQL password |
-| `--defaults-file` | Path to .my.cnf |
+| `--defaults-file` | Path to `.my.cnf` defaults file |
 | `--json` | Output as JSON |
+
+MySQL credentials are resolved in order: CLI flags, then `--defaults-file`, then `~/.my.cnf`, then `/etc/my.cnf`.
+
+---
 
 ## Supported MySQL Versions
 
-- MySQL 5.7 (legacy system tables, `ib_logfile*` redo logs)
-- MySQL 8.0 (`innodb_tables`/`innodb_indexes`, SDI metadata)
-- MySQL 8.0.30+ (`#innodb_redo/` directory format)
-- MySQL 8.4 / 9.x
+| Version | Tablespaces | Redo Logs | SDI | System Tables |
+|---------|-------------|-----------|-----|---------------|
+| MySQL 5.7 | `.ibd` | `ib_logfile*` | N/A | `innodb_sys_tables` |
+| MySQL 8.0 | `.ibd` | `ib_logfile*` | Yes | `innodb_tables` / `innodb_indexes` |
+| MySQL 8.0.30+ | `.ibd` | `#innodb_redo/` | Yes | `innodb_tables` / `innodb_indexes` |
+| MySQL 8.4 / 9.x | `.ibd` | `#innodb_redo/` | Yes | `innodb_tables` / `innodb_indexes` |
 
-## Building from Source
+**Page sizes:** 4K, 8K, 16K (default), 32K, and 64K are all supported and auto-detected from FSP flags.
 
-Requires Rust 1.70+.
+---
+
+## InnoDB File Format Primer
+
+Understanding the on-disk format helps when interpreting `idb` output.
+
+### Tablespace Files (.ibd)
+
+Each `.ibd` file is a tablespace containing one or more tables. The file is divided into fixed-size **pages** (default 16,384 bytes). Every page has the same basic structure:
+
+```
++------------------+  byte 0
+| FIL Header       |  38 bytes — checksum, page number, prev/next, LSN, type, space_id
++------------------+  byte 38
+| Page Body        |  varies by page type
+|                  |
++------------------+  byte (page_size - 8)
+| FIL Trailer      |  8 bytes — old checksum, LSN low 32 bits
++------------------+
+```
+
+**Page 0** is always an `FSP_HDR` (File Space Header) page containing tablespace-level metadata: total size, space ID, flags encoding page size and compression/encryption settings, and extent descriptors.
+
+### Page Types
+
+InnoDB uses ~26 page types. The most common ones you'll encounter:
+
+| Type | Value | Description |
+|------|-------|-------------|
+| `INDEX` | 17855 | B+Tree leaf and non-leaf nodes (the bulk of any tablespace) |
+| `FSP_HDR` | 8 | File space header (always page 0) |
+| `INODE` | 3 | File segment inode (segment metadata) |
+| `XDES` | 9 | Extent descriptor (tracks extent allocation) |
+| `ALLOCATED` | 0 | Freshly allocated, not yet used |
+| `UNDO_LOG` | 2 | Undo log records for MVCC |
+| `BLOB` | 10 | Externally stored column data |
+| `SDI` | 17853 | Serialized Dictionary Information (MySQL 8.0+) |
+| `TRX_SYS` | 7 | Transaction system header (ibdata1 page 5) |
+
+### Checksums
+
+Each page stores a checksum in the first 4 bytes. MySQL supports two algorithms:
+
+- **CRC-32C** (default since MySQL 5.7.7) — hardware-accelerated on modern CPUs
+- **Legacy InnoDB** — a custom folding hash from the original InnoDB codebase
+
+Both are computed over the same byte ranges (excluding the checksum field itself and the FIL trailer checksum). The `idb checksum` command tries CRC-32C first and falls back to legacy.
+
+### LSN (Log Sequence Number)
+
+The LSN is a monotonically increasing counter tracking the position in the redo log. Each page records its last-modified LSN in both the FIL header (8 bytes at offset 16) and the FIL trailer (low 32 bits). A mismatch between these two values indicates a torn page write.
+
+### Redo Log Structure
+
+Redo logs are sequences of 512-byte blocks:
+
+| Block | Purpose |
+|-------|---------|
+| 0 | File header (group_id, start_lsn, file_no, creator string) |
+| 1 | Checkpoint 1 (number, lsn, offset, buf_size) |
+| 2 | Reserved |
+| 3 | Checkpoint 2 |
+| 4+ | Data blocks (14-byte header, up to 494 bytes of log records, 4-byte checksum) |
+
+Each data block is checksummed with CRC-32C over the first 508 bytes.
+
+---
+
+## JSON Output
+
+Every subcommand supports `--json` for structured output suitable for scripting, monitoring, and integration with other tools.
+
+```bash
+# Pipe to jq for filtering
+idb parse -f users.ibd --json | jq '[.[] | select(.page_type == "INDEX")]'
+
+# Checksum validation in CI
+if ! idb checksum -f users.ibd --json | jq -e '.invalid_pages == 0' > /dev/null; then
+  echo "Checksum validation failed"
+  exit 1
+fi
+
+# Extract column names from SDI
+idb sdi -f users.ibd | jq -r '.dd_object.columns[].name'
+
+# Count pages by type
+idb parse -f users.ibd --json | jq 'group_by(.page_type) | map({type: .[0].page_type, count: length})'
+```
+
+---
+
+## Building and Testing
+
+### Build
 
 ```bash
 # Standard build
@@ -247,14 +591,80 @@ cargo build --release
 
 # With MySQL query support
 cargo build --release --features mysql
+```
 
-# Run tests
+### Test
+
+The test suite includes 55 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo) and 14 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+
+```bash
+# Run all tests
 cargo test
 
-# Run linter
+# Run a specific test
+cargo test test_crc32c_checksum_valid_pages
+```
+
+### Lint
+
+The project enforces zero clippy warnings:
+
+```bash
 cargo clippy -- -D warnings
 ```
 
-## Legacy Perl Scripts
+### CI
 
-The original Perl scripts (`idb-parse.pl`, `idb-corrupter.pl`, etc.) remain in the repository root. The Rust `idb` binary replaces all of them with a unified interface and additional capabilities.
+GitHub Actions runs on every push and pull request:
+- `cargo test` on Ubuntu
+- `cargo clippy -- -D warnings`
+- `cargo build --release` on Ubuntu and macOS
+- `cargo build --release --features mysql`
+
+---
+
+## Project Structure
+
+```
+src/
+  main.rs              CLI entry point and subcommand dispatch (clap derive)
+  lib.rs               IdbError type, module re-exports
+  cli/
+    parse.rs           idb parse
+    pages.rs           idb pages
+    dump.rs            idb dump
+    checksum.rs        idb checksum
+    corrupt.rs         idb corrupt
+    find.rs            idb find
+    tsid.rs            idb tsid
+    sdi.rs             idb sdi
+    log.rs             idb log
+    info.rs            idb info
+  innodb/
+    constants.rs       InnoDB on-disk format constants (offsets, sizes, flags)
+    page.rs            FIL header, FIL trailer, FSP header parsing
+    page_types.rs      PageType enum (26 variants) with names and descriptions
+    tablespace.rs      Tablespace file I/O abstraction (open, read_page, iterate)
+    checksum.rs        CRC-32C and legacy InnoDB checksum validation
+    index.rs           INDEX page header, FSEG headers, system records
+    record.rs          Compact record header parsing, record chain walking
+    undo.rs            Undo page/segment headers, rollback segment arrays
+    lob.rs             BLOB page headers, LOB first page, chain walking
+    sdi.rs             SDI page detection, record extraction, zlib decompression
+    log.rs             Redo log headers, checkpoints, block parsing, MLOG types
+    compression.rs     Compression detection (zlib/lz4), decompression
+    encryption.rs      Encryption detection (AES flag in FSP flags)
+  util/
+    hex.rs             Hex dump formatting, offset/value formatters
+    mysql.rs           MySQL connection, .my.cnf parsing (feature-gated)
+tests/
+  integration_test.rs  Integration tests with synthetic .ibd files
+```
+
+Each CLI subcommand follows the same pattern: an `Options` struct with clap derive attributes and an `execute()` function returning `Result<(), IdbError>`.
+
+All InnoDB constants use `UPPERCASE_WITH_UNDERSCORES` and match the names from MySQL/InnoDB source code (`fil0fil.h`, `page0page.h`, `fsp0fsp.h`).
+
+## License
+
+MIT
