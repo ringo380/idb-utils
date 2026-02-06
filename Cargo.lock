@@ -889,27 +889,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "idb"
-version = "1.1.0"
-dependencies = [
- "byteorder",
- "clap",
- "clap_mangen",
- "colored",
- "crc32c",
- "flate2",
- "indicatif",
- "lz4_flex",
- "mysql_async",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -957,6 +936,27 @@ dependencies = [
  "portable-atomic",
  "unicode-width",
  "web-time",
+]
+
+[[package]]
+name = "innodb-utils"
+version = "1.1.0"
+dependencies = [
+ "byteorder",
+ "clap",
+ "clap_mangen",
+ "colored",
+ "crc32c",
+ "flate2",
+ "indicatif",
+ "lz4_flex",
+ "mysql_async",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
