@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-05
+
+### Added
+
+- **`--color auto|always|never`** global flag to control colored output across all subcommands
+- **`--output <file>`** global flag to redirect output to a file instead of stdout
+- **`--verify` flag on `idb corrupt`** to show before/after checksum comparison when corrupting pages
+- **`--page-size` on `find`, `tsid`, and `info`** subcommands (previously only on 6 of 10 subcommands)
+- **Progress bars** for long-running operations in `checksum`, `parse`, and `find` subcommands (via `indicatif`)
+- **Man page generation** at build time via `clap_mangen` (`idb.1` + one per subcommand)
+- **Pre-built binary releases** via GitHub Actions workflow for Linux (x86_64, aarch64) and macOS (x86_64, aarch64)
+- **crates.io metadata** (repository, homepage, keywords, categories) for publishing
+
 ## [1.0.0] - 2026-02-05
 
 Complete rewrite from Perl scripts to a unified Rust CLI tool.

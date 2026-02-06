@@ -1,6 +1,9 @@
+use std::io::Write;
+
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::cli::wprintln;
 use crate::innodb::log::{
     validate_log_block_checksum, LogBlockHeader, LogFile, LogFileHeader,
     MlogRecordType, LOG_BLOCK_HDR_SIZE, LOG_BLOCK_SIZE, LOG_FILE_HDR_BLOCKS,
@@ -39,7 +42,7 @@ struct BlockJson {
     record_types: Vec<String>,
 }
 
-pub fn execute(opts: &LogOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut log = LogFile::open(&opts.file)?;
 
     let header = log.read_header()?;
@@ -47,36 +50,36 @@ pub fn execute(opts: &LogOptions) -> Result<(), IdbError> {
     let cp2 = log.read_checkpoint(1).ok();
 
     if opts.json {
-        return execute_json(opts, &mut log, header, cp1, cp2);
+        return execute_json(opts, &mut log, header, cp1, cp2, writer);
     }
 
     // Print file info
-    println!("{}", "InnoDB Redo Log File".bold());
-    println!("  File:       {}", opts.file);
-    println!("  Size:       {} bytes", log.file_size());
-    println!("  Blocks:     {} total ({} data)", log.block_count(), log.data_block_count());
-    println!();
+    wprintln!(writer, "{}", "InnoDB Redo Log File".bold())?;
+    wprintln!(writer, "  File:       {}", opts.file)?;
+    wprintln!(writer, "  Size:       {} bytes", log.file_size())?;
+    wprintln!(writer, "  Blocks:     {} total ({} data)", log.block_count(), log.data_block_count())?;
+    wprintln!(writer)?;
 
     // Print header
-    println!("{}", "Log File Header (block 0)".bold());
-    println!("  Group ID:   {}", header.group_id);
-    println!("  Start LSN:  {}", header.start_lsn);
-    println!("  File No:    {}", header.file_no);
+    wprintln!(writer, "{}", "Log File Header (block 0)".bold())?;
+    wprintln!(writer, "  Group ID:   {}", header.group_id)?;
+    wprintln!(writer, "  Start LSN:  {}", header.start_lsn)?;
+    wprintln!(writer, "  File No:    {}", header.file_no)?;
     if !header.created_by.is_empty() {
-        println!("  Created by: {}", header.created_by);
+        wprintln!(writer, "  Created by: {}", header.created_by)?;
     }
-    println!();
+    wprintln!(writer)?;
 
     // Print checkpoints
-    print_checkpoint("Checkpoint 1 (block 1)", &cp1);
-    print_checkpoint("Checkpoint 2 (block 3)", &cp2);
+    print_checkpoint(writer, "Checkpoint 1 (block 1)", &cp1)?;
+    print_checkpoint(writer, "Checkpoint 2 (block 3)", &cp2)?;
 
     // Iterate data blocks
     let data_blocks = log.data_block_count();
     let limit = opts.blocks.unwrap_or(data_blocks).min(data_blocks);
 
     if limit > 0 {
-        println!("{}", "Data Blocks".bold());
+        wprintln!(writer, "{}", "Data Blocks".bold())?;
     }
 
     let mut displayed = 0u64;
@@ -106,29 +109,31 @@ pub fn execute(opts: &LogOptions) -> Result<(), IdbError> {
 
         let flush_str = if hdr.flush_flag { " FLUSH" } else { "" };
 
-        println!(
+        wprintln!(
+            writer,
             "  Block {:>6}  no={:<10} len={:<5} first_rec={:<5} chk_no={:<10} csum={}{}",
             block_idx, hdr.block_no, hdr.data_len, hdr.first_rec_group, hdr.checkpoint_no,
             checksum_str, flush_str,
-        );
+        )?;
 
         // Verbose: show MLOG record types
         if opts.verbose && hdr.has_data() {
-            print_record_types(&block_data, &hdr);
+            print_record_types(writer, &block_data, &hdr)?;
         }
 
         displayed += 1;
     }
 
     if opts.no_empty && empty_skipped > 0 {
-        println!("  ({} empty blocks skipped)", empty_skipped);
+        wprintln!(writer, "  ({} empty blocks skipped)", empty_skipped)?;
     }
 
     if displayed > 0 || empty_skipped > 0 {
-        println!();
+        wprintln!(writer)?;
     }
 
-    println!(
+    wprintln!(
+        writer,
         "Displayed {} data blocks{}",
         displayed,
         if limit < data_blocks {
@@ -136,34 +141,35 @@ pub fn execute(opts: &LogOptions) -> Result<(), IdbError> {
         } else {
             String::new()
         }
-    );
+    )?;
 
     Ok(())
 }
 
-fn print_checkpoint(label: &str, cp: &Option<crate::innodb::log::LogCheckpoint>) {
-    println!("{}", label.bold());
+fn print_checkpoint(writer: &mut dyn Write, label: &str, cp: &Option<crate::innodb::log::LogCheckpoint>) -> Result<(), IdbError> {
+    wprintln!(writer, "{}", label.bold())?;
     match cp {
         Some(cp) => {
-            println!("  Number:       {}", cp.number);
-            println!("  LSN:          {}", cp.lsn);
-            println!("  Offset:       {}", cp.offset);
-            println!("  Buffer size:  {}", cp.buf_size);
+            wprintln!(writer, "  Number:       {}", cp.number)?;
+            wprintln!(writer, "  LSN:          {}", cp.lsn)?;
+            wprintln!(writer, "  Offset:       {}", cp.offset)?;
+            wprintln!(writer, "  Buffer size:  {}", cp.buf_size)?;
             if cp.archived_lsn > 0 {
-                println!("  Archived LSN: {}", cp.archived_lsn);
+                wprintln!(writer, "  Archived LSN: {}", cp.archived_lsn)?;
             }
         }
         None => {
-            println!("  {}", "(not present or unreadable)".yellow());
+            wprintln!(writer, "  {}", "(not present or unreadable)".yellow())?;
         }
     }
-    println!();
+    wprintln!(writer)?;
+    Ok(())
 }
 
-fn print_record_types(block_data: &[u8], hdr: &LogBlockHeader) {
+fn print_record_types(writer: &mut dyn Write, block_data: &[u8], hdr: &LogBlockHeader) -> Result<(), IdbError> {
     let data_end = (hdr.data_len as usize).min(LOG_BLOCK_SIZE - 4);
     if data_end <= LOG_BLOCK_HDR_SIZE {
-        return;
+        return Ok(());
     }
 
     let mut types: Vec<MlogRecordType> = Vec::new();
@@ -189,8 +195,10 @@ fn print_record_types(block_data: &[u8], hdr: &LogBlockHeader) {
             .iter()
             .map(|(name, count)| format!("{}({})", name, count))
             .collect();
-        println!("    record types: {}", summary.join(", "));
+        wprintln!(writer, "    record types: {}", summary.join(", "))?;
     }
+
+    Ok(())
 }
 
 fn execute_json(
@@ -199,6 +207,7 @@ fn execute_json(
     header: LogFileHeader,
     cp1: Option<crate::innodb::log::LogCheckpoint>,
     cp2: Option<crate::innodb::log::LogCheckpoint>,
+    writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let data_blocks = log.data_block_count();
     let limit = opts.blocks.unwrap_or(data_blocks).min(data_blocks);
@@ -251,7 +260,7 @@ fn execute_json(
 
     let json = serde_json::to_string_pretty(&summary)
         .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-    println!("{}", json);
+    wprintln!(writer, "{}", json)?;
 
     Ok(())
 }

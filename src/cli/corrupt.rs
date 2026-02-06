@@ -5,6 +5,8 @@ use colored::Colorize;
 use rand::Rng;
 use serde::Serialize;
 
+use crate::cli::wprintln;
+use crate::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
 use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
 use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::format_bytes;
@@ -17,6 +19,7 @@ pub struct CorruptOptions {
     pub header: bool,
     pub records: bool,
     pub offset: Option<u64>,
+    pub verify: bool,
     pub json: bool,
     pub page_size: Option<u32>,
 }
@@ -28,12 +31,29 @@ struct CorruptResultJson {
     page: Option<u64>,
     bytes_written: usize,
     data: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verify: Option<VerifyResultJson>,
 }
 
-pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
+#[derive(Serialize)]
+struct VerifyResultJson {
+    page: u64,
+    before: ChecksumInfoJson,
+    after: ChecksumInfoJson,
+}
+
+#[derive(Serialize)]
+struct ChecksumInfoJson {
+    valid: bool,
+    algorithm: String,
+    stored_checksum: u32,
+    calculated_checksum: u32,
+}
+
+pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     // Absolute offset mode: bypass page calculation entirely
     if let Some(abs_offset) = opts.offset {
-        return corrupt_at_offset(opts, abs_offset);
+        return corrupt_at_offset(opts, abs_offset, writer);
     }
 
     // Open tablespace to get page size and count
@@ -61,10 +81,11 @@ pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
         None => {
             let p = rng.random_range(0..page_count);
             if !opts.json {
-                println!(
+                wprintln!(
+                    writer,
                     "No page specified. Choosing random page {}.",
                     format!("{}", p).yellow()
-                );
+                )?;
             }
             p
         }
@@ -91,27 +112,71 @@ pub fn execute(opts: &CorruptOptions) -> Result<(), IdbError> {
     // Generate random bytes (full bytes, not nibbles like the Perl version)
     let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
 
+    // Read pre-corruption page data for --verify
+    let pre_checksum = if opts.verify {
+        let pre_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
+        Some(validate_checksum(&pre_data, page_size as u32))
+    } else {
+        None
+    };
+
     if opts.json {
-        return output_json(opts, corrupt_offset, Some(page_num), &random_data);
+        // Write the corruption first, then verify
+        write_corruption(&opts.file, corrupt_offset, &random_data)?;
+        let verify_json = if opts.verify {
+            let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
+            let post_result = validate_checksum(&post_data, page_size as u32);
+            let pre = pre_checksum.unwrap();
+            Some(VerifyResultJson {
+                page: page_num,
+                before: checksum_to_json(&pre),
+                after: checksum_to_json(&post_result),
+            })
+        } else {
+            None
+        };
+        return output_json_with_verify(opts, corrupt_offset, Some(page_num), &random_data, verify_json, writer);
     }
 
-    println!(
+    wprintln!(
+        writer,
         "Writing {} bytes of random data to {} at offset {} (page {})...",
         opts.bytes,
         opts.file,
         corrupt_offset,
         format!("{}", page_num).yellow()
-    );
+    )?;
 
     write_corruption(&opts.file, corrupt_offset, &random_data)?;
 
-    println!("Data written: {}", format_bytes(&random_data).red());
-    println!("Completed.");
+    wprintln!(writer, "Data written: {}", format_bytes(&random_data).red())?;
+    wprintln!(writer, "Completed.")?;
+
+    // --verify: show before/after checksum comparison
+    if opts.verify {
+        let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
+        let post_result = validate_checksum(&post_data, page_size as u32);
+        let pre = pre_checksum.unwrap();
+        wprintln!(writer)?;
+        wprintln!(writer, "{}:", "Verification".bold())?;
+        wprintln!(
+            writer,
+            "  Before: {} (algorithm={:?}, stored={}, calculated={})",
+            if pre.valid { "OK".green().to_string() } else { "INVALID".red().to_string() },
+            pre.algorithm, pre.stored_checksum, pre.calculated_checksum
+        )?;
+        wprintln!(
+            writer,
+            "  After:  {} (algorithm={:?}, stored={}, calculated={})",
+            if post_result.valid { "OK".green().to_string() } else { "INVALID".red().to_string() },
+            post_result.algorithm, post_result.stored_checksum, post_result.calculated_checksum
+        )?;
+    }
 
     Ok(())
 }
 
-fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64) -> Result<(), IdbError> {
+fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64, writer: &mut dyn Write) -> Result<(), IdbError> {
     // Validate offset is within file
     let file_size = File::open(&opts.file)
         .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", opts.file, e)))?
@@ -129,19 +194,25 @@ fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64) -> Result<(), IdbEr
     let mut rng = rand::rng();
     let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
 
-    if opts.json {
-        return output_json(opts, abs_offset, None, &random_data);
-    }
-
-    println!(
-        "Writing {} bytes of random data to {} at offset {}...",
-        opts.bytes, opts.file, abs_offset
-    );
-
+    // Write the corruption
     write_corruption(&opts.file, abs_offset, &random_data)?;
 
-    println!("Data written: {}", format_bytes(&random_data).red());
-    println!("Completed.");
+    if opts.json {
+        return output_json_with_verify(opts, abs_offset, None, &random_data, None, writer);
+    }
+
+    wprintln!(
+        writer,
+        "Writing {} bytes of random data to {} at offset {}...",
+        opts.bytes, opts.file, abs_offset
+    )?;
+
+    wprintln!(writer, "Data written: {}", format_bytes(&random_data).red())?;
+    wprintln!(writer, "Completed.")?;
+
+    if opts.verify {
+        wprintln!(writer, "Note: --verify is not available in absolute offset mode (no page context).")?;
+    }
 
     Ok(())
 }
@@ -161,26 +232,53 @@ fn write_corruption(file_path: &str, offset: u64, data: &[u8]) -> Result<(), Idb
     Ok(())
 }
 
-fn output_json(
+fn output_json_with_verify(
     opts: &CorruptOptions,
     offset: u64,
     page: Option<u64>,
     data: &[u8],
+    verify: Option<VerifyResultJson>,
+    writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    // Still write the corruption before outputting JSON
-    write_corruption(&opts.file, offset, data)?;
-
     let result = CorruptResultJson {
         file: opts.file.clone(),
         offset,
         page,
         bytes_written: data.len(),
         data: format_bytes(data),
+        verify,
     };
 
     let json = serde_json::to_string_pretty(&result)
         .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-    println!("{}", json);
+    wprintln!(writer, "{}", json)?;
 
     Ok(())
+}
+
+fn read_page_bytes(file_path: &str, page_num: u64, page_size: u32) -> Result<Vec<u8>, IdbError> {
+    use std::io::Read;
+    let offset = page_num * page_size as u64;
+    let mut f = File::open(file_path)
+        .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", file_path, e)))?;
+    f.seek(SeekFrom::Start(offset))
+        .map_err(|e| IdbError::Io(format!("Cannot seek to offset {}: {}", offset, e)))?;
+    let mut buf = vec![0u8; page_size as usize];
+    f.read_exact(&mut buf)
+        .map_err(|e| IdbError::Io(format!("Cannot read page {}: {}", page_num, e)))?;
+    Ok(buf)
+}
+
+fn checksum_to_json(result: &crate::innodb::checksum::ChecksumResult) -> ChecksumInfoJson {
+    let algorithm_name = match result.algorithm {
+        ChecksumAlgorithm::Crc32c => "crc32c",
+        ChecksumAlgorithm::InnoDB => "innodb",
+        ChecksumAlgorithm::None => "none",
+    };
+    ChecksumInfoJson {
+        valid: result.valid,
+        algorithm: algorithm_name.to_string(),
+        stored_checksum: result.stored_checksum,
+        calculated_checksum: result.calculated_checksum,
+    }
 }

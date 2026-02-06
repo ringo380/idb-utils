@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
 
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 
+use crate::cli::wprintln;
 use crate::innodb::constants::FIL_PAGE_DATA;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
@@ -13,6 +15,7 @@ pub struct TsidOptions {
     pub list: bool,
     pub tablespace_id: Option<u32>,
     pub json: bool,
+    pub page_size: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -27,7 +30,7 @@ struct TsidEntryJson {
     space_id: u32,
 }
 
-pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {
         return Err(IdbError::Argument(format!(
@@ -46,9 +49,9 @@ pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
             };
             let json = serde_json::to_string_pretty(&result)
                 .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-            println!("{}", json);
+            wprintln!(writer, "{}", json)?;
         } else {
-            println!("No .ibd/.ibu files found in {}", opts.datadir);
+            wprintln!(writer, "No .ibd/.ibu files found in {}", opts.datadir)?;
         }
         return Ok(());
     }
@@ -57,7 +60,10 @@ pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
     let mut results: BTreeMap<String, u32> = BTreeMap::new();
 
     for ibd_path in &ibd_files {
-        let mut ts = match Tablespace::open(ibd_path) {
+        let mut ts = match match opts.page_size {
+            Some(ps) => Tablespace::open_with_page_size(ibd_path, ps),
+            None => Tablespace::open(ibd_path),
+        } {
             Ok(t) => t,
             Err(_) => continue,
         };
@@ -111,16 +117,16 @@ pub fn execute(opts: &TsidOptions) -> Result<(), IdbError> {
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-        println!("{}", json);
+        wprintln!(writer, "{}", json)?;
     } else {
         // Print results
         for (path, space_id) in &results {
-            println!("{} - Space ID: {}", path, space_id);
+            wprintln!(writer, "{} - Space ID: {}", path, space_id)?;
         }
 
         if results.is_empty() {
             if let Some(target_id) = opts.tablespace_id {
-                println!("Tablespace ID {} not found.", target_id);
+                wprintln!(writer, "Tablespace ID {} not found.", target_id)?;
             }
         }
     }

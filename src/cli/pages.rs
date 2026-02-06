@@ -1,6 +1,9 @@
+use std::io::Write;
+
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::cli::{wprintln, wprint};
 use crate::innodb::checksum;
 use crate::innodb::compression;
 use crate::innodb::encryption;
@@ -39,7 +42,7 @@ struct PageDetailJson {
     fsp_header: Option<FspHeader>,
 }
 
-pub fn execute(opts: &PagesOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
@@ -48,12 +51,12 @@ pub fn execute(opts: &PagesOptions) -> Result<(), IdbError> {
     let page_size = ts.page_size();
 
     if opts.json {
-        return execute_json(opts, &mut ts, page_size);
+        return execute_json(opts, &mut ts, page_size, writer);
     }
 
     if let Some(page_num) = opts.page {
         let page_data = ts.read_page(page_num)?;
-        print_full_page(&page_data, page_num, page_size, opts.verbose);
+        print_full_page(&page_data, page_num, page_size, opts.verbose, writer)?;
         return Ok(());
     }
 
@@ -61,7 +64,7 @@ pub fn execute(opts: &PagesOptions) -> Result<(), IdbError> {
     if opts.filter_type.is_none() {
         let page0 = ts.read_page(0)?;
         if let Some(fsp) = FspHeader::parse(&page0) {
-            print_fsp_header_detail(&fsp, &page0, opts.verbose);
+            print_fsp_header_detail(&fsp, &page0, opts.verbose, writer)?;
         }
     }
 
@@ -85,9 +88,9 @@ pub fn execute(opts: &PagesOptions) -> Result<(), IdbError> {
         }
 
         if opts.list_mode {
-            print_list_line(&page_data, page_num, page_size);
+            print_list_line(&page_data, page_num, page_size, writer)?;
         } else {
-            print_full_page(&page_data, page_num, page_size, opts.verbose);
+            print_full_page(&page_data, page_num, page_size, opts.verbose, writer)?;
         }
     }
 
@@ -99,6 +102,7 @@ fn execute_json(
     opts: &PagesOptions,
     ts: &mut Tablespace,
     page_size: u32,
+    writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let mut pages = Vec::new();
 
@@ -152,46 +156,49 @@ fn execute_json(
         });
     }
 
-    println!(
+    wprintln!(
+        writer,
         "{}",
         serde_json::to_string_pretty(&pages).unwrap_or_else(|_| "[]".to_string())
-    );
+    )?;
     Ok(())
 }
 
 /// Print a compact one-line summary per page (list mode).
-fn print_list_line(page_data: &[u8], page_num: u64, page_size: u32) {
+fn print_list_line(page_data: &[u8], page_num: u64, page_size: u32, writer: &mut dyn Write) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
-        None => return,
+        None => return Ok(()),
     };
 
     let pt = header.page_type;
     let byte_start = page_num * page_size as u64;
 
-    print!(
+    wprint!(
+        writer,
         "-- Page {} - {}: {}",
         page_num,
         pt.name(),
         pt.description()
-    );
+    )?;
 
     if pt == PageType::Index {
         if let Some(idx) = IndexHeader::parse(page_data) {
-            print!(", Index ID: {}", idx.index_id);
+            wprint!(writer, ", Index ID: {}", idx.index_id)?;
         }
     }
 
-    println!(", Byte Start: {}", format_offset(byte_start));
+    wprintln!(writer, ", Byte Start: {}", format_offset(byte_start))?;
+    Ok(())
 }
 
 /// Print full detailed information about a page.
-fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: bool) {
+fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => {
             eprintln!("Could not parse FIL header for page {}", page_num);
-            return;
+            return Ok(());
         }
     };
 
@@ -200,59 +207,60 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
     let pt = header.page_type;
 
     // FIL Header
-    println!();
-    println!("=== HEADER: Page {}", header.page_number);
-    println!("Byte Start: {}", format_offset(byte_start));
-    println!(
+    wprintln!(writer)?;
+    wprintln!(writer, "=== HEADER: Page {}", header.page_number)?;
+    wprintln!(writer, "Byte Start: {}", format_offset(byte_start))?;
+    wprintln!(
+        writer,
         "Page Type: {}\n-- {}: {} - {}",
         pt.as_u16(),
         pt.name(),
         pt.description(),
         pt.usage()
-    );
+    )?;
 
-    print!("Prev Page: ");
+    wprint!(writer, "Prev Page: ")?;
     if !header.has_prev() {
-        println!("Not used.");
+        wprintln!(writer, "Not used.")?;
     } else {
-        println!("{}", header.prev_page);
+        wprintln!(writer, "{}", header.prev_page)?;
     }
 
-    print!("Next Page: ");
+    wprint!(writer, "Next Page: ")?;
     if !header.has_next() {
-        println!("Not used.");
+        wprintln!(writer, "Not used.")?;
     } else {
-        println!("{}", header.next_page);
+        wprintln!(writer, "{}", header.next_page)?;
     }
 
-    println!("LSN: {}", header.lsn);
-    println!("Space ID: {}", header.space_id);
-    println!("Checksum: {}", header.checksum);
+    wprintln!(writer, "LSN: {}", header.lsn)?;
+    wprintln!(writer, "Space ID: {}", header.space_id)?;
+    wprintln!(writer, "Checksum: {}", header.checksum)?;
 
     // INDEX-specific headers
     if pt == PageType::Index {
         if let Some(idx) = IndexHeader::parse(page_data) {
-            println!();
-            print_index_header(&idx, header.page_number, verbose);
+            wprintln!(writer)?;
+            print_index_header(&idx, header.page_number, verbose, writer)?;
 
-            println!();
-            print_fseg_headers(page_data, header.page_number, &idx, verbose);
+            wprintln!(writer)?;
+            print_fseg_headers(page_data, header.page_number, &idx, verbose, writer)?;
 
-            println!();
-            print_system_records(page_data, header.page_number);
+            wprintln!(writer)?;
+            print_system_records(page_data, header.page_number, writer)?;
         }
     }
 
     // BLOB page-specific headers (old-style)
     if matches!(pt, PageType::Blob | PageType::ZBlob | PageType::ZBlob2) {
         if let Some(blob_hdr) = BlobPageHeader::parse(page_data) {
-            println!();
-            println!("=== BLOB Header: Page {}", header.page_number);
-            println!("Data Length: {} bytes", blob_hdr.part_len);
+            wprintln!(writer)?;
+            wprintln!(writer, "=== BLOB Header: Page {}", header.page_number)?;
+            wprintln!(writer, "Data Length: {} bytes", blob_hdr.part_len)?;
             if blob_hdr.has_next() {
-                println!("Next BLOB Page: {}", blob_hdr.next_page_no);
+                wprintln!(writer, "Next BLOB Page: {}", blob_hdr.next_page_no)?;
             } else {
-                println!("Next BLOB Page: None (last in chain)");
+                wprintln!(writer, "Next BLOB Page: None (last in chain)")?;
             }
         }
     }
@@ -260,13 +268,13 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
     // LOB first page header (MySQL 8.0+ new-style)
     if pt == PageType::LobFirst {
         if let Some(lob_hdr) = LobFirstPageHeader::parse(page_data) {
-            println!();
-            println!("=== LOB First Page Header: Page {}", header.page_number);
-            println!("Version: {}", lob_hdr.version);
-            println!("Flags: {}", lob_hdr.flags);
-            println!("Total Data Length: {} bytes", lob_hdr.data_len);
+            wprintln!(writer)?;
+            wprintln!(writer, "=== LOB First Page Header: Page {}", header.page_number)?;
+            wprintln!(writer, "Version: {}", lob_hdr.version)?;
+            wprintln!(writer, "Flags: {}", lob_hdr.flags)?;
+            wprintln!(writer, "Total Data Length: {} bytes", lob_hdr.data_len)?;
             if lob_hdr.trx_id > 0 {
-                println!("Transaction ID: {}", lob_hdr.trx_id);
+                wprintln!(writer, "Transaction ID: {}", lob_hdr.trx_id)?;
             }
         }
     }
@@ -274,35 +282,36 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
     // Undo log page-specific headers
     if pt == PageType::UndoLog {
         if let Some(undo_hdr) = UndoPageHeader::parse(page_data) {
-            println!();
-            println!("=== UNDO Header: Page {}", header.page_number);
-            println!("Undo Type: {} ({})", undo_hdr.page_type.name(), undo_hdr.page_type.name());
-            println!("Log Start Offset: {}", undo_hdr.start);
-            println!("Free Offset: {}", undo_hdr.free);
-            println!(
+            wprintln!(writer)?;
+            wprintln!(writer, "=== UNDO Header: Page {}", header.page_number)?;
+            wprintln!(writer, "Undo Type: {} ({})", undo_hdr.page_type.name(), undo_hdr.page_type.name())?;
+            wprintln!(writer, "Log Start Offset: {}", undo_hdr.start)?;
+            wprintln!(writer, "Free Offset: {}", undo_hdr.free)?;
+            wprintln!(
+                writer,
                 "Used Bytes: {}",
                 undo_hdr.free.saturating_sub(undo_hdr.start)
-            );
+            )?;
 
             if let Some(seg_hdr) = UndoSegmentHeader::parse(page_data) {
-                println!("Segment State: {}", seg_hdr.state.name());
-                println!("Last Log Offset: {}", seg_hdr.last_log);
+                wprintln!(writer, "Segment State: {}", seg_hdr.state.name())?;
+                wprintln!(writer, "Last Log Offset: {}", seg_hdr.last_log)?;
             }
         }
     }
 
     // FIL Trailer
-    println!();
+    wprintln!(writer)?;
     let ps = page_size as usize;
     if page_data.len() >= ps {
         let trailer_offset = ps - 8;
         if let Some(trailer) =
             crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..])
         {
-            println!("=== TRAILER: Page {}", header.page_number);
-            println!("Old-style Checksum: {}", trailer.checksum);
-            println!("Low 32 bits of LSN: {}", trailer.lsn_low32);
-            println!("Byte End: {}", format_offset(byte_end));
+            wprintln!(writer, "=== TRAILER: Page {}", header.page_number)?;
+            wprintln!(writer, "Old-style Checksum: {}", trailer.checksum)?;
+            wprintln!(writer, "Low 32 bits of LSN: {}", trailer.lsn_low32)?;
+            wprintln!(writer, "Byte End: {}", format_offset(byte_end))?;
 
             if verbose {
                 let csum_result = checksum::validate_checksum(page_data, page_size);
@@ -311,10 +320,11 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
                 } else {
                     "MISMATCH".red().to_string()
                 };
-                println!(
+                wprintln!(
+                    writer,
                     "Checksum Status: {} ({:?})",
                     status, csum_result.algorithm
-                );
+                )?;
 
                 let lsn_valid = checksum::validate_lsn(page_data, page_size);
                 let lsn_status = if lsn_valid {
@@ -322,127 +332,139 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
                 } else {
                     "MISMATCH".red().to_string()
                 };
-                println!("LSN Consistency: {}", lsn_status);
+                wprintln!(writer, "LSN Consistency: {}", lsn_status)?;
             }
         }
     }
+
+    Ok(())
 }
 
 /// Print the INDEX page header details.
-fn print_index_header(idx: &IndexHeader, page_num: u32, verbose: bool) {
-    println!("=== INDEX Header: Page {}", page_num);
-    println!("Index ID: {}", idx.index_id);
-    println!("Node Level: {}", idx.level);
+fn print_index_header(idx: &IndexHeader, page_num: u32, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+    wprintln!(writer, "=== INDEX Header: Page {}", page_num)?;
+    wprintln!(writer, "Index ID: {}", idx.index_id)?;
+    wprintln!(writer, "Node Level: {}", idx.level)?;
 
     if idx.max_trx_id > 0 {
-        println!("Max Transaction ID: {}", idx.max_trx_id);
+        wprintln!(writer, "Max Transaction ID: {}", idx.max_trx_id)?;
     } else {
-        println!("-- Secondary Index");
+        wprintln!(writer, "-- Secondary Index")?;
     }
 
-    println!("Directory Slots: {}", idx.n_dir_slots);
+    wprintln!(writer, "Directory Slots: {}", idx.n_dir_slots)?;
     if verbose {
-        println!("-- Number of slots in page directory");
+        wprintln!(writer, "-- Number of slots in page directory")?;
     }
 
-    println!("Heap Top: {}", idx.heap_top);
+    wprintln!(writer, "Heap Top: {}", idx.heap_top)?;
     if verbose {
-        println!("-- Pointer to record heap top");
+        wprintln!(writer, "-- Pointer to record heap top")?;
     }
 
-    println!("Records in Page: {}", idx.n_recs);
-    println!(
+    wprintln!(writer, "Records in Page: {}", idx.n_recs)?;
+    wprintln!(
+        writer,
         "Records in Heap: {} (compact: {})",
         idx.n_heap(),
         idx.is_compact()
-    );
+    )?;
     if verbose {
-        println!("-- Number of records in heap");
+        wprintln!(writer, "-- Number of records in heap")?;
     }
 
-    println!("Start of Free Record List: {}", idx.free);
-    println!("Garbage Bytes: {}", idx.garbage);
+    wprintln!(writer, "Start of Free Record List: {}", idx.free)?;
+    wprintln!(writer, "Garbage Bytes: {}", idx.garbage)?;
     if verbose {
-        println!("-- Number of bytes in deleted records.");
+        wprintln!(writer, "-- Number of bytes in deleted records.")?;
     }
 
-    println!("Last Insert: {}", idx.last_insert);
-    println!(
+    wprintln!(writer, "Last Insert: {}", idx.last_insert)?;
+    wprintln!(
+        writer,
         "Last Insert Direction: {} - {}",
         idx.direction,
         idx.direction_name()
-    );
-    println!("Inserts in this direction: {}", idx.n_direction);
+    )?;
+    wprintln!(writer, "Inserts in this direction: {}", idx.n_direction)?;
     if verbose {
-        println!("-- Number of consecutive inserts in this direction.");
+        wprintln!(writer, "-- Number of consecutive inserts in this direction.")?;
     }
+
+    Ok(())
 }
 
 /// Print FSEG (file segment) header details.
-fn print_fseg_headers(page_data: &[u8], page_num: u32, idx: &IndexHeader, verbose: bool) {
-    println!("=== FSEG_HDR - File Segment Header: Page {}", page_num);
+fn print_fseg_headers(page_data: &[u8], page_num: u32, idx: &IndexHeader, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+    wprintln!(writer, "=== FSEG_HDR - File Segment Header: Page {}", page_num)?;
 
     if let Some(leaf) = FsegHeader::parse_leaf(page_data) {
-        println!("Inode Space ID: {}", leaf.space_id);
-        println!("Inode Page Number: {}", leaf.page_no);
-        println!("Inode Offset: {}", leaf.offset);
+        wprintln!(writer, "Inode Space ID: {}", leaf.space_id)?;
+        wprintln!(writer, "Inode Page Number: {}", leaf.page_no)?;
+        wprintln!(writer, "Inode Offset: {}", leaf.offset)?;
     }
 
     if idx.is_leaf() {
         if let Some(internal) = FsegHeader::parse_internal(page_data) {
-            println!("Non-leaf Space ID: {}", internal.space_id);
+            wprintln!(writer, "Non-leaf Space ID: {}", internal.space_id)?;
             if verbose {
-                println!("Non-leaf Page Number: {}", internal.page_no);
-                println!("Non-leaf Offset: {}", internal.offset);
+                wprintln!(writer, "Non-leaf Page Number: {}", internal.page_no)?;
+                wprintln!(writer, "Non-leaf Offset: {}", internal.offset)?;
             }
         }
     }
+
+    Ok(())
 }
 
 /// Print system records (infimum/supremum) info.
-fn print_system_records(page_data: &[u8], page_num: u32) {
+fn print_system_records(page_data: &[u8], page_num: u32, writer: &mut dyn Write) -> Result<(), IdbError> {
     let sys = match SystemRecords::parse(page_data) {
         Some(s) => s,
-        None => return,
+        None => return Ok(()),
     };
 
-    println!("=== INDEX System Records: Page {}", page_num);
-    println!(
+    wprintln!(writer, "=== INDEX System Records: Page {}", page_num)?;
+    wprintln!(
+        writer,
         "Index Record Status: {} - (Decimal: {}) {}",
         sys.rec_status,
         sys.rec_status,
         sys.rec_status_name()
-    );
-    println!("Number of records owned: {}", sys.n_owned);
-    println!("Deleted: {}", if sys.deleted { "1" } else { "0" });
-    println!("Heap Number: {}", sys.heap_no);
-    println!("Next Record Offset (Infimum): {}", sys.infimum_next);
-    println!("Next Record Offset (Supremum): {}", sys.supremum_next);
-    println!(
+    )?;
+    wprintln!(writer, "Number of records owned: {}", sys.n_owned)?;
+    wprintln!(writer, "Deleted: {}", if sys.deleted { "1" } else { "0" })?;
+    wprintln!(writer, "Heap Number: {}", sys.heap_no)?;
+    wprintln!(writer, "Next Record Offset (Infimum): {}", sys.infimum_next)?;
+    wprintln!(writer, "Next Record Offset (Supremum): {}", sys.supremum_next)?;
+    wprintln!(
+        writer,
         "Left-most node on non-leaf level: {}",
         if sys.min_rec { "1" } else { "0" }
-    );
+    )?;
+
+    Ok(())
 }
 
 /// Print detailed FSP header with additional fields.
-fn print_fsp_header_detail(fsp: &FspHeader, page0: &[u8], verbose: bool) {
-    println!("=== File Header");
-    println!("Space ID: {}", fsp.space_id);
+fn print_fsp_header_detail(fsp: &FspHeader, page0: &[u8], verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+    wprintln!(writer, "=== File Header")?;
+    wprintln!(writer, "Space ID: {}", fsp.space_id)?;
     if verbose {
-        println!("-- Offset 38, Length 4");
+        wprintln!(writer, "-- Offset 38, Length 4")?;
     }
-    println!("Size: {}", fsp.size);
-    println!("Flags: {}", fsp.flags);
-    println!("Page Free Limit: {} (this should always be 64 on a single-table file)", fsp.free_limit);
+    wprintln!(writer, "Size: {}", fsp.size)?;
+    wprintln!(writer, "Flags: {}", fsp.flags)?;
+    wprintln!(writer, "Page Free Limit: {} (this should always be 64 on a single-table file)", fsp.free_limit)?;
 
     // Compression and encryption detection from flags
     let comp = compression::detect_compression(fsp.flags);
     let enc = encryption::detect_encryption(fsp.flags);
     if comp != compression::CompressionAlgorithm::None {
-        println!("Compression: {}", comp);
+        wprintln!(writer, "Compression: {}", comp)?;
     }
     if enc != encryption::EncryptionAlgorithm::None {
-        println!("Encryption: {}", enc);
+        wprintln!(writer, "Encryption: {}", enc)?;
     }
 
     // Try to read the first unused segment ID (at FSP offset 72, 8 bytes)
@@ -450,8 +472,10 @@ fn print_fsp_header_detail(fsp: &FspHeader, page0: &[u8], verbose: bool) {
     if page0.len() >= seg_id_offset + 8 {
         use byteorder::ByteOrder;
         let seg_id = byteorder::BigEndian::read_u64(&page0[seg_id_offset..]);
-        println!("First Unused Segment ID: {}", seg_id);
+        wprintln!(writer, "First Unused Segment ID: {}", seg_id)?;
     }
+
+    Ok(())
 }
 
 /// Check if a page type matches the user-provided filter string.

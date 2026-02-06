@@ -1,9 +1,14 @@
 [package]
 name = "idb"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "InnoDB file analysis toolkit"
 license = "MIT"
+repository = "https://github.com/ringo380/idb-utils"
+homepage = "https://github.com/ringo380/idb-utils"
+readme = "README.md"
+keywords = ["innodb", "mysql", "database", "ibd", "forensics"]
+categories = ["command-line-utilities", "database"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -13,11 +18,16 @@ thiserror = "2"
 colored = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+indicatif = "0.17"
 flate2 = "1"
 lz4_flex = "0.11"
 rand = "0.9"
 mysql_async = { version = "0.34", optional = true }
 tokio = { version = "1", features = ["rt", "macros"], optional = true }
+
+[build-dependencies]
+clap = { version = "4", features = ["derive"] }
+clap_mangen = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,7 +1,10 @@
+use std::io::Write;
+
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::cli::wprintln;
 use crate::innodb::constants::*;
 use crate::innodb::page::FilHeader;
 use crate::IdbError;
@@ -18,6 +21,7 @@ pub struct InfoOptions {
     pub password: Option<String>,
     pub defaults_file: Option<String>,
     pub json: bool,
+    pub page_size: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -42,7 +46,7 @@ struct LsnCheckJson {
     in_sync: bool,
 }
 
-pub fn execute(opts: &InfoOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if opts.ibdata || opts.lsn_check {
         let datadir = opts.datadir.as_deref().unwrap_or("/var/lib/mysql");
         let datadir_path = std::path::Path::new(datadir);
@@ -55,17 +59,17 @@ pub fn execute(opts: &InfoOptions) -> Result<(), IdbError> {
         }
 
         if opts.ibdata {
-            return execute_ibdata(opts, datadir_path);
+            return execute_ibdata(opts, datadir_path, writer);
         }
         if opts.lsn_check {
-            return execute_lsn_check(opts, datadir_path);
+            return execute_lsn_check(opts, datadir_path, writer);
         }
     }
 
     #[cfg(feature = "mysql")]
     {
         if opts.database.is_some() || opts.table.is_some() {
-            return execute_table_info(opts);
+            return execute_table_info(opts, writer);
         }
     }
 
@@ -79,14 +83,14 @@ pub fn execute(opts: &InfoOptions) -> Result<(), IdbError> {
     }
 
     // No mode specified, show help
-    println!("Usage:");
-    println!("  idb info --ibdata -d <datadir>          Read ibdata1 page 0 header");
-    println!("  idb info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs");
-    println!("  idb info -D <database> -t <table>       Show table/index info (requires --features mysql)");
+    wprintln!(writer, "Usage:")?;
+    wprintln!(writer, "  idb info --ibdata -d <datadir>          Read ibdata1 page 0 header")?;
+    wprintln!(writer, "  idb info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs")?;
+    wprintln!(writer, "  idb info -D <database> -t <table>       Show table/index info (requires --features mysql)")?;
     Ok(())
 }
 
-fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path) -> Result<(), IdbError> {
+fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dyn Write) -> Result<(), IdbError> {
     let ibdata_path = datadir.join("ibdata1");
     if !ibdata_path.exists() {
         return Err(IdbError::Io(format!(
@@ -118,31 +122,31 @@ fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path) -> Result<(), I
         };
         let json = serde_json::to_string_pretty(&info)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-        println!("{}", json);
+        wprintln!(writer, "{}", json)?;
         return Ok(());
     }
 
-    println!("{}", "ibdata1 Page 0 Header".bold());
-    println!("  File:       {}", ibdata_path.display());
-    println!("  Checksum:   {}", header.checksum);
-    println!("  Page No:    {}", header.page_number);
-    println!("  Page Type:  {} ({})", header.page_type.as_u16(), header.page_type.name());
-    println!("  LSN:        {}", header.lsn);
-    println!("  Flush LSN:  {}", header.flush_lsn);
-    println!("  Space ID:   {}", header.space_id);
-    println!();
+    wprintln!(writer, "{}", "ibdata1 Page 0 Header".bold())?;
+    wprintln!(writer, "  File:       {}", ibdata_path.display())?;
+    wprintln!(writer, "  Checksum:   {}", header.checksum)?;
+    wprintln!(writer, "  Page No:    {}", header.page_number)?;
+    wprintln!(writer, "  Page Type:  {} ({})", header.page_type.as_u16(), header.page_type.name())?;
+    wprintln!(writer, "  LSN:        {}", header.lsn)?;
+    wprintln!(writer, "  Flush LSN:  {}", header.flush_lsn)?;
+    wprintln!(writer, "  Space ID:   {}", header.space_id)?;
+    wprintln!(writer)?;
 
     if let Some(lsn) = cp1_lsn {
-        println!("Redo Log Checkpoint 1 LSN: {}", lsn);
+        wprintln!(writer, "Redo Log Checkpoint 1 LSN: {}", lsn)?;
     }
     if let Some(lsn) = cp2_lsn {
-        println!("Redo Log Checkpoint 2 LSN: {}", lsn);
+        wprintln!(writer, "Redo Log Checkpoint 2 LSN: {}", lsn)?;
     }
 
     Ok(())
 }
 
-fn execute_lsn_check(opts: &InfoOptions, datadir: &std::path::Path) -> Result<(), IdbError> {
+fn execute_lsn_check(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dyn Write) -> Result<(), IdbError> {
     let ibdata_path = datadir.join("ibdata1");
     if !ibdata_path.exists() {
         return Err(IdbError::Io(format!(
@@ -169,22 +173,23 @@ fn execute_lsn_check(opts: &InfoOptions, datadir: &std::path::Path) -> Result<()
         };
         let json = serde_json::to_string_pretty(&check)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-        println!("{}", json);
+        wprintln!(writer, "{}", json)?;
         return Ok(());
     }
 
-    println!("{}", "LSN Sync Check".bold());
-    println!("  ibdata1 LSN:          {}", ibdata_lsn);
-    println!("  Redo checkpoint LSN:  {}", redo_lsn);
+    wprintln!(writer, "{}", "LSN Sync Check".bold())?;
+    wprintln!(writer, "  ibdata1 LSN:          {}", ibdata_lsn)?;
+    wprintln!(writer, "  Redo checkpoint LSN:  {}", redo_lsn)?;
 
     if in_sync {
-        println!("  Status: {}", "IN SYNC".green());
+        wprintln!(writer, "  Status: {}", "IN SYNC".green())?;
     } else {
-        println!("  Status: {}", "OUT OF SYNC".red());
-        println!(
+        wprintln!(writer, "  Status: {}", "OUT OF SYNC".red())?;
+        wprintln!(
+            writer,
             "  Difference: {} bytes",
             ibdata_lsn.abs_diff(redo_lsn)
-        );
+        )?;
     }
 
     Ok(())
@@ -261,7 +266,7 @@ fn read_u64_at(path: &std::path::Path, offset: u64) -> Option<u64> {
 
 // MySQL connection mode (feature-gated)
 #[cfg(feature = "mysql")]
-fn execute_table_info(opts: &InfoOptions) -> Result<(), IdbError> {
+fn execute_table_info(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     use mysql_async::prelude::*;
 
     let database = opts.database.as_deref().ok_or_else(|| {
@@ -334,14 +339,14 @@ fn execute_table_info(opts: &InfoOptions) -> Result<(), IdbError> {
                 .unwrap_or_default();
 
             if sys_rows.is_empty() {
-                println!("Table {}.{} not found in InnoDB system tables.", database, table);
+                wprintln!(writer, "Table {}.{} not found in InnoDB system tables.", database, table)?;
                 pool.disconnect().await.ok();
                 return Ok(());
             }
 
-            print_table_info(database, table, &sys_rows);
+            print_table_info(writer, database, table, &sys_rows)?;
         } else {
-            print_table_info(database, table, &table_rows);
+            print_table_info(writer, database, table, &table_rows)?;
         }
 
         // Query index info
@@ -356,10 +361,10 @@ fn execute_table_info(opts: &InfoOptions) -> Result<(), IdbError> {
             .unwrap_or_default();
 
         if !idx_rows.is_empty() {
-            println!();
-            println!("{}", "Indexes:".bold());
+            wprintln!(writer)?;
+            wprintln!(writer, "{}", "Indexes:".bold())?;
             for (name, index_id, root_page) in &idx_rows {
-                println!("  {} (index_id={}, root_page={})", name, index_id, root_page);
+                wprintln!(writer, "  {} (index_id={}, root_page={})", name, index_id, root_page)?;
             }
         }
 
@@ -370,14 +375,14 @@ fn execute_table_info(opts: &InfoOptions) -> Result<(), IdbError> {
             .unwrap_or_default();
 
         if let Some((_type, _name, status)) = status_rows.first() {
-            println!();
-            println!("{}", "InnoDB Status:".bold());
+            wprintln!(writer)?;
+            wprintln!(writer, "{}", "InnoDB Status:".bold())?;
             for line in status.lines() {
                 if line.starts_with("Log sequence number") || line.starts_with("Log flushed up to") {
-                    println!("  {}", line.trim());
+                    wprintln!(writer, "  {}", line.trim())?;
                 }
                 if line.starts_with("Trx id counter") {
-                    println!("  {}", line.trim());
+                    wprintln!(writer, "  {}", line.trim())?;
                 }
             }
         }
@@ -388,10 +393,11 @@ fn execute_table_info(opts: &InfoOptions) -> Result<(), IdbError> {
 }
 
 #[cfg(feature = "mysql")]
-fn print_table_info(database: &str, table: &str, rows: &[(u64, u64)]) {
-    println!("{}", format!("Table: {}.{}", database, table).bold());
+fn print_table_info(writer: &mut dyn Write, database: &str, table: &str, rows: &[(u64, u64)]) -> Result<(), IdbError> {
+    wprintln!(writer, "{}", format!("Table: {}.{}", database, table).bold())?;
     for (space_id, table_id) in rows {
-        println!("  Space ID:  {}", space_id);
-        println!("  Table ID:  {}", table_id);
+        wprintln!(writer, "  Space ID:  {}", space_id)?;
+        wprintln!(writer, "  Table ID:  {}", table_id)?;
     }
+    Ok(())
 }

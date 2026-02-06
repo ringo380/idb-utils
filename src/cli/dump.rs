@@ -1,6 +1,7 @@
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 
+use crate::cli::wprintln;
 use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::hex_dump;
 use crate::IdbError;
@@ -14,10 +15,10 @@ pub struct DumpOptions {
     pub page_size: Option<u32>,
 }
 
-pub fn execute(opts: &DumpOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if let Some(abs_offset) = opts.offset {
         // Absolute offset mode: dump raw bytes from file position
-        return dump_at_offset(&opts.file, abs_offset, opts.length.unwrap_or(256), opts.raw);
+        return dump_at_offset(&opts.file, abs_offset, opts.length.unwrap_or(256), opts.raw, writer);
     }
 
     // Page mode: dump a specific page (or page 0 by default)
@@ -35,23 +36,23 @@ pub fn execute(opts: &DumpOptions) -> Result<(), IdbError> {
     let base_offset = page_num * page_size as u64;
 
     if opts.raw {
-        use std::io::Write;
-        std::io::stdout()
+        writer
             .write_all(&page_data[..dump_len])
             .map_err(|e| IdbError::Io(format!("Cannot write to stdout: {}", e)))?;
     } else {
-        println!(
+        wprintln!(
+            writer,
             "Hex dump of {} page {} ({} bytes):",
             opts.file, page_num, dump_len
-        );
-        println!();
-        println!("{}", hex_dump(&page_data[..dump_len], base_offset));
+        )?;
+        wprintln!(writer)?;
+        wprintln!(writer, "{}", hex_dump(&page_data[..dump_len], base_offset))?;
     }
 
     Ok(())
 }
 
-fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool) -> Result<(), IdbError> {
+fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut f = File::open(file)
         .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", file, e)))?;
 
@@ -78,17 +79,17 @@ fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool) -> Result<(
         .map_err(|e| IdbError::Io(format!("Cannot read {} bytes at offset {}: {}", read_len, offset, e)))?;
 
     if raw {
-        use std::io::Write;
-        std::io::stdout()
+        writer
             .write_all(&buf)
             .map_err(|e| IdbError::Io(format!("Cannot write to stdout: {}", e)))?;
     } else {
-        println!(
+        wprintln!(
+            writer,
             "Hex dump of {} at offset {} ({} bytes):",
             file, offset, read_len
-        );
-        println!();
-        println!("{}", hex_dump(&buf, offset));
+        )?;
+        wprintln!(writer)?;
+        wprintln!(writer, "{}", hex_dump(&buf, offset))?;
     }
 
     Ok(())

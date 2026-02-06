@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::io::Write;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
+use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::cli::{wprintln, wprint};
 use crate::innodb::checksum;
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
@@ -34,7 +37,7 @@ struct PageJson {
 }
 
 /// Execute the parse subcommand.
-pub fn execute(opts: &ParseOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
@@ -43,33 +46,43 @@ pub fn execute(opts: &ParseOptions) -> Result<(), IdbError> {
     let page_size = ts.page_size();
 
     if opts.json {
-        return execute_json(opts, &mut ts, page_size);
+        return execute_json(opts, &mut ts, page_size, writer);
     }
 
     if let Some(page_num) = opts.page {
         // Single page mode
         let page_data = ts.read_page(page_num)?;
-        print_page_info(&page_data, page_num, page_size, opts.verbose);
+        print_page_info(writer, &page_data, page_num, page_size, opts.verbose)?;
     } else {
         // All pages mode
         // Print FSP header first
         let page0 = ts.read_page(0)?;
         if let Some(fsp) = FspHeader::parse(&page0) {
-            print_fsp_header(&fsp);
-            println!();
+            print_fsp_header(writer, &fsp)?;
+            wprintln!(writer)?;
         }
 
-        println!(
+        wprintln!(
+            writer,
             "Pages in {} ({} pages, page size {}):",
             opts.file,
             ts.page_count(),
             page_size
-        );
-        println!("{}", "-".repeat(50));
+        )?;
+        wprintln!(writer, "{}", "-".repeat(50))?;
 
         let mut type_counts: HashMap<PageType, u64> = HashMap::new();
 
+        let pb = ProgressBar::new(ts.page_count());
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} pages ({eta})")
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+
         for page_num in 0..ts.page_count() {
+            pb.inc(1);
             let page_data = ts.read_page(page_num)?;
             let header = match FilHeader::parse(&page_data) {
                 Some(h) => h,
@@ -88,17 +101,19 @@ pub fn execute(opts: &ParseOptions) -> Result<(), IdbError> {
                 continue;
             }
 
-            print_page_info(&page_data, page_num, page_size, opts.verbose);
+            print_page_info(writer, &page_data, page_num, page_size, opts.verbose)?;
         }
 
+        pb.finish_and_clear();
+
         // Print page type summary
-        println!();
-        println!("{}", "Page Type Summary".bold());
+        wprintln!(writer)?;
+        wprintln!(writer, "{}", "Page Type Summary".bold())?;
         let mut sorted_types: Vec<_> = type_counts.iter().collect();
         sorted_types.sort_by(|a, b| b.1.cmp(a.1));
         for (pt, count) in sorted_types {
             let label = if *count == 1 { "page" } else { "pages" };
-            println!("  {:20} {:>6} {}", pt.name(), count, label);
+            wprintln!(writer, "  {:20} {:>6} {}", pt.name(), count, label)?;
         }
     }
 
@@ -110,6 +125,7 @@ fn execute_json(
     opts: &ParseOptions,
     ts: &mut Tablespace,
     page_size: u32,
+    writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let mut pages = Vec::new();
 
@@ -150,20 +166,21 @@ fn execute_json(
         });
     }
 
-    println!(
+    wprintln!(
+        writer,
         "{}",
         serde_json::to_string_pretty(&pages).unwrap_or_else(|_| "[]".to_string())
-    );
+    )?;
     Ok(())
 }
 
 /// Print detailed information about a single page.
-fn print_page_info(page_data: &[u8], page_num: u64, page_size: u32, verbose: bool) {
+fn print_page_info(writer: &mut dyn Write, page_data: &[u8], page_num: u64, page_size: u32, verbose: bool) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => {
             eprintln!("Could not parse FIL header for page {}", page_num);
-            return;
+            return Ok(());
         }
     };
 
@@ -172,39 +189,40 @@ fn print_page_info(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
 
     let pt = header.page_type;
 
-    println!("Page: {}", header.page_number);
-    println!("{}", "-".repeat(20));
-    println!("{}", "HEADER".bold());
-    println!("Byte Start: {}", format_offset(byte_start));
-    println!(
+    wprintln!(writer, "Page: {}", header.page_number)?;
+    wprintln!(writer, "{}", "-".repeat(20))?;
+    wprintln!(writer, "{}", "HEADER".bold())?;
+    wprintln!(writer, "Byte Start: {}", format_offset(byte_start))?;
+    wprintln!(
+        writer,
         "Page Type: {}\n-- {}: {} - {}",
         pt.as_u16(),
         pt.name(),
         pt.description(),
         pt.usage()
-    );
+    )?;
 
     if verbose {
-        println!("PAGE_N_HEAP (Amount of records in page): {}", read_page_n_heap(page_data));
+        wprintln!(writer, "PAGE_N_HEAP (Amount of records in page): {}", read_page_n_heap(page_data))?;
     }
 
-    print!("Prev Page: ");
+    wprint!(writer, "Prev Page: ")?;
     if !header.has_prev() {
-        println!("Not used.");
+        wprintln!(writer, "Not used.")?;
     } else {
-        println!("{}", header.prev_page);
+        wprintln!(writer, "{}", header.prev_page)?;
     }
 
-    print!("Next Page: ");
+    wprint!(writer, "Next Page: ")?;
     if !header.has_next() {
-        println!("Not used.");
+        wprintln!(writer, "Not used.")?;
     } else {
-        println!("{}", header.next_page);
+        wprintln!(writer, "{}", header.next_page)?;
     }
 
-    println!("LSN: {}", header.lsn);
-    println!("Space ID: {}", header.space_id);
-    println!("Checksum: {}", header.checksum);
+    wprintln!(writer, "LSN: {}", header.lsn)?;
+    wprintln!(writer, "Space ID: {}", header.space_id)?;
+    wprintln!(writer, "Checksum: {}", header.checksum)?;
 
     // Checksum validation
     let csum_result = checksum::validate_checksum(page_data, page_size);
@@ -214,23 +232,24 @@ fn print_page_info(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
         } else {
             "MISMATCH".red().to_string()
         };
-        println!(
+        wprintln!(
+            writer,
             "Checksum Status: {} ({:?}, stored={}, calculated={})",
             status, csum_result.algorithm, csum_result.stored_checksum, csum_result.calculated_checksum
-        );
+        )?;
     }
 
-    println!();
+    wprintln!(writer)?;
 
     // Trailer
     let ps = page_size as usize;
     if page_data.len() >= ps {
         let trailer_offset = ps - 8;
         if let Some(trailer) = crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..]) {
-            println!("{}", "TRAILER".bold());
-            println!("Old-style Checksum: {}", trailer.checksum);
-            println!("Low 32 bits of LSN: {}", trailer.lsn_low32);
-            println!("Byte End: {}", format_offset(byte_end));
+            wprintln!(writer, "{}", "TRAILER".bold())?;
+            wprintln!(writer, "Old-style Checksum: {}", trailer.checksum)?;
+            wprintln!(writer, "Low 32 bits of LSN: {}", trailer.lsn_low32)?;
+            wprintln!(writer, "Byte End: {}", format_offset(byte_end))?;
 
             // LSN validation
             if verbose {
@@ -240,22 +259,24 @@ fn print_page_info(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
                 } else {
                     "MISMATCH".red().to_string()
                 };
-                println!("LSN Consistency: {}", lsn_status);
+                wprintln!(writer, "LSN Consistency: {}", lsn_status)?;
             }
         }
     }
-    println!("{}", "-".repeat(20));
+    wprintln!(writer, "{}", "-".repeat(20))?;
+    Ok(())
 }
 
 /// Print FSP header information.
-fn print_fsp_header(fsp: &FspHeader) {
-    println!("{}", "-".repeat(20));
-    println!("{}", "FSP_HDR - Filespace Header".bold());
-    println!("{}", "-".repeat(20));
-    println!("Space ID: {}", fsp.space_id);
-    println!("Size (pages): {}", fsp.size);
-    println!("Page Free Limit: {}", fsp.free_limit);
-    println!("Flags: {}", fsp.flags);
+fn print_fsp_header(writer: &mut dyn Write, fsp: &FspHeader) -> Result<(), IdbError> {
+    wprintln!(writer, "{}", "-".repeat(20))?;
+    wprintln!(writer, "{}", "FSP_HDR - Filespace Header".bold())?;
+    wprintln!(writer, "{}", "-".repeat(20))?;
+    wprintln!(writer, "Space ID: {}", fsp.space_id)?;
+    wprintln!(writer, "Size (pages): {}", fsp.size)?;
+    wprintln!(writer, "Page Free Limit: {}", fsp.free_limit)?;
+    wprintln!(writer, "Flags: {}", fsp.flags)?;
+    Ok(())
 }
 
 /// Read PAGE_N_HEAP from the page header (INDEX page specific).

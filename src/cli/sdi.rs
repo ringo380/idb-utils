@@ -1,3 +1,6 @@
+use std::io::Write;
+
+use crate::cli::wprintln;
 use crate::innodb::sdi;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
@@ -8,7 +11,7 @@ pub struct SdiOptions {
     pub page_size: Option<u32>,
 }
 
-pub fn execute(opts: &SdiOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
@@ -18,36 +21,38 @@ pub fn execute(opts: &SdiOptions) -> Result<(), IdbError> {
     let sdi_pages = sdi::find_sdi_pages(&mut ts)?;
 
     if sdi_pages.is_empty() {
-        println!("No SDI pages found in {}.", opts.file);
-        println!("SDI is only available in MySQL 8.0+ tablespaces.");
+        wprintln!(writer, "No SDI pages found in {}.", opts.file)?;
+        wprintln!(writer, "SDI is only available in MySQL 8.0+ tablespaces.")?;
         return Ok(());
     }
 
-    println!("Found {} SDI page(s): {:?}", sdi_pages.len(), sdi_pages);
+    wprintln!(writer, "Found {} SDI page(s): {:?}", sdi_pages.len(), sdi_pages)?;
 
     // Use multi-page reassembly to extract records
     let records = sdi::extract_sdi_from_pages(&mut ts, &sdi_pages)?;
 
     if records.is_empty() {
-        println!("No SDI records found (pages may be non-leaf or empty).");
+        wprintln!(writer, "No SDI records found (pages may be non-leaf or empty).")?;
         return Ok(());
     }
 
     for rec in &records {
-        println!();
-        println!(
+        wprintln!(writer)?;
+        wprintln!(
+            writer,
             "=== SDI Record: type={} ({}), id={}",
             rec.sdi_type,
             sdi::sdi_type_name(rec.sdi_type),
             rec.sdi_id
-        );
-        println!(
+        )?;
+        wprintln!(
+            writer,
             "Compressed: {} bytes, Uncompressed: {} bytes",
             rec.compressed_len, rec.uncompressed_len
-        );
+        )?;
 
         if rec.data.is_empty() {
-            println!("(Data could not be decompressed - may span multiple pages)");
+            wprintln!(writer, "(Data could not be decompressed - may span multiple pages)")?;
             continue;
         }
 
@@ -55,22 +60,23 @@ pub fn execute(opts: &SdiOptions) -> Result<(), IdbError> {
             // Pretty-print JSON
             match serde_json::from_str::<serde_json::Value>(&rec.data) {
                 Ok(json) => {
-                    println!(
+                    wprintln!(
+                        writer,
                         "{}",
                         serde_json::to_string_pretty(&json).unwrap_or(rec.data.clone())
-                    );
+                    )?;
                 }
                 Err(_) => {
-                    println!("{}", rec.data);
+                    wprintln!(writer, "{}", rec.data)?;
                 }
             }
         } else {
-            println!("{}", rec.data);
+            wprintln!(writer, "{}", rec.data)?;
         }
     }
 
-    println!();
-    println!("Total SDI records: {}", records.len());
+    wprintln!(writer)?;
+    wprintln!(writer, "Total SDI records: {}", records.len())?;
 
     Ok(())
 }

@@ -246,7 +246,8 @@ fn test_parse_execute_succeeds() {
         json: false,
     };
 
-    let result = idb::cli::parse::execute(&opts);
+    let mut out = Vec::new();
+    let result = idb::cli::parse::execute(&opts, &mut out);
     assert!(result.is_ok(), "parse execute should succeed: {:?}", result.err());
 }
 
@@ -266,7 +267,8 @@ fn test_parse_single_page() {
         json: false,
     };
 
-    let result = idb::cli::parse::execute(&opts);
+    let mut out = Vec::new();
+    let result = idb::cli::parse::execute(&opts, &mut out);
     assert!(result.is_ok());
 }
 
@@ -286,7 +288,8 @@ fn test_checksum_execute_all_valid() {
         page_size: None,
     };
 
-    let result = idb::cli::checksum::execute(&opts);
+    let mut out = Vec::new();
+    let result = idb::cli::checksum::execute(&opts, &mut out);
     assert!(result.is_ok(), "checksum should succeed: {:?}", result.err());
 }
 
@@ -304,7 +307,8 @@ fn test_checksum_json_output() {
         page_size: None,
     };
 
-    let result = idb::cli::checksum::execute(&opts);
+    let mut out = Vec::new();
+    let result = idb::cli::checksum::execute(&opts, &mut out);
     assert!(result.is_ok());
 }
 
@@ -324,7 +328,8 @@ fn test_dump_execute_page_zero() {
         page_size: None,
     };
 
-    let result = idb::cli::dump::execute(&opts);
+    let mut out = Vec::new();
+    let result = idb::cli::dump::execute(&opts, &mut out);
     assert!(result.is_ok(), "dump should succeed: {:?}", result.err());
 }
 

@@ -1,296 +1,35 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use std::fs::File;
+use std::io::Write;
 use std::process;
 
 use idb::cli;
-
-#[derive(Parser)]
-#[command(name = "idb")]
-#[command(about = "InnoDB file analysis toolkit")]
-#[command(version)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Parse .ibd file and display page summary
-    Parse {
-        /// Path to InnoDB data file (.ibd)
-        #[arg(short, long)]
-        file: String,
-
-        /// Display a specific page number
-        #[arg(short, long)]
-        page: Option<u64>,
-
-        /// Display additional information
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Skip empty/allocated pages
-        #[arg(short = 'e', long = "no-empty")]
-        no_empty: bool,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-
-    /// Detailed page structure analysis
-    Pages {
-        /// Path to InnoDB data file (.ibd)
-        #[arg(short, long)]
-        file: String,
-
-        /// Display a specific page number
-        #[arg(short, long)]
-        page: Option<u64>,
-
-        /// Display additional information
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Show empty/allocated pages
-        #[arg(short = 'e', long = "show-empty")]
-        show_empty: bool,
-
-        /// Compact list mode (one line per page)
-        #[arg(short, long)]
-        list: bool,
-
-        /// Filter by page type (e.g., INDEX)
-        #[arg(short = 't', long = "type")]
-        filter_type: Option<String>,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-
-    /// Hex dump of raw page bytes
-    Dump {
-        /// Path to InnoDB data file
-        #[arg(short, long)]
-        file: String,
-
-        /// Page number to dump (default: 0)
-        #[arg(short, long)]
-        page: Option<u64>,
-
-        /// Absolute byte offset to start dumping (bypasses page mode)
-        #[arg(long)]
-        offset: Option<u64>,
-
-        /// Number of bytes to dump (default: page size or 256 for offset mode)
-        #[arg(short, long)]
-        length: Option<usize>,
-
-        /// Output raw binary bytes (no formatting)
-        #[arg(long)]
-        raw: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-
-    /// Intentionally corrupt pages for testing
-    Corrupt {
-        /// Path to data file
-        #[arg(short, long)]
-        file: String,
-
-        /// Page number to corrupt (random if not specified)
-        #[arg(short, long)]
-        page: Option<u64>,
-
-        /// Number of bytes to corrupt
-        #[arg(short, long, default_value = "1")]
-        bytes: usize,
-
-        /// Corrupt the FIL header area
-        #[arg(short = 'k', long = "header")]
-        header: bool,
-
-        /// Corrupt the record data area
-        #[arg(short, long)]
-        records: bool,
-
-        /// Absolute byte offset to corrupt (bypasses page calculation)
-        #[arg(long)]
-        offset: Option<u64>,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-
-    /// Search for pages across data directory
-    Find {
-        /// MySQL data directory path
-        #[arg(short, long)]
-        datadir: String,
-
-        /// Page number to search for
-        #[arg(short, long)]
-        page: u64,
-
-        /// Checksum to match
-        #[arg(short, long)]
-        checksum: Option<u32>,
-
-        /// Space ID to match
-        #[arg(short, long)]
-        space_id: Option<u32>,
-
-        /// Stop at first match
-        #[arg(long)]
-        first: bool,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// List/find tablespace IDs
-    Tsid {
-        /// MySQL data directory path
-        #[arg(short, long)]
-        datadir: String,
-
-        /// List all tablespace IDs
-        #[arg(short, long)]
-        list: bool,
-
-        /// Find table file by tablespace ID
-        #[arg(short = 't', long = "tsid")]
-        tablespace_id: Option<u32>,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Extract SDI metadata (MySQL 8.0+)
-    Sdi {
-        /// Path to InnoDB data file (.ibd)
-        #[arg(short, long)]
-        file: String,
-
-        /// Pretty-print JSON output
-        #[arg(short, long)]
-        pretty: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-
-    /// Analyze InnoDB redo log files
-    Log {
-        /// Path to redo log file (ib_logfile0, ib_logfile1, or #ib_redo*)
-        #[arg(short, long)]
-        file: String,
-
-        /// Limit to first N data blocks
-        #[arg(short, long)]
-        blocks: Option<u64>,
-
-        /// Skip empty blocks
-        #[arg(long)]
-        no_empty: bool,
-
-        /// Display additional information
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Show InnoDB file and system information
-    Info {
-        /// Inspect ibdata1 page 0 header
-        #[arg(long)]
-        ibdata: bool,
-
-        /// Compare ibdata1 and redo log LSNs
-        #[arg(long = "lsn-check")]
-        lsn_check: bool,
-
-        /// MySQL data directory path
-        #[arg(short, long)]
-        datadir: Option<String>,
-
-        /// Database name (for table/index info)
-        #[arg(short = 'D', long)]
-        database: Option<String>,
-
-        /// Table name (for table/index info)
-        #[arg(short, long)]
-        table: Option<String>,
-
-        /// MySQL host
-        #[arg(long)]
-        host: Option<String>,
-
-        /// MySQL port
-        #[arg(long)]
-        port: Option<u16>,
-
-        /// MySQL user
-        #[arg(long)]
-        user: Option<String>,
-
-        /// MySQL password
-        #[arg(long)]
-        password: Option<String>,
-
-        /// Path to MySQL defaults file (.my.cnf)
-        #[arg(long = "defaults-file")]
-        defaults_file: Option<String>,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Validate page checksums
-    Checksum {
-        /// Path to InnoDB data file (.ibd)
-        #[arg(short, long)]
-        file: String,
-
-        /// Show per-page checksum details
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Output in JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Override page size (default: auto-detect)
-        #[arg(long = "page-size")]
-        page_size: Option<u32>,
-    },
-}
+use idb::cli::app::{Cli, ColorMode, Commands};
+use idb::IdbError;
 
 fn main() {
     let cli = Cli::parse();
+
+    match cli.color {
+        ColorMode::Always => colored::control::set_override(true),
+        ColorMode::Never => colored::control::set_override(false),
+        ColorMode::Auto => {} // colored auto-detects tty
+    }
+
+    let writer_result: Result<Box<dyn Write>, IdbError> = match &cli.output {
+        Some(path) => File::create(path)
+            .map(|f| Box::new(f) as Box<dyn Write>)
+            .map_err(|e| IdbError::Io(format!("Cannot create {}: {}", path, e))),
+        None => Ok(Box::new(std::io::stdout()) as Box<dyn Write>),
+    };
+
+    let mut writer = match writer_result {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
 
     let result = match cli.command {
         Commands::Parse {
@@ -300,14 +39,17 @@ fn main() {
             no_empty,
             json,
             page_size,
-        } => cli::parse::execute(&cli::parse::ParseOptions {
-            file,
-            page,
-            verbose,
-            no_empty,
-            page_size,
-            json,
-        }),
+        } => cli::parse::execute(
+            &cli::parse::ParseOptions {
+                file,
+                page,
+                verbose,
+                no_empty,
+                page_size,
+                json,
+            },
+            &mut writer,
+        ),
 
         Commands::Pages {
             file,
@@ -318,16 +60,19 @@ fn main() {
             filter_type,
             json,
             page_size,
-        } => cli::pages::execute(&cli::pages::PagesOptions {
-            file,
-            page,
-            verbose,
-            show_empty,
-            list_mode: list,
-            filter_type,
-            page_size,
-            json,
-        }),
+        } => cli::pages::execute(
+            &cli::pages::PagesOptions {
+                file,
+                page,
+                verbose,
+                show_empty,
+                list_mode: list,
+                filter_type,
+                page_size,
+                json,
+            },
+            &mut writer,
+        ),
 
         Commands::Dump {
             file,
@@ -336,14 +81,17 @@ fn main() {
             length,
             raw,
             page_size,
-        } => cli::dump::execute(&cli::dump::DumpOptions {
-            file,
-            page,
-            offset,
-            length,
-            raw,
-            page_size,
-        }),
+        } => cli::dump::execute(
+            &cli::dump::DumpOptions {
+                file,
+                page,
+                offset,
+                length,
+                raw,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Corrupt {
             file,
@@ -352,18 +100,23 @@ fn main() {
             header,
             records,
             offset,
+            verify,
             json,
             page_size,
-        } => cli::corrupt::execute(&cli::corrupt::CorruptOptions {
-            file,
-            page,
-            bytes,
-            header,
-            records,
-            offset,
-            json,
-            page_size,
-        }),
+        } => cli::corrupt::execute(
+            &cli::corrupt::CorruptOptions {
+                file,
+                page,
+                bytes,
+                header,
+                records,
+                offset,
+                verify,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Find {
             datadir,
@@ -372,36 +125,49 @@ fn main() {
             space_id,
             first,
             json,
-        } => cli::find::execute(&cli::find::FindOptions {
-            datadir,
-            page,
-            checksum,
-            space_id,
-            first,
-            json,
-        }),
+            page_size,
+        } => cli::find::execute(
+            &cli::find::FindOptions {
+                datadir,
+                page,
+                checksum,
+                space_id,
+                first,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Tsid {
             datadir,
             list,
             tablespace_id,
             json,
-        } => cli::tsid::execute(&cli::tsid::TsidOptions {
-            datadir,
-            list,
-            tablespace_id,
-            json,
-        }),
+            page_size,
+        } => cli::tsid::execute(
+            &cli::tsid::TsidOptions {
+                datadir,
+                list,
+                tablespace_id,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Sdi {
             file,
             pretty,
             page_size,
-        } => cli::sdi::execute(&cli::sdi::SdiOptions {
-            file,
-            pretty,
-            page_size,
-        }),
+        } => cli::sdi::execute(
+            &cli::sdi::SdiOptions {
+                file,
+                pretty,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Log {
             file,
@@ -409,13 +175,16 @@ fn main() {
             no_empty,
             verbose,
             json,
-        } => cli::log::execute(&cli::log::LogOptions {
-            file,
-            blocks,
-            no_empty,
-            verbose,
-            json,
-        }),
+        } => cli::log::execute(
+            &cli::log::LogOptions {
+                file,
+                blocks,
+                no_empty,
+                verbose,
+                json,
+            },
+            &mut writer,
+        ),
 
         Commands::Info {
             ibdata,
@@ -429,31 +198,39 @@ fn main() {
             password,
             defaults_file,
             json,
-        } => cli::info::execute(&cli::info::InfoOptions {
-            ibdata,
-            lsn_check,
-            datadir,
-            database,
-            table,
-            host,
-            port,
-            user,
-            password,
-            defaults_file,
-            json,
-        }),
+            page_size,
+        } => cli::info::execute(
+            &cli::info::InfoOptions {
+                ibdata,
+                lsn_check,
+                datadir,
+                database,
+                table,
+                host,
+                port,
+                user,
+                password,
+                defaults_file,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
 
         Commands::Checksum {
             file,
             verbose,
             json,
             page_size,
-        } => cli::checksum::execute(&cli::checksum::ChecksumOptions {
-            file,
-            verbose,
-            json,
-            page_size,
-        }),
+        } => cli::checksum::execute(
+            &cli::checksum::ChecksumOptions {
+                file,
+                verbose,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
     };
 
     if let Err(e) = result {

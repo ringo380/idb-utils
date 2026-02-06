@@ -1,7 +1,10 @@
+use std::io::Write;
 use std::path::Path;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 
+use crate::cli::wprintln;
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
@@ -13,6 +16,7 @@ pub struct FindOptions {
     pub space_id: Option<u32>,
     pub first: bool,
     pub json: bool,
+    pub page_size: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -31,7 +35,7 @@ struct FindMatchJson {
     space_id: u32,
 }
 
-pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
+pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {
         return Err(IdbError::Argument(format!(
@@ -53,9 +57,9 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
             };
             let json = serde_json::to_string_pretty(&result)
                 .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-            println!("{}", json);
+            wprintln!(writer, "{}", json)?;
         } else {
-            println!("No .ibd files found in {}", opts.datadir);
+            wprintln!(writer, "No .ibd files found in {}", opts.datadir)?;
         }
         return Ok(());
     }
@@ -63,13 +67,33 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
     let mut matches: Vec<FindMatchJson> = Vec::new();
     let mut files_searched = 0;
 
+    let pb = if !opts.json {
+        let bar = ProgressBar::new(ibd_files.len() as u64);
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} files ({eta})")
+                .unwrap()
+                .progress_chars("#>-"),
+        );
+        Some(bar)
+    } else {
+        None
+    };
+
     for ibd_path in &ibd_files {
+        if let Some(ref pb) = pb {
+            pb.inc(1);
+        }
         let display_path = ibd_path.strip_prefix(datadir).unwrap_or(ibd_path);
         if !opts.json {
-            println!("Checking {}.. ", display_path.display());
+            wprintln!(writer, "Checking {}.. ", display_path.display())?;
         }
 
-        let mut ts = match Tablespace::open(ibd_path) {
+        let ts_result = match opts.page_size {
+            Some(ps) => Tablespace::open_with_page_size(ibd_path, ps),
+            None => Tablespace::open(ibd_path),
+        };
+        let mut ts = match ts_result {
             Ok(t) => t,
             Err(_) => continue,
         };
@@ -102,13 +126,14 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
                 }
 
                 if !opts.json {
-                    println!(
+                    wprintln!(
+                        writer,
                         "Found page {} in {} (checksum: {}, space_id: {})",
                         opts.page,
                         display_path.display(),
                         header.checksum,
                         header.space_id
-                    );
+                    )?;
                 }
 
                 matches.push(FindMatchJson {
@@ -129,6 +154,10 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
         }
     }
 
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
+
     if opts.json {
         let result = FindResultJson {
             datadir: opts.datadir.clone(),
@@ -138,16 +167,17 @@ pub fn execute(opts: &FindOptions) -> Result<(), IdbError> {
         };
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
-        println!("{}", json);
+        wprintln!(writer, "{}", json)?;
     } else if matches.is_empty() {
-        println!("Page {} not found in any .ibd file.", opts.page);
+        wprintln!(writer, "Page {} not found in any .ibd file.", opts.page)?;
     } else {
-        println!();
-        println!(
+        wprintln!(writer)?;
+        wprintln!(
+            writer,
             "Found {} match(es) in {} file(s) searched.",
             matches.len(),
             files_searched
-        );
+        )?;
     }
 
     Ok(())
