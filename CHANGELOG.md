@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-02-06
+
+### Fixed
+
+- **CRC-32C checksum validation** now correctly XORs two independently-computed CRC values over disjoint byte ranges, matching MySQL's `buf_calc_page_crc32()` implementation. Previously used chained CRC which produced incorrect results against real .ibd files.
+- **Legacy InnoDB checksum validation** now uses 32-bit wrapping arithmetic with byte-by-byte folding, matching the `ut_fold_binary` / `buf_calc_page_new_checksum` implementation. Previously used 64-bit word-based processing which produced incorrect results for MySQL < 5.7.7 files.
+- Verified correct checksum validation against real .ibd files from MySQL 5.0, 5.6, 5.7, 8.0, 8.4, and 9.0 (test fixtures from ibdNinja, innodb_ruby, and innodb-java-reader projects).
+
 ## [1.2.0] - 2026-02-05
 
 ### Changed

@@ -88,9 +88,9 @@ fn build_allocated_page(_page_num: u32, _space_id: u32) -> Vec<u8> {
 ///   Range 2: bytes 38..(page_size-8) (FIL_PAGE_DATA to end before trailer)
 fn write_crc32c_checksum(page: &mut [u8]) {
     let end = PS - SIZE_FIL_TRAILER;
-    let crc = crc32c::crc32c(&page[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
-    let crc = crc32c::crc32c_append(crc, &page[FIL_PAGE_DATA..end]);
-    BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc);
+    let crc1 = crc32c::crc32c(&page[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
+    let crc2 = crc32c::crc32c(&page[FIL_PAGE_DATA..end]);
+    BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc1 ^ crc2);
 }
 
 /// Write a multi-page synthetic tablespace to a temp file.

@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ByteOrder};
-
 use crate::innodb::constants::*;
 
 /// Checksum algorithms used by InnoDB.
@@ -94,7 +93,8 @@ pub struct ChecksumResult {
 
 /// Calculate CRC-32C checksum for an InnoDB page.
 ///
-/// MySQL computes CRC-32C over two disjoint ranges, skipping:
+/// MySQL computes CRC-32C independently over two disjoint ranges and XORs
+/// the results (see buf_calc_page_crc32 in buf0checksum.cc). Skipped regions:
 /// - bytes 0-3 (stored checksum)
 /// - bytes 26-37 (flush LSN + space ID, written outside buffer pool)
 /// - last 8 bytes (trailer)
@@ -105,106 +105,54 @@ fn calculate_crc32c(page_data: &[u8], page_size: usize) -> u32 {
     let end = page_size - SIZE_FIL_TRAILER;
 
     // CRC-32C of range 1: bytes 4..26
-    let crc = crc32c::crc32c(&page_data[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
+    let crc1 = crc32c::crc32c(&page_data[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
 
-    // Continue CRC with range 2: bytes 38..(page_size - 8)
-    crc32c::crc32c_append(crc, &page_data[FIL_PAGE_DATA..end])
+    // CRC-32C of range 2: bytes 38..(page_size - 8)
+    let crc2 = crc32c::crc32c(&page_data[FIL_PAGE_DATA..end]);
+
+    // MySQL XORs the two CRC values (not chained/appended)
+    crc1 ^ crc2
 }
 
-/// MySQL's ut_fold_ulint_pair — the core folding function.
+/// InnoDB's ut_fold_ulint_pair — the core folding function.
 ///
-/// Uses u64 to match MySQL's `ulint` (unsigned long) on LP64 platforms.
-/// The final result is masked to 32 bits by the caller.
+/// All arithmetic is done in u32 with wrapping, matching the effective behavior
+/// of InnoDB's checksum as implemented by innodb_ruby and verified against real
+/// .ibd files from MySQL 5.0 through 5.6.
 #[inline]
-fn ut_fold_ulint_pair(n1: u64, n2: u64) -> u64 {
-    let mask2 = UT_HASH_RANDOM_MASK2 as u64;
-    let mask = UT_HASH_RANDOM_MASK as u64;
-    ((((n1 ^ n2 ^ mask2) << 8).wrapping_add(n1)) ^ mask).wrapping_add(n2)
+fn ut_fold_ulint_pair(n1: u32, n2: u32) -> u32 {
+    let step = n1 ^ n2 ^ UT_HASH_RANDOM_MASK2;
+    let step = (step << 8).wrapping_add(n1);
+    let step = step ^ UT_HASH_RANDOM_MASK;
+    step.wrapping_add(n2)
 }
 
-/// MySQL's ut_fold_binary — fold a byte sequence using ut_fold_ulint_pair.
+/// Fold a byte sequence using ut_fold_ulint_pair, one byte at a time.
 ///
-/// Processes 8 bytes at a time (two u32 reads), then handles remainder.
-/// Returns u64 (matching MySQL's ulint) to be truncated by caller.
-fn ut_fold_binary(data: &[u8]) -> u64 {
-    let mut fold: u64 = 0;
-    let len = data.len();
-    let aligned_len = len & !7; // round down to multiple of 8
-
-    // Process 8 bytes at a time
-    let mut i = 0;
-    while i < aligned_len {
-        fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        i += 4;
-        fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        i += 4;
+/// This matches innodb_ruby's fold_enumerator implementation, which processes
+/// each byte individually through fold_pair. Verified against real .ibd files
+/// from MySQL 5.0 and 5.6.
+fn ut_fold_binary(data: &[u8]) -> u32 {
+    let mut fold: u32 = 0;
+    for &byte in data {
+        fold = ut_fold_ulint_pair(fold, byte as u32);
     }
-
-    // Handle remaining bytes (matches MySQL's switch fallthrough)
-    let remainder = len & 7;
-    match remainder {
-        7 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        }
-        6 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        }
-        5 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        }
-        4 => {
-            fold = ut_fold_ulint_pair(fold, BigEndian::read_u32(&data[i..]) as u64);
-        }
-        3 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-        }
-        2 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-            i += 1;
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-        }
-        1 => {
-            fold = ut_fold_ulint_pair(fold, data[i] as u64);
-        }
-        _ => {}
-    }
-
     fold
 }
 
 /// Calculate the legacy InnoDB checksum (buf_calc_page_new_checksum).
 ///
-/// This matches the MySQL source exactly:
-/// 1. Fold bytes from FIL_PAGE_OFFSET (4) to FIL_PAGE_FILE_FLUSH_LSN (26)
-/// 2. Fold bytes from FIL_PAGE_DATA (38) to page_size - 8
-/// 3. Sum both results and mask to 32 bits
+/// Used by MySQL < 5.7.7 (innodb_checksum_algorithm=innodb).
+/// Folds two byte ranges and sums the results:
+/// 1. Bytes 4..26 (FIL_PAGE_OFFSET to FIL_PAGE_FILE_FLUSH_LSN)
+/// 2. Bytes 38..(page_size - 8) (FIL_PAGE_DATA to end before trailer)
 fn calculate_innodb_checksum(page_data: &[u8], page_size: usize) -> u32 {
     let end = page_size - SIZE_FIL_TRAILER;
 
-    // Range 1: bytes 4..26 (FIL_PAGE_OFFSET to FIL_PAGE_FILE_FLUSH_LSN)
     let fold1 = ut_fold_binary(&page_data[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
-
-    // Range 2: bytes 38..(page_size - 8) (FIL_PAGE_DATA to end of user data)
     let fold2 = ut_fold_binary(&page_data[FIL_PAGE_DATA..end]);
 
-    // Mask to 32 bits (matching MySQL: checksum = checksum & 0xFFFFFFFF)
-    fold1.wrapping_add(fold2) as u32
+    fold1.wrapping_add(fold2)
 }
 
 /// Validate the LSN consistency between header and trailer.
