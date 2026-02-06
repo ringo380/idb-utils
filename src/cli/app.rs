@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
-#[command(name = "idb")]
+#[command(name = "inno")]
 #[command(about = "InnoDB file analysis toolkit")]
 #[command(version)]
 pub struct Cli {

@@ -1,6 +1,6 @@
 [package]
 name = "innodb-utils"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "InnoDB file analysis toolkit"
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["command-line-utilities", "database"]
 exclude = [".env", ".DS_Store", "Dockerfile", "IdbHelpers/", "*.ibd"]
 
 [[bin]]
-name = "idb"
+name = "inno"
 path = "src/main.rs"
 
 [lib]

@@ -55,9 +55,9 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           TAG="${GITHUB_REF#refs/tags/}"
-          ARCHIVE_NAME="idb-${TAG}-${{ matrix.target }}"
+          ARCHIVE_NAME="inno-${TAG}-${{ matrix.target }}"
           mkdir "${ARCHIVE_NAME}"
-          cp idb "${ARCHIVE_NAME}/"
+          cp inno "${ARCHIVE_NAME}/"
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
           echo "ARCHIVE=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV

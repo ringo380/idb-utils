@@ -18,11 +18,11 @@ fn main() {
     // Generate main man page
     let mut buf = Vec::new();
     Man::new(cmd.clone()).render(&mut buf).unwrap();
-    fs::write(man_dir.join("idb.1"), buf).unwrap();
+    fs::write(man_dir.join("inno.1"), buf).unwrap();
 
     // Generate subcommand man pages
     for sub in cmd.get_subcommands() {
-        let name = format!("idb-{}.1", sub.get_name());
+        let name = format!("inno-{}.1", sub.get_name());
         let mut buf = Vec::new();
         Man::new(sub.clone()).render(&mut buf).unwrap();
         fs::write(man_dir.join(&name), buf).unwrap();
