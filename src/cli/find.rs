@@ -1,12 +1,12 @@
 use std::io::Write;
 use std::path::Path;
 
-use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 
-use crate::cli::wprintln;
+use crate::cli::{wprintln, create_progress_bar};
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
+use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
 pub struct FindOptions {
@@ -45,7 +45,7 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     }
 
     // Find all .ibd files in subdirectories
-    let ibd_files = find_ibd_files(datadir)?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
 
     if ibd_files.is_empty() {
         if opts.json {
@@ -68,14 +68,7 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     let mut files_searched = 0;
 
     let pb = if !opts.json {
-        let bar = ProgressBar::new(ibd_files.len() as u64);
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} files ({eta})")
-                .unwrap()
-                .progress_chars("#>-"),
-        );
-        Some(bar)
+        Some(create_progress_bar(ibd_files.len() as u64, "files"))
     } else {
         None
     };
@@ -183,36 +176,3 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     Ok(())
 }
 
-/// Recursively find all .ibd files in subdirectories of the data directory.
-fn find_ibd_files(datadir: &Path) -> Result<Vec<std::path::PathBuf>, IdbError> {
-    let mut files = Vec::new();
-
-    let entries = std::fs::read_dir(datadir)
-        .map_err(|e| IdbError::Io(format!("Cannot read directory {}: {}", datadir.display(), e)))?;
-
-    for entry in entries {
-        let entry =
-            entry.map_err(|e| IdbError::Io(format!("Cannot read directory entry: {}", e)))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            // Look for .ibd files in subdirectories
-            let sub_entries = std::fs::read_dir(&path)
-                .map_err(|e| IdbError::Io(format!("Cannot read {}: {}", path.display(), e)))?;
-
-            for sub_entry in sub_entries {
-                let sub_entry = sub_entry
-                    .map_err(|e| IdbError::Io(format!("Cannot read directory entry: {}", e)))?;
-                let sub_path = sub_entry.path();
-                if sub_path.extension().is_some_and(|ext| ext == "ibd") {
-                    files.push(sub_path);
-                }
-            }
-        } else if path.extension().is_some_and(|ext| ext == "ibd") {
-            files.push(path);
-        }
-    }
-
-    files.sort();
-    Ok(files)
-}

@@ -29,3 +29,20 @@ macro_rules! wprint {
 
 pub(crate) use wprintln;
 pub(crate) use wprint;
+
+use indicatif::{ProgressBar, ProgressStyle};
+
+/// Create a styled progress bar for iterating over pages or files.
+pub(crate) fn create_progress_bar(count: u64, unit: &str) -> ProgressBar {
+    let pb = ProgressBar::new(count);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(&format!(
+                "{{spinner:.green}} [{{bar:40.cyan/blue}}] {{pos}}/{{len}} {} ({{eta}})",
+                unit
+            ))
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    pb
+}

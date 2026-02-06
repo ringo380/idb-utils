@@ -97,98 +97,45 @@ impl PageType {
         self as u16
     }
 
-    /// Returns the name of this page type as used in MySQL source.
-    pub fn name(self) -> &'static str {
+    /// Returns (name, description, usage) for this page type.
+    fn metadata(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            PageType::Allocated => "ALLOCATED",
-            PageType::UndoLog => "UNDO_LOG",
-            PageType::Inode => "INODE",
-            PageType::IbufFreeList => "IBUF_FREE_LIST",
-            PageType::IbufBitmap => "IBUF_BITMAP",
-            PageType::Sys => "SYS",
-            PageType::TrxSys => "TRX_SYS",
-            PageType::FspHdr => "FSP_HDR",
-            PageType::Xdes => "XDES",
-            PageType::Blob => "BLOB",
-            PageType::ZBlob => "ZBLOB",
-            PageType::ZBlob2 => "ZBLOB2",
-            PageType::Unknown => "UNKNOWN",
-            PageType::Compressed => "COMPRESSED",
-            PageType::Encrypted => "ENCRYPTED",
-            PageType::CompressedEncrypted => "COMPRESSED_ENCRYPTED",
-            PageType::EncryptedRtree => "ENCRYPTED_RTREE",
-            PageType::SdiBlob => "SDI_BLOB",
-            PageType::Sdi => "SDI",
-            PageType::Index => "INDEX",
-            PageType::Rtree => "RTREE",
-            PageType::LobIndex => "LOB_INDEX",
-            PageType::LobData => "LOB_DATA",
-            PageType::LobFirst => "LOB_FIRST",
-            PageType::RsegArray => "RSEG_ARRAY",
+            PageType::Allocated => ("ALLOCATED", "Freshly allocated", "Page type field not initialized."),
+            PageType::UndoLog => ("UNDO_LOG", "Undo log", "Stores previous values of modified records."),
+            PageType::Inode => ("INODE", "File segment inode", "Bookkeeping for file segments."),
+            PageType::IbufFreeList => ("IBUF_FREE_LIST", "Insert buffer free list", "Bookkeeping for insert buffer free space management."),
+            PageType::IbufBitmap => ("IBUF_BITMAP", "Insert buffer bitmap", "Bookkeeping for insert buffer writes to be merged."),
+            PageType::Sys => ("SYS", "System internal", "Used for various purposes in the system tablespace."),
+            PageType::TrxSys => ("TRX_SYS", "Transaction system header", "Bookkeeping for the transaction system in system tablespace."),
+            PageType::FspHdr => ("FSP_HDR", "File space header", "Header page (page 0) for each tablespace file."),
+            PageType::Xdes => ("XDES", "Extent descriptor", "Header page for subsequent blocks of 16,384 pages."),
+            PageType::Blob => ("BLOB", "Uncompressed BLOB", "Externally-stored uncompressed BLOB column data."),
+            PageType::ZBlob => ("ZBLOB", "First compressed BLOB", "Externally-stored compressed BLOB column data, first page."),
+            PageType::ZBlob2 => ("ZBLOB2", "Subsequent compressed BLOB", "Externally-stored compressed BLOB column data, subsequent page."),
+            PageType::Unknown => ("UNKNOWN", "Unknown page type", "Unknown or unrecognized page type."),
+            PageType::Compressed => ("COMPRESSED", "Compressed page", "Page stored in compressed format."),
+            PageType::Encrypted => ("ENCRYPTED", "Encrypted page", "Page stored in encrypted format."),
+            PageType::CompressedEncrypted => ("COMPRESSED_ENCRYPTED", "Compressed and encrypted page", "Page stored in compressed and encrypted format."),
+            PageType::EncryptedRtree => ("ENCRYPTED_RTREE", "Encrypted R-tree page", "Encrypted R-tree spatial index page."),
+            PageType::SdiBlob => ("SDI_BLOB", "SDI BLOB", "SDI BLOB overflow data (MySQL 8.0+)."),
+            PageType::Sdi => ("SDI", "Serialized Dictionary Information", "Serialized Dictionary Information metadata (MySQL 8.0+)."),
+            PageType::Index => ("INDEX", "B+Tree index", "Table and index data stored in B+Tree structure."),
+            PageType::Rtree => ("RTREE", "R-tree index", "Spatial index data stored in R-tree structure."),
+            PageType::LobIndex => ("LOB_INDEX", "LOB index", "Large object index page (MySQL 8.0+)."),
+            PageType::LobData => ("LOB_DATA", "LOB data", "Large object data page (MySQL 8.0+)."),
+            PageType::LobFirst => ("LOB_FIRST", "LOB first page", "Large object first page (MySQL 8.0+)."),
+            PageType::RsegArray => ("RSEG_ARRAY", "Rollback segment array", "Rollback segment array page (MySQL 8.0+)."),
         }
     }
+
+    /// Returns the name of this page type as used in MySQL source.
+    pub fn name(self) -> &'static str { self.metadata().0 }
 
     /// Returns a human-readable description of this page type.
-    pub fn description(self) -> &'static str {
-        match self {
-            PageType::Allocated => "Freshly allocated",
-            PageType::UndoLog => "Undo log",
-            PageType::Inode => "File segment inode",
-            PageType::IbufFreeList => "Insert buffer free list",
-            PageType::IbufBitmap => "Insert buffer bitmap",
-            PageType::Sys => "System internal",
-            PageType::TrxSys => "Transaction system header",
-            PageType::FspHdr => "File space header",
-            PageType::Xdes => "Extent descriptor",
-            PageType::Blob => "Uncompressed BLOB",
-            PageType::ZBlob => "First compressed BLOB",
-            PageType::ZBlob2 => "Subsequent compressed BLOB",
-            PageType::Unknown => "Unknown page type",
-            PageType::Compressed => "Compressed page",
-            PageType::Encrypted => "Encrypted page",
-            PageType::CompressedEncrypted => "Compressed and encrypted page",
-            PageType::EncryptedRtree => "Encrypted R-tree page",
-            PageType::SdiBlob => "SDI BLOB",
-            PageType::Sdi => "Serialized Dictionary Information",
-            PageType::Index => "B+Tree index",
-            PageType::Rtree => "R-tree index",
-            PageType::LobIndex => "LOB index",
-            PageType::LobData => "LOB data",
-            PageType::LobFirst => "LOB first page",
-            PageType::RsegArray => "Rollback segment array",
-        }
-    }
+    pub fn description(self) -> &'static str { self.metadata().1 }
 
     /// Returns usage information for this page type.
-    pub fn usage(self) -> &'static str {
-        match self {
-            PageType::Allocated => "Page type field not initialized.",
-            PageType::UndoLog => "Stores previous values of modified records.",
-            PageType::Inode => "Bookkeeping for file segments.",
-            PageType::IbufFreeList => "Bookkeeping for insert buffer free space management.",
-            PageType::IbufBitmap => "Bookkeeping for insert buffer writes to be merged.",
-            PageType::Sys => "Used for various purposes in the system tablespace.",
-            PageType::TrxSys => "Bookkeeping for the transaction system in system tablespace.",
-            PageType::FspHdr => "Header page (page 0) for each tablespace file.",
-            PageType::Xdes => "Header page for subsequent blocks of 16,384 pages.",
-            PageType::Blob => "Externally-stored uncompressed BLOB column data.",
-            PageType::ZBlob => "Externally-stored compressed BLOB column data, first page.",
-            PageType::ZBlob2 => "Externally-stored compressed BLOB column data, subsequent page.",
-            PageType::Unknown => "Unknown or unrecognized page type.",
-            PageType::Compressed => "Page stored in compressed format.",
-            PageType::Encrypted => "Page stored in encrypted format.",
-            PageType::CompressedEncrypted => "Page stored in compressed and encrypted format.",
-            PageType::EncryptedRtree => "Encrypted R-tree spatial index page.",
-            PageType::SdiBlob => "SDI BLOB overflow data (MySQL 8.0+).",
-            PageType::Sdi => "Serialized Dictionary Information metadata (MySQL 8.0+).",
-            PageType::Index => "Table and index data stored in B+Tree structure.",
-            PageType::Rtree => "Spatial index data stored in R-tree structure.",
-            PageType::LobIndex => "Large object index page (MySQL 8.0+).",
-            PageType::LobData => "Large object data page (MySQL 8.0+).",
-            PageType::LobFirst => "Large object first page (MySQL 8.0+).",
-            PageType::RsegArray => "Rollback segment array page (MySQL 8.0+).",
-        }
-    }
+    pub fn usage(self) -> &'static str { self.metadata().2 }
 }
 
 impl fmt::Display for PageType {

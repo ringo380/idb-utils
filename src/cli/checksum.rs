@@ -3,9 +3,7 @@ use std::io::Write;
 use colored::Colorize;
 use serde::Serialize;
 
-use indicatif::{ProgressBar, ProgressStyle};
-
-use crate::cli::wprintln;
+use crate::cli::{wprintln, create_progress_bar};
 use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
@@ -66,13 +64,7 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     let mut empty_count = 0u64;
     let mut lsn_mismatch_count = 0u64;
 
-    let pb = ProgressBar::new(page_count);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} pages ({eta})")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
+    let pb = create_progress_bar(page_count, "pages");
 
     for page_num in 0..page_count {
         pb.inc(1);

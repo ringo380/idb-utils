@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-02-06
+
+### Changed
+
+- Extract shared `create_progress_bar()` helper, replacing duplicate progress bar setup in `parse`, `checksum`, and `find` subcommands
+- Consolidate duplicate directory traversal into `util::fs::find_tablespace_files()`, replacing separate implementations in `find` and `tsid`
+- Standardize JSON serialization error handling in `parse` and `pages` to return proper errors instead of silent `"[]"` fallback
+- Refactor `PageType` to use single `metadata()` method instead of three parallel 25-arm match statements
+
+### Added
+
+- 8 unit tests for `Tablespace` (open, page size override, reject small file, read page, out of range, parse header/trailer, for_each_page)
+- 17 integration tests covering `pages`, `corrupt`, `find`, `tsid`, `sdi`, `dump --raw`, error paths, and JSON output validation
+
 ## [1.2.1] - 2026-02-06
 
 ### Fixed

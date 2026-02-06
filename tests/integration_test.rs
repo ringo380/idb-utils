@@ -349,3 +349,423 @@ fn test_hex_dump_format() {
     // Second line starts at offset 00000010
     assert!(lines[1].starts_with("00000010"));
 }
+
+// ---------- CLI pages pipeline ----------
+
+#[test]
+fn test_pages_execute_succeeds() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_allocated_page(2, 1);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::pages::PagesOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        show_empty: false,
+        list_mode: false,
+        filter_type: None,
+        page_size: None,
+        json: false,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::pages::execute(&opts, &mut out);
+    assert!(result.is_ok(), "pages execute should succeed: {:?}", result.err());
+}
+
+#[test]
+fn test_pages_list_mode() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::pages::PagesOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        show_empty: false,
+        list_mode: true,
+        filter_type: None,
+        page_size: None,
+        json: false,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::pages::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("INDEX"), "list mode should show INDEX pages");
+}
+
+#[test]
+fn test_pages_json_output() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::pages::PagesOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        show_empty: false,
+        list_mode: false,
+        filter_type: None,
+        page_size: None,
+        json: true,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::pages::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    // Verify it's valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("output should be valid JSON");
+    assert!(parsed.is_array());
+}
+
+// ---------- CLI corrupt pipeline ----------
+
+#[test]
+fn test_corrupt_execute_basic() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+    // corrupt needs a writable file; NamedTempFile is writable
+    let path = tmp.path().to_string_lossy().to_string();
+
+    let opts = idb::cli::corrupt::CorruptOptions {
+        file: path,
+        page: Some(1),
+        bytes: 4,
+        header: false,
+        records: false,
+        offset: None,
+        verify: false,
+        json: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::corrupt::execute(&opts, &mut out);
+    assert!(result.is_ok(), "corrupt should succeed: {:?}", result.err());
+}
+
+#[test]
+fn test_corrupt_verify_detects_change() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+    let path = tmp.path().to_string_lossy().to_string();
+
+    let opts = idb::cli::corrupt::CorruptOptions {
+        file: path.clone(),
+        page: Some(1),
+        bytes: 4,
+        header: false,
+        records: true,
+        offset: None,
+        verify: true,
+        json: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::corrupt::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Verification"), "should show verification output");
+}
+
+// ---------- CLI find pipeline ----------
+
+#[test]
+fn test_find_execute_basic() {
+    // Create a temp datadir with subdirectory containing .ibd files
+    let datadir = tempfile::tempdir().expect("create temp dir");
+    let subdir = datadir.path().join("testdb");
+    std::fs::create_dir(&subdir).expect("create subdir");
+
+    let page0 = build_fsp_hdr_page(50, 2);
+    let page1 = build_index_page(1, 50, 3000);
+
+    let ibd_path = subdir.join("test_table.ibd");
+    let mut f = std::fs::File::create(&ibd_path).expect("create ibd");
+    f.write_all(&page0).unwrap();
+    f.write_all(&page1).unwrap();
+    f.flush().unwrap();
+
+    let opts = idb::cli::find::FindOptions {
+        datadir: datadir.path().to_string_lossy().to_string(),
+        page: 1,
+        checksum: None,
+        space_id: None,
+        first: false,
+        json: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::find::execute(&opts, &mut out);
+    assert!(result.is_ok(), "find should succeed: {:?}", result.err());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Found page 1"), "should find page 1 in the .ibd file");
+}
+
+// ---------- CLI tsid pipeline ----------
+
+#[test]
+fn test_tsid_list_mode() {
+    let datadir = tempfile::tempdir().expect("create temp dir");
+    let subdir = datadir.path().join("testdb");
+    std::fs::create_dir(&subdir).expect("create subdir");
+
+    let page0 = build_fsp_hdr_page(77, 1);
+    let ibd_path = subdir.join("t1.ibd");
+    let mut f = std::fs::File::create(&ibd_path).expect("create ibd");
+    f.write_all(&page0).unwrap();
+    f.flush().unwrap();
+
+    let opts = idb::cli::tsid::TsidOptions {
+        datadir: datadir.path().to_string_lossy().to_string(),
+        list: true,
+        tablespace_id: None,
+        json: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::tsid::execute(&opts, &mut out);
+    assert!(result.is_ok(), "tsid list should succeed: {:?}", result.err());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("77"), "should show space_id 77");
+}
+
+#[test]
+fn test_tsid_lookup() {
+    let datadir = tempfile::tempdir().expect("create temp dir");
+    let subdir = datadir.path().join("testdb");
+    std::fs::create_dir(&subdir).expect("create subdir");
+
+    let page0 = build_fsp_hdr_page(88, 1);
+    let ibd_path = subdir.join("t1.ibd");
+    let mut f = std::fs::File::create(&ibd_path).expect("create ibd");
+    f.write_all(&page0).unwrap();
+    f.flush().unwrap();
+
+    let opts = idb::cli::tsid::TsidOptions {
+        datadir: datadir.path().to_string_lossy().to_string(),
+        list: false,
+        tablespace_id: Some(88),
+        json: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::tsid::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("88"), "should find space_id 88");
+}
+
+// ---------- CLI sdi pipeline ----------
+
+#[test]
+fn test_sdi_execute_no_sdi_pages() {
+    // Tablespace without SDI pages — should succeed gracefully
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::sdi::SdiOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        pretty: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::sdi::execute(&opts, &mut out);
+    assert!(result.is_ok(), "sdi should succeed with no SDI pages: {:?}", result.err());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("No SDI pages found"), "should report no SDI pages");
+}
+
+// ---------- CLI dump raw mode ----------
+
+#[test]
+fn test_dump_raw_mode() {
+    let page0 = build_fsp_hdr_page(1, 1);
+    let tmp = write_tablespace(&[page0.clone()]);
+
+    let opts = idb::cli::dump::DumpOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: Some(0),
+        offset: None,
+        length: Some(64),
+        raw: true,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::dump::execute(&opts, &mut out);
+    assert!(result.is_ok(), "dump raw should succeed: {:?}", result.err());
+    // Raw mode outputs exact bytes, not hex
+    assert_eq!(out.len(), 64);
+    assert_eq!(&out[..64], &page0[..64]);
+}
+
+// ---------- Error path tests ----------
+
+#[test]
+fn test_parse_nonexistent_file() {
+    let opts = idb::cli::parse::ParseOptions {
+        file: "/nonexistent/file.ibd".to_string(),
+        page: None,
+        verbose: false,
+        no_empty: false,
+        page_size: None,
+        json: false,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::parse::execute(&opts, &mut out);
+    assert!(result.is_err(), "parse should fail on nonexistent file");
+}
+
+#[test]
+fn test_open_empty_file() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let result = Tablespace::open(tmp.path());
+    assert!(result.is_err(), "should reject empty file");
+}
+
+#[test]
+fn test_open_truncated_file() {
+    // File smaller than FIL header + FSP header
+    let mut tmp = NamedTempFile::new().expect("create temp file");
+    tmp.write_all(&[0u8; 20]).unwrap();
+    tmp.flush().unwrap();
+    let result = Tablespace::open(tmp.path());
+    assert!(result.is_err(), "should reject truncated file");
+}
+
+#[test]
+fn test_parse_json_validates_output() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::parse::ParseOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        no_empty: false,
+        page_size: None,
+        json: true,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::parse::execute(&opts, &mut out);
+    assert!(result.is_ok());
+
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("parse --json should produce valid JSON");
+    assert!(parsed.is_array());
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "should have 2 pages in JSON output");
+}
+
+#[test]
+fn test_checksum_json_validates_output() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::checksum::ChecksumOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        verbose: true,
+        json: true,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::checksum::execute(&opts, &mut out);
+    assert!(result.is_ok());
+
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("checksum --json should produce valid JSON");
+    assert!(parsed.is_object());
+    assert!(parsed.get("total_pages").is_some());
+    assert!(parsed.get("valid_pages").is_some());
+}
+
+// ---------- CLI find with JSON ----------
+
+#[test]
+fn test_find_json_output() {
+    let datadir = tempfile::tempdir().expect("create temp dir");
+    let subdir = datadir.path().join("testdb");
+    std::fs::create_dir(&subdir).expect("create subdir");
+
+    let page0 = build_fsp_hdr_page(50, 1);
+    let ibd_path = subdir.join("test.ibd");
+    let mut f = std::fs::File::create(&ibd_path).expect("create ibd");
+    f.write_all(&page0).unwrap();
+    f.flush().unwrap();
+
+    let opts = idb::cli::find::FindOptions {
+        datadir: datadir.path().to_string_lossy().to_string(),
+        page: 0,
+        checksum: None,
+        space_id: None,
+        first: false,
+        json: true,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::find::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("find --json should produce valid JSON");
+    assert!(parsed.get("matches").is_some());
+}
+
+// ---------- CLI tsid with JSON ----------
+
+#[test]
+fn test_tsid_json_output() {
+    let datadir = tempfile::tempdir().expect("create temp dir");
+    let subdir = datadir.path().join("testdb");
+    std::fs::create_dir(&subdir).expect("create subdir");
+
+    let page0 = build_fsp_hdr_page(33, 1);
+    let ibd_path = subdir.join("t1.ibd");
+    let mut f = std::fs::File::create(&ibd_path).expect("create ibd");
+    f.write_all(&page0).unwrap();
+    f.flush().unwrap();
+
+    let opts = idb::cli::tsid::TsidOptions {
+        datadir: datadir.path().to_string_lossy().to_string(),
+        list: true,
+        tablespace_id: None,
+        json: true,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::tsid::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).expect("tsid --json should produce valid JSON");
+    assert!(parsed.get("tablespaces").is_some());
+}

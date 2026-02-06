@@ -176,3 +176,138 @@ impl Tablespace {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use byteorder::{BigEndian, ByteOrder};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    const PS: usize = SIZE_PAGE_DEFAULT as usize;
+
+    fn build_fsp_page(space_id: u32, total_pages: u32) -> Vec<u8> {
+        let mut page = vec![0u8; PS];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 0);
+        BigEndian::write_u32(&mut page[FIL_PAGE_PREV..], FIL_NULL);
+        BigEndian::write_u32(&mut page[FIL_PAGE_NEXT..], FIL_NULL);
+        BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], 1000);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 8); // FSP_HDR
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], space_id);
+        let fsp = FIL_PAGE_DATA;
+        BigEndian::write_u32(&mut page[fsp + FSP_SPACE_ID..], space_id);
+        BigEndian::write_u32(&mut page[fsp + FSP_SIZE..], total_pages);
+        BigEndian::write_u32(&mut page[fsp + FSP_FREE_LIMIT..], total_pages);
+        BigEndian::write_u32(&mut page[fsp + FSP_SPACE_FLAGS..], 0);
+        let trailer = PS - SIZE_FIL_TRAILER;
+        BigEndian::write_u32(&mut page[trailer + 4..], 1000 & 0xFFFFFFFF);
+        let end = PS - SIZE_FIL_TRAILER;
+        let crc1 = crc32c::crc32c(&page[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
+        let crc2 = crc32c::crc32c(&page[FIL_PAGE_DATA..end]);
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc1 ^ crc2);
+        page
+    }
+
+    fn build_index_page(page_num: u32, space_id: u32, lsn: u64) -> Vec<u8> {
+        let mut page = vec![0u8; PS];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], page_num);
+        BigEndian::write_u32(&mut page[FIL_PAGE_PREV..], FIL_NULL);
+        BigEndian::write_u32(&mut page[FIL_PAGE_NEXT..], FIL_NULL);
+        BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], lsn);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 17855); // INDEX
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], space_id);
+        let trailer = PS - SIZE_FIL_TRAILER;
+        BigEndian::write_u32(&mut page[trailer + 4..], (lsn & 0xFFFFFFFF) as u32);
+        let end = PS - SIZE_FIL_TRAILER;
+        let crc1 = crc32c::crc32c(&page[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
+        let crc2 = crc32c::crc32c(&page[FIL_PAGE_DATA..end]);
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc1 ^ crc2);
+        page
+    }
+
+    fn write_pages(pages: &[Vec<u8>]) -> NamedTempFile {
+        let mut tmp = NamedTempFile::new().expect("create temp file");
+        for page in pages {
+            tmp.write_all(page).expect("write page");
+        }
+        tmp.flush().expect("flush");
+        tmp
+    }
+
+    #[test]
+    fn test_open_detects_default_page_size() {
+        let tmp = write_pages(&[build_fsp_page(1, 2), build_index_page(1, 1, 2000)]);
+        let ts = Tablespace::open(tmp.path()).unwrap();
+        assert_eq!(ts.page_size(), SIZE_PAGE_DEFAULT);
+        assert_eq!(ts.page_count(), 2);
+    }
+
+    #[test]
+    fn test_open_with_page_size_override() {
+        let tmp = write_pages(&[build_fsp_page(1, 2), build_index_page(1, 1, 2000)]);
+        let ts = Tablespace::open_with_page_size(tmp.path(), SIZE_PAGE_DEFAULT).unwrap();
+        assert_eq!(ts.page_size(), SIZE_PAGE_DEFAULT);
+        assert_eq!(ts.page_count(), 2);
+    }
+
+    #[test]
+    fn test_open_rejects_too_small_file() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(&[0u8; 10]).unwrap();
+        tmp.flush().unwrap();
+        let result = Tablespace::open(tmp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_page_returns_correct_data() {
+        let tmp = write_pages(&[build_fsp_page(5, 2), build_index_page(1, 5, 9999)]);
+        let mut ts = Tablespace::open(tmp.path()).unwrap();
+        let data = ts.read_page(1).unwrap();
+        let hdr = FilHeader::parse(&data).unwrap();
+        assert_eq!(hdr.page_number, 1);
+        assert_eq!(hdr.space_id, 5);
+        assert_eq!(hdr.lsn, 9999);
+    }
+
+    #[test]
+    fn test_read_page_out_of_range() {
+        let tmp = write_pages(&[build_fsp_page(1, 1)]);
+        let mut ts = Tablespace::open(tmp.path()).unwrap();
+        assert!(ts.read_page(99).is_err());
+    }
+
+    #[test]
+    fn test_parse_fil_header_static() {
+        let page = build_index_page(7, 3, 5000);
+        let hdr = Tablespace::parse_fil_header(&page).unwrap();
+        assert_eq!(hdr.page_number, 7);
+        assert_eq!(hdr.space_id, 3);
+    }
+
+    #[test]
+    fn test_parse_fil_trailer() {
+        let tmp = write_pages(&[build_fsp_page(1, 1)]);
+        let ts = Tablespace::open(tmp.path()).unwrap();
+        let page = build_fsp_page(1, 1);
+        let trailer = ts.parse_fil_trailer(&page).unwrap();
+        assert_eq!(trailer.lsn_low32, 1000);
+    }
+
+    #[test]
+    fn test_for_each_page_visits_all() {
+        let tmp = write_pages(&[
+            build_fsp_page(1, 3),
+            build_index_page(1, 1, 2000),
+            build_index_page(2, 1, 3000),
+        ]);
+        let mut ts = Tablespace::open(tmp.path()).unwrap();
+        let mut visited = Vec::new();
+        ts.for_each_page(|num, _data| {
+            visited.push(num);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, vec![0, 1, 2]);
+    }
+}

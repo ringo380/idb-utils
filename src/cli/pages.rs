@@ -156,11 +156,9 @@ fn execute_json(
         });
     }
 
-    wprintln!(
-        writer,
-        "{}",
-        serde_json::to_string_pretty(&pages).unwrap_or_else(|_| "[]".to_string())
-    )?;
+    let json = serde_json::to_string_pretty(&pages)
+        .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+    wprintln!(writer, "{}", json)?;
     Ok(())
 }
 

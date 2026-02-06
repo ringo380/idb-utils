@@ -3,9 +3,8 @@ use std::io::Write;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
-use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::cli::{wprintln, wprint};
+use crate::cli::{wprintln, wprint, create_progress_bar};
 use crate::innodb::checksum;
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
@@ -73,13 +72,7 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
 
         let mut type_counts: HashMap<PageType, u64> = HashMap::new();
 
-        let pb = ProgressBar::new(ts.page_count());
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} pages ({eta})")
-                .unwrap()
-                .progress_chars("#>-"),
-        );
+        let pb = create_progress_bar(ts.page_count(), "pages");
 
         for page_num in 0..ts.page_count() {
             pb.inc(1);
@@ -166,11 +159,9 @@ fn execute_json(
         });
     }
 
-    wprintln!(
-        writer,
-        "{}",
-        serde_json::to_string_pretty(&pages).unwrap_or_else(|_| "[]".to_string())
-    )?;
+    let json = serde_json::to_string_pretty(&pages)
+        .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+    wprintln!(writer, "{}", json)?;
     Ok(())
 }
 

@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::cli::wprintln;
 use crate::innodb::constants::FIL_PAGE_DATA;
 use crate::innodb::tablespace::Tablespace;
+use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
 pub struct TsidOptions {
@@ -39,7 +40,7 @@ pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         )));
     }
 
-    let ibd_files = find_ibd_and_ibu_files(datadir)?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd", "ibu"])?;
 
     if ibd_files.is_empty() {
         if opts.json {
@@ -134,39 +135,3 @@ pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     Ok(())
 }
 
-/// Find all .ibd and .ibu files in the data directory.
-fn find_ibd_and_ibu_files(datadir: &Path) -> Result<Vec<std::path::PathBuf>, IdbError> {
-    let mut files = Vec::new();
-
-    let entries = std::fs::read_dir(datadir)
-        .map_err(|e| IdbError::Io(format!("Cannot read directory {}: {}", datadir.display(), e)))?;
-
-    for entry in entries {
-        let entry =
-            entry.map_err(|e| IdbError::Io(format!("Cannot read directory entry: {}", e)))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let sub_entries = std::fs::read_dir(&path)
-                .map_err(|e| IdbError::Io(format!("Cannot read {}: {}", path.display(), e)))?;
-
-            for sub_entry in sub_entries {
-                let sub_entry = sub_entry
-                    .map_err(|e| IdbError::Io(format!("Cannot read directory entry: {}", e)))?;
-                let sub_path = sub_entry.path();
-                if let Some(ext) = sub_path.extension() {
-                    if ext == "ibd" || ext == "ibu" {
-                        files.push(sub_path);
-                    }
-                }
-            }
-        } else if let Some(ext) = path.extension() {
-            if ext == "ibd" || ext == "ibu" {
-                files.push(path);
-            }
-        }
-    }
-
-    files.sort();
-    Ok(files)
-}
