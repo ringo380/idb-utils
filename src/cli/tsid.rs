@@ -11,11 +11,17 @@ use crate::innodb::tablespace::Tablespace;
 use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
+/// Options for the `inno tsid` subcommand.
 pub struct TsidOptions {
+    /// MySQL data directory path to scan.
     pub datadir: String,
+    /// List all tablespace IDs found in the data directory.
     pub list: bool,
+    /// Find the tablespace file with this specific space ID.
     pub tablespace_id: Option<u32>,
+    /// Emit output as JSON.
     pub json: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
@@ -31,6 +37,10 @@ struct TsidEntryJson {
     space_id: u32,
 }
 
+/// Execute the `inno tsid` subcommand.
+///
+/// Scans `.ibd` and `.ibu` files under a MySQL data directory and reports
+/// their tablespace (space) IDs, read from the FSP header of each file.
 pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {

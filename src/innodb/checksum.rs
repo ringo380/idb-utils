@@ -85,9 +85,13 @@ pub fn validate_checksum(page_data: &[u8], page_size: u32) -> ChecksumResult {
 /// Result of a checksum validation.
 #[derive(Debug, Clone)]
 pub struct ChecksumResult {
+    /// The checksum algorithm that was detected or attempted.
     pub algorithm: ChecksumAlgorithm,
+    /// Whether the stored checksum matches the calculated value.
     pub valid: bool,
+    /// The checksum value stored in the page's FIL header (bytes 0-3).
     pub stored_checksum: u32,
+    /// The checksum value calculated from the page data.
     pub calculated_checksum: u32,
 }
 

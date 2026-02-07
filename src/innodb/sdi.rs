@@ -26,13 +26,17 @@ pub struct SdiRecord {
 /// Parsed fields from an SDI record before decompression.
 #[derive(Debug, Clone)]
 pub struct SdiRecordHeader {
+    /// SDI type (1 = table, 2 = tablespace).
     pub sdi_type: u32,
+    /// SDI object ID.
     pub sdi_id: u64,
+    /// Expected uncompressed data length in bytes.
     pub uncompressed_len: u32,
+    /// Compressed data length in bytes.
     pub compressed_len: u32,
     /// Offset within the page where compressed data starts.
     pub data_offset_in_page: usize,
-    /// Whether the data fits entirely within the page.
+    /// Whether the compressed data fits entirely within the current page.
     pub data_complete: bool,
 }
 
@@ -289,7 +293,7 @@ fn decompress_sdi_data(compressed: &[u8], _uncompressed_len: u32) -> Option<Stri
     Some(decompressed)
 }
 
-/// SDI type constants.
+/// Returns a human-readable name for an SDI type value (1 = "Table", 2 = "Tablespace").
 pub fn sdi_type_name(sdi_type: u32) -> &'static str {
     match sdi_type {
         1 => "Table",

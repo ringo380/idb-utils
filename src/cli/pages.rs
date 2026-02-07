@@ -16,14 +16,23 @@ use crate::innodb::undo::{UndoPageHeader, UndoSegmentHeader};
 use crate::util::hex::format_offset;
 use crate::IdbError;
 
+/// Options for the `inno pages` subcommand.
 pub struct PagesOptions {
+    /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
+    /// If set, display only this specific page number.
     pub page: Option<u64>,
+    /// Show additional detail (checksum status, FSEG internals).
     pub verbose: bool,
+    /// Include empty/allocated pages in the output.
     pub show_empty: bool,
+    /// Use compact one-line-per-page list format.
     pub list_mode: bool,
+    /// Filter output to pages matching this type name (e.g. "INDEX", "UNDO").
     pub filter_type: Option<String>,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Emit output as JSON.
     pub json: bool,
 }
 
@@ -42,6 +51,7 @@ struct PageDetailJson {
     fsp_header: Option<FspHeader>,
 }
 
+/// Execute the `inno pages` subcommand.
 pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

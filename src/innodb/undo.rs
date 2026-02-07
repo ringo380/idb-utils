@@ -45,6 +45,7 @@ pub enum UndoPageType {
 }
 
 impl UndoPageType {
+    /// Convert a raw u16 value from the undo page header to an `UndoPageType`.
     pub fn from_u16(value: u16) -> Self {
         match value {
             1 => UndoPageType::Insert,
@@ -53,6 +54,7 @@ impl UndoPageType {
         }
     }
 
+    /// Returns the MySQL source-style name for this undo page type.
     pub fn name(&self) -> &'static str {
         match self {
             UndoPageType::Insert => "INSERT",
@@ -80,6 +82,7 @@ pub enum UndoState {
 }
 
 impl UndoState {
+    /// Convert a raw u16 value from the undo segment header to an `UndoState`.
     pub fn from_u16(value: u16) -> Self {
         match value {
             1 => UndoState::Active,
@@ -91,6 +94,7 @@ impl UndoState {
         }
     }
 
+    /// Returns the MySQL source-style name for this undo state.
     pub fn name(&self) -> &'static str {
         match self {
             UndoState::Active => "ACTIVE",

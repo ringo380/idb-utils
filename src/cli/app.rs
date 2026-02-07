@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
+/// Top-level CLI definition for the `inno` binary.
 #[derive(Parser)]
 #[command(name = "inno")]
 #[command(about = "InnoDB file analysis toolkit")]
@@ -17,6 +18,7 @@ pub struct Cli {
     pub command: Commands,
 }
 
+/// Controls when colored output is emitted.
 #[derive(Clone, Copy, ValueEnum)]
 pub enum ColorMode {
     Auto,
@@ -24,6 +26,7 @@ pub enum ColorMode {
     Never,
 }
 
+/// Available subcommands for the `inno` CLI.
 #[derive(Subcommand)]
 pub enum Commands {
     /// Parse .ibd file and display page summary

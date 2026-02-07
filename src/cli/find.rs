@@ -9,13 +9,21 @@ use crate::innodb::tablespace::Tablespace;
 use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
+/// Options for the `inno find` subcommand.
 pub struct FindOptions {
+    /// MySQL data directory path to search.
     pub datadir: String,
+    /// Page number to search for across all tablespace files.
     pub page: u64,
+    /// Optional checksum filter — only match pages with this stored checksum.
     pub checksum: Option<u32>,
+    /// Optional space ID filter — only match pages in this tablespace.
     pub space_id: Option<u32>,
+    /// Stop searching after the first match.
     pub first: bool,
+    /// Emit output as JSON.
     pub json: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
@@ -35,6 +43,10 @@ struct FindMatchJson {
     space_id: u32,
 }
 
+/// Execute the `inno find` subcommand.
+///
+/// Searches all `.ibd` files under a MySQL data directory for pages matching
+/// a given page number, with optional checksum and space ID filters.
 pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {

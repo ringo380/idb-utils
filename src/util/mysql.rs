@@ -57,7 +57,7 @@ impl MysqlConfig {
     }
 }
 
-/// Parse a MySQL defaults file (.my.cnf format) for [client] section credentials.
+/// Parse a MySQL defaults file (`.my.cnf` format) for `[client]` section credentials.
 pub fn parse_defaults_file(path: &Path) -> Option<MysqlConfig> {
     let content = std::fs::read_to_string(path).ok()?;
     let mut config = MysqlConfig::default();

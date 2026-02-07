@@ -6,15 +6,27 @@ use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::hex_dump;
 use crate::IdbError;
 
+/// Options for the `inno dump` subcommand.
 pub struct DumpOptions {
+    /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
+    /// Page number to dump (defaults to page 0 when not specified).
     pub page: Option<u64>,
+    /// Absolute byte offset to start dumping (bypasses page mode).
     pub offset: Option<u64>,
+    /// Number of bytes to dump (defaults to page size in page mode, or 256 in offset mode).
     pub length: Option<usize>,
+    /// Output raw binary bytes instead of formatted hex dump.
     pub raw: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
+/// Execute the `inno dump` subcommand.
+///
+/// Produces a hex dump of raw page bytes. Supports two modes: page mode
+/// (dump a specific page by number) and offset mode (dump bytes at an
+/// absolute file offset).
 pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if let Some(abs_offset) = opts.offset {
         // Absolute offset mode: dump raw bytes from file position

@@ -16,6 +16,9 @@ pub enum RecordType {
 }
 
 impl RecordType {
+    /// Convert a 3-bit status value from the record header to a `RecordType`.
+    ///
+    /// Only the lowest 3 bits of `val` are used.
     pub fn from_u8(val: u8) -> Self {
         match val & 0x07 {
             0 => RecordType::Ordinary,
@@ -26,6 +29,7 @@ impl RecordType {
         }
     }
 
+    /// Returns the MySQL source-style name for this record type (e.g. `"REC_STATUS_ORDINARY"`).
     pub fn name(&self) -> &'static str {
         match self {
             RecordType::Ordinary => "REC_STATUS_ORDINARY",

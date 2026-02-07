@@ -5,34 +5,51 @@ use std::io::{Read, Seek, SeekFrom};
 
 use crate::IdbError;
 
-// Redo log block/file structure constants (from MySQL log0log.h)
+/// Size of a redo log block in bytes (from MySQL `log0log.h`).
 pub const LOG_BLOCK_SIZE: usize = 512;
+/// Size of the log block header in bytes.
 pub const LOG_BLOCK_HDR_SIZE: usize = 14;
+/// Size of the log block trailer in bytes.
 pub const LOG_BLOCK_TRL_SIZE: usize = 4;
+/// Bitmask for the flush flag in the block number field (bit 31).
 pub const LOG_BLOCK_FLUSH_BIT_MASK: u32 = 0x80000000;
-pub const LOG_BLOCK_CHECKSUM_OFFSET: usize = 508; // within block: bytes 508-511
-pub const LOG_FILE_HDR_BLOCKS: u64 = 4; // blocks 0-3 are reserved
+/// Byte offset of the CRC-32C checksum within a block (bytes 508-511).
+pub const LOG_BLOCK_CHECKSUM_OFFSET: usize = 508;
+/// Number of reserved header/checkpoint blocks at the start of the file.
+pub const LOG_FILE_HDR_BLOCKS: u64 = 4;
 
-// Log file header offsets (within block 0)
+/// Offset of the group ID within the log file header (block 0).
 pub const LOG_HEADER_GROUP_ID: usize = 0;
+/// Offset of the start LSN within the log file header.
 pub const LOG_HEADER_START_LSN: usize = 4;
+/// Offset of the file number within the log file header.
 pub const LOG_HEADER_FILE_NO: usize = 12;
+/// Offset of the creator string within the log file header.
 pub const LOG_HEADER_CREATED_BY: usize = 16;
+/// Maximum length of the creator string.
 pub const LOG_HEADER_CREATED_BY_LEN: usize = 32;
 
-// Checkpoint offsets (within checkpoint block)
+/// Offset of the checkpoint number within a checkpoint block.
 pub const LOG_CHECKPOINT_NO: usize = 0;
+/// Offset of the checkpoint LSN within a checkpoint block.
 pub const LOG_CHECKPOINT_LSN: usize = 8;
+/// Offset of the checkpoint byte-offset within a checkpoint block.
 pub const LOG_CHECKPOINT_OFFSET: usize = 16;
+/// Offset of the log buffer size within a checkpoint block.
 pub const LOG_CHECKPOINT_BUF_SIZE: usize = 20;
+/// Offset of the archived LSN within a checkpoint block.
 pub const LOG_CHECKPOINT_ARCHIVED_LSN: usize = 24;
 
 /// Log file header (block 0 of the redo log file).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogFileHeader {
+    /// Log group ID.
     pub group_id: u32,
+    /// Start LSN of this log file.
     pub start_lsn: u64,
+    /// File number within the log group.
     pub file_no: u32,
+    /// MySQL version string that created this log file (e.g. "MySQL 8.0.32").
     pub created_by: String,
 }
 
@@ -67,10 +84,15 @@ impl LogFileHeader {
 /// Checkpoint record (blocks 1 and 3 of the redo log file).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogCheckpoint {
+    /// Checkpoint sequence number.
     pub number: u64,
+    /// LSN at the time of this checkpoint.
     pub lsn: u64,
+    /// Byte offset of the checkpoint within the log file.
     pub offset: u32,
+    /// Log buffer size at checkpoint time.
     pub buf_size: u32,
+    /// LSN up to which log has been archived.
     pub archived_lsn: u64,
 }
 
@@ -100,10 +122,15 @@ impl LogCheckpoint {
 /// Log block header (first 14 bytes of each 512-byte block).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogBlockHeader {
+    /// Block number (with flush bit masked out).
     pub block_no: u32,
+    /// Whether this block was the first in a flush batch (bit 31).
     pub flush_flag: bool,
+    /// Number of bytes of log data in this block (including header).
     pub data_len: u16,
+    /// Offset of the first log record group starting in this block.
     pub first_rec_group: u16,
+    /// Checkpoint number when this block was written.
     pub checkpoint_no: u32,
 }
 
@@ -140,6 +167,7 @@ impl LogBlockHeader {
 /// Log block trailer (last 4 bytes of each 512-byte block).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogBlockTrailer {
+    /// CRC-32C checksum of the block (bytes 0..508).
     pub checksum: u32,
 }
 

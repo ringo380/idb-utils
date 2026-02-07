@@ -12,15 +12,25 @@ use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::format_bytes;
 use crate::IdbError;
 
+/// Options for the `inno corrupt` subcommand.
 pub struct CorruptOptions {
+    /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
+    /// Page number to corrupt (random page chosen when not specified).
     pub page: Option<u64>,
+    /// Number of random bytes to write.
     pub bytes: usize,
+    /// Target the FIL header area (first 38 bytes of the page).
     pub header: bool,
+    /// Target the record data area (after page header, before trailer).
     pub records: bool,
+    /// Absolute byte offset to corrupt (bypasses page calculation).
     pub offset: Option<u64>,
+    /// Show before/after checksum comparison.
     pub verify: bool,
+    /// Emit output as JSON.
     pub json: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
@@ -50,6 +60,11 @@ struct ChecksumInfoJson {
     calculated_checksum: u32,
 }
 
+/// Execute the `inno corrupt` subcommand.
+///
+/// Writes random bytes to a page or absolute offset in an InnoDB file,
+/// intentionally corrupting it for testing checksum validation and
+/// recovery workflows.
 pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     // Absolute offset mode: bypass page calculation entirely
     if let Some(abs_offset) = opts.offset {

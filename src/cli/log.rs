@@ -10,11 +10,17 @@ use crate::innodb::log::{
 };
 use crate::IdbError;
 
+/// Options for the `inno log` subcommand.
 pub struct LogOptions {
+    /// Path to the redo log file (`ib_logfile0`, `ib_logfile1`, or `#ib_redo*`).
     pub file: String,
+    /// Limit output to the first N data blocks.
     pub blocks: Option<u64>,
+    /// Skip blocks that contain no redo log data.
     pub no_empty: bool,
+    /// Show MLOG record types within each data block.
     pub verbose: bool,
+    /// Emit output as JSON.
     pub json: bool,
 }
 
@@ -42,6 +48,11 @@ struct BlockJson {
     record_types: Vec<String>,
 }
 
+/// Execute the `inno log` subcommand.
+///
+/// Opens an InnoDB redo log file and displays the file header, checkpoint
+/// records, and data block details including block numbers, data lengths,
+/// checksum status, and (in verbose mode) MLOG record types.
 pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut log = LogFile::open(&opts.file)?;
 

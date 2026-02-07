@@ -1,3 +1,10 @@
+//! CLI subcommand implementations.
+//!
+//! Each subcommand has an `Options` struct (clap derive) and a
+//! `pub fn execute(opts, writer) -> Result<(), IdbError>` entry point.
+//! The `writer: &mut dyn Write` parameter allows output to be captured
+//! in tests or redirected as needed.
+
 pub mod app;
 pub mod checksum;
 pub mod corrupt;

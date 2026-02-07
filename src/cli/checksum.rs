@@ -9,10 +9,15 @@ use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
 
+/// Options for the `inno checksum` subcommand.
 pub struct ChecksumOptions {
+    /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
+    /// Show per-page checksum details.
     pub verbose: bool,
+    /// Emit output as JSON.
     pub json: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
@@ -39,6 +44,7 @@ struct PageChecksumJson {
     lsn_valid: bool,
 }
 
+/// Execute the `inno checksum` subcommand.
 pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

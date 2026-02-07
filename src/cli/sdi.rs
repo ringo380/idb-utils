@@ -5,12 +5,21 @@ use crate::innodb::sdi;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
 
+/// Options for the `inno sdi` subcommand.
 pub struct SdiOptions {
+    /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
+    /// Pretty-print the extracted JSON metadata.
     pub pretty: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
+/// Execute the `inno sdi` subcommand.
+///
+/// Finds SDI (Serialized Dictionary Information) pages in a MySQL 8.0+
+/// tablespace, extracts and decompresses the embedded JSON metadata, and
+/// prints each SDI record.
 pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

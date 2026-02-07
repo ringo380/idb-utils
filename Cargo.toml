@@ -43,3 +43,6 @@ tempfile = "3"
 [features]
 default = []
 mysql = ["dep:mysql_async", "dep:tokio"]
+
+[package.metadata.docs.rs]
+all-features = true

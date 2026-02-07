@@ -9,18 +9,31 @@ use crate::innodb::constants::*;
 use crate::innodb::page::FilHeader;
 use crate::IdbError;
 
+/// Options for the `inno info` subcommand.
 pub struct InfoOptions {
+    /// Inspect the `ibdata1` page 0 header.
     pub ibdata: bool,
+    /// Compare `ibdata1` and redo log checkpoint LSNs.
     pub lsn_check: bool,
+    /// MySQL data directory path (defaults to `/var/lib/mysql`).
     pub datadir: Option<String>,
+    /// Database name (for MySQL table/index queries, requires `mysql` feature).
     pub database: Option<String>,
+    /// Table name (for MySQL table/index queries, requires `mysql` feature).
     pub table: Option<String>,
+    /// MySQL host for live queries.
     pub host: Option<String>,
+    /// MySQL port for live queries.
     pub port: Option<u16>,
+    /// MySQL user for live queries.
     pub user: Option<String>,
+    /// MySQL password for live queries.
     pub password: Option<String>,
+    /// Path to a MySQL defaults file (`.my.cnf`).
     pub defaults_file: Option<String>,
+    /// Emit output as JSON.
     pub json: bool,
+    /// Override the auto-detected page size.
     pub page_size: Option<u32>,
 }
 
@@ -46,6 +59,12 @@ struct LsnCheckJson {
     in_sync: bool,
 }
 
+/// Execute the `inno info` subcommand.
+///
+/// Provides InnoDB system information. Supports three modes: `--ibdata`
+/// reads the `ibdata1` page 0 header, `--lsn-check` compares `ibdata1`
+/// and redo log LSNs, and `-D`/`-t` queries a live MySQL instance for
+/// table and index metadata (requires the `mysql` feature).
 pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if opts.ibdata || opts.lsn_check {
         let datadir = opts.datadir.as_deref().unwrap_or("/var/lib/mysql");
