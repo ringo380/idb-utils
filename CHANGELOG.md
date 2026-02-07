@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`inno recover`** — New subcommand for page-level data recovery assessment. Scans a tablespace and classifies each page as intact, corrupt, empty, or unreadable. Counts recoverable user records on INDEX pages by walking compact record chains. Supports `--force` to extract records from corrupt pages with valid headers, `--page-size` override when page 0 is damaged, and smart page size fallback. Text and JSON output modes with optional per-page/per-record detail via `--verbose`. (Closes #9)
+- 6 unit tests for recover page analysis (empty, corrupt, force, unreadable, valid INDEX)
+- 9 integration tests covering recover text/JSON output, corrupt detection, empty pages, single-page mode, `--force`, and `--page-size` override
+
 ## [1.2.2] - 2026-02-06
 
 ### Changed
