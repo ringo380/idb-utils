@@ -10,6 +10,7 @@ IDB Utils gives you low-level visibility into InnoDB's on-disk structures. Use i
 - **Validate data integrity** — verify CRC-32C and legacy InnoDB checksums, detect LSN mismatches between headers and trailers
 - **Extract metadata** — read MySQL 8.0+ SDI (Serialized Dictionary Information) directly from `.ibd` files without a running server
 - **Analyze redo logs** — parse log file headers, checkpoints, and data blocks from both legacy and MySQL 8.0.30+ formats
+- **Assess data recoverability** — scan damaged tablespaces, classify page integrity, count salvageable records on INDEX pages
 - **Test recovery scenarios** — intentionally corrupt specific pages or byte ranges to exercise InnoDB recovery mechanisms
 - **Audit a data directory** — search for pages across files, list tablespace IDs, compare LSNs between ibdata1 and redo logs
 
@@ -69,6 +70,9 @@ inno sdi -f users.ibd --pretty
 # Analyze redo log checkpoints
 inno log -f /var/lib/mysql/ib_logfile0
 
+# Assess recoverability of a damaged tablespace
+inno recover -f users.ibd --force -v
+
 # Search an entire data directory for page number 42
 inno find -d /var/lib/mysql -p 42
 
@@ -87,6 +91,7 @@ Every subcommand supports `--json` for machine-readable output and `--help` for 
 | [`dump`](#inno-dump) | Hex dump of raw page bytes |
 | [`checksum`](#inno-checksum) | Validate page checksums (CRC-32C and legacy InnoDB) |
 | [`corrupt`](#inno-corrupt) | Intentionally corrupt pages for recovery testing |
+| [`recover`](#inno-recover) | Assess page-level recoverability and count salvageable records |
 | [`find`](#inno-find) | Search for pages across a MySQL data directory |
 | [`tsid`](#inno-tsid) | List or find tablespace IDs |
 | [`sdi`](#inno-sdi) | Extract SDI metadata from MySQL 8.0+ tablespaces |
@@ -297,6 +302,46 @@ inno corrupt -f ibdata1_copy -b 8 --offset 65536
 
 # Get corruption details as JSON for test automation
 inno corrupt -f users_copy.ibd -p 3 -b 2 --json
+```
+
+---
+
+### inno recover
+
+Scan a tablespace file and assess page-level data recoverability. Classifies each page as intact, corrupt, empty, or unreadable, and counts recoverable user records on INDEX pages by walking the compact record chain.
+
+```
+inno recover -f <file> [-p <page>] [-v] [--json] [--force] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Path to .ibd file (required) |
+| `-p, --page` | Analyze a single page instead of full scan |
+| `-v, --verbose` | Show per-page details (type, status, LSN, record count) |
+| `--json` | Output structured JSON report |
+| `--force` | Extract records from corrupt pages with valid headers |
+| `--page-size` | Override page size (critical when page 0 is damaged) |
+
+**Smart page size fallback:** When auto-detection fails (e.g., page 0 is corrupt), the tool tries common page sizes (16K, 8K, 4K, 32K, 64K) based on file size divisibility. Use `--page-size` to override manually.
+
+**`--force` mode:** By default, records are only counted on pages with valid checksums. With `--force`, the tool also walks the record chain on corrupt pages — useful when a page has a bad checksum but the record data is still intact.
+
+```bash
+# Basic recovery assessment
+inno recover -f damaged.ibd
+
+# Verbose per-page report
+inno recover -f damaged.ibd -v
+
+# JSON output for scripting
+inno recover -f damaged.ibd --json | jq .summary
+
+# Include records from corrupt pages
+inno recover -f damaged.ibd --force -v
+
+# Override page size when page 0 is damaged
+inno recover -f damaged.ibd --page-size 16384
 ```
 
 ---
@@ -595,7 +640,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 55 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo) and 14 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 69 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 40 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
@@ -635,6 +680,7 @@ src/
     dump.rs            inno dump
     checksum.rs        inno checksum
     corrupt.rs         inno corrupt
+    recover.rs         inno recover
     find.rs            inno find
     tsid.rs            inno tsid
     sdi.rs             inno sdi
