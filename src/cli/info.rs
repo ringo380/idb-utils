@@ -59,12 +59,28 @@ struct LsnCheckJson {
     in_sync: bool,
 }
 
-/// Execute the `inno info` subcommand.
+/// Display InnoDB system-level information from the data directory or a live instance.
 ///
-/// Provides InnoDB system information. Supports three modes: `--ibdata`
-/// reads the `ibdata1` page 0 header, `--lsn-check` compares `ibdata1`
-/// and redo log LSNs, and `-D`/`-t` queries a live MySQL instance for
-/// table and index metadata (requires the `mysql` feature).
+/// Operates in three mutually exclusive modes:
+///
+/// - **`--ibdata`**: Reads page 0 of `ibdata1` (the system tablespace) and
+///   decodes its FIL header — checksum, page type, LSN, flush LSN, and space ID.
+///   Also attempts to read checkpoint LSNs from the redo log, trying the
+///   MySQL 8.0.30+ `#innodb_redo/#ib_redo*` directory first, then falling back
+///   to the legacy `ib_logfile0`. This gives a quick snapshot of the system
+///   tablespace state without starting MySQL.
+///
+/// - **`--lsn-check`**: Compares the LSN from the `ibdata1` page 0 header with
+///   the latest redo log checkpoint LSN. If they match, the system is "in sync";
+///   if not, the difference in bytes is reported. This is useful for diagnosing
+///   whether InnoDB shut down cleanly or needs crash recovery.
+///
+/// - **`-D <database> -t <table>`** (requires the `mysql` feature): Connects to
+///   a live MySQL instance and queries `INFORMATION_SCHEMA.INNODB_TABLES` and
+///   `INNODB_INDEXES` for the space ID, table ID, index names, and root page
+///   numbers. Also parses `SHOW ENGINE INNODB STATUS` for the current log
+///   sequence number and transaction ID counter. Connection parameters come
+///   from CLI flags or a `.my.cnf` defaults file.
 pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if opts.ibdata || opts.lsn_check {
         let datadir = opts.datadir.as_deref().unwrap_or("/var/lib/mysql");

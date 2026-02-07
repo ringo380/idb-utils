@@ -15,11 +15,23 @@ pub struct SdiOptions {
     pub page_size: Option<u32>,
 }
 
-/// Execute the `inno sdi` subcommand.
+/// Extract SDI metadata from a MySQL 8.0+ tablespace.
 ///
-/// Finds SDI (Serialized Dictionary Information) pages in a MySQL 8.0+
-/// tablespace, extracts and decompresses the embedded JSON metadata, and
-/// prints each SDI record.
+/// SDI (Serialized Dictionary Information) is MySQL 8.0's mechanism for
+/// embedding the data dictionary (table definitions, column metadata, index
+/// descriptions) directly inside each `.ibd` file, replacing the `.frm` files
+/// used in MySQL 5.x. SDI data is stored in pages of type 17853
+/// (`FIL_PAGE_SDI`).
+///
+/// This command first scans the tablespace for SDI pages by checking page
+/// types, then uses [`sdi::extract_sdi_from_pages`]
+/// to reassemble records that may span multiple pages via the next-page chain.
+/// Each record's zlib-compressed payload is decompressed into a JSON string
+/// containing the full table/column/index definition.
+///
+/// With `--pretty`, the JSON is re-parsed and re-serialized with indentation
+/// for readability. If a tablespace has no SDI pages (e.g., pre-8.0 files),
+/// a message is printed indicating that SDI is unavailable.
 pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

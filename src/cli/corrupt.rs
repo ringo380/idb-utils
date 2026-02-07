@@ -60,11 +60,28 @@ struct ChecksumInfoJson {
     calculated_checksum: u32,
 }
 
-/// Execute the `inno corrupt` subcommand.
+/// Inject random bytes into an InnoDB tablespace file to simulate corruption.
 ///
-/// Writes random bytes to a page or absolute offset in an InnoDB file,
-/// intentionally corrupting it for testing checksum validation and
-/// recovery workflows.
+/// Generates cryptographically random bytes and writes them into the file at a
+/// calculated or explicit offset. This is designed for testing checksum
+/// validation (`inno checksum`), InnoDB crash recovery, and backup-restore
+/// verification workflows.
+///
+/// Three targeting modes are available:
+///
+/// - **Header mode** (`-k`): Writes into the 38-byte FIL header area (bytes
+///   0–37 of the page), which will corrupt page metadata like the checksum,
+///   page number, LSN, or space ID.
+/// - **Records mode** (`-r`): Writes into the user data area (after the page
+///   header and before the FIL trailer), corrupting actual row or index data
+///   without necessarily invalidating the stored checksum.
+/// - **Offset mode** (`--offset`): Writes at an absolute file byte position,
+///   bypassing page calculations entirely. Note that `--verify` is unavailable
+///   in this mode since there is no page context.
+///
+/// If no page number is specified, one is chosen at random. With `--verify`,
+/// the page's checksum is validated before and after the write, showing a
+/// before/after comparison to confirm that corruption was successfully applied.
 pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     // Absolute offset mode: bypass page calculation entirely
     if let Some(abs_offset) = opts.offset {

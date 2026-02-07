@@ -44,7 +44,24 @@ struct PageChecksumJson {
     lsn_valid: bool,
 }
 
-/// Execute the `inno checksum` subcommand.
+/// Validate page checksums for every page in an InnoDB tablespace.
+///
+/// Iterates over all pages and validates the stored checksum (bytes 0–3 of the
+/// FIL header) against two algorithms: **CRC-32C** (MySQL 5.7.7+), which XORs
+/// two independent CRC-32C values computed over bytes \[4..26) and
+/// \[38..page_size-8); and **legacy InnoDB**, which uses `ut_fold_ulint_pair`
+/// with u32 wrapping arithmetic over the same two byte ranges. A page is
+/// considered valid if either algorithm matches the stored value.
+///
+/// Additionally checks **LSN consistency**: the low 32 bits of the header LSN
+/// (bytes 16–23) must match the LSN value in the 8-byte FIL trailer at the
+/// end of the page. All-zero pages are counted as empty and skipped entirely.
+///
+/// Prints a summary with total, empty, valid, and invalid page counts. In
+/// `--verbose` mode, every non-empty page is printed with its algorithm,
+/// stored and calculated checksum values, and LSN status. The process exits
+/// with code 1 if any page has an invalid checksum, making this suitable for
+/// scripted integrity checks.
 pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

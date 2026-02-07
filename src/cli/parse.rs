@@ -35,7 +35,23 @@ struct PageJson {
     fsp_header: Option<crate::innodb::page::FspHeader>,
 }
 
-/// Execute the parse subcommand.
+/// Parse an InnoDB tablespace file and display page headers with a type summary.
+///
+/// Opens the tablespace, auto-detects (or uses the overridden) page size, then
+/// iterates over every page reading the 38-byte FIL header to extract the
+/// checksum, page number, prev/next page pointers, LSN, page type, and space ID.
+/// Page 0 additionally displays the FSP header (space ID, tablespace size,
+/// free-page limit, and flags).
+///
+/// In **single-page mode** (`-p N`), only the specified page is printed with
+/// its full FIL header and trailer. In **full-file mode** (the default), all
+/// pages are listed and a frequency summary table is appended showing how many
+/// pages of each type exist. Pages with zero checksum and type `Allocated` are
+/// skipped by default unless `--verbose` is set; `--no-empty` additionally
+/// filters these from `--json` output.
+///
+/// With `--verbose`, each page also shows checksum validation status (algorithm,
+/// stored vs. calculated values) and LSN consistency between header and trailer.
 pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

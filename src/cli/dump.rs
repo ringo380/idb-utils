@@ -22,11 +22,23 @@ pub struct DumpOptions {
     pub page_size: Option<u32>,
 }
 
-/// Execute the `inno dump` subcommand.
+/// Produce a hex dump of raw bytes from an InnoDB tablespace file.
 ///
-/// Produces a hex dump of raw page bytes. Supports two modes: page mode
-/// (dump a specific page by number) and offset mode (dump bytes at an
-/// absolute file offset).
+/// Operates in two modes:
+///
+/// - **Page mode** (default): Opens the file as a tablespace, reads the page
+///   specified by `-p` (or page 0 if omitted), and prints a formatted hex dump
+///   with file-relative byte offsets. The dump length defaults to the full page
+///   size but can be shortened with `--length`.
+/// - **Offset mode** (`--offset`): Reads bytes starting at an arbitrary
+///   absolute file position without page-size awareness. The default read
+///   length is 256 bytes. This is useful for inspecting raw structures that
+///   do not align to page boundaries (e.g., redo log headers, doublewrite
+///   buffer regions).
+///
+/// In either mode, `--raw` suppresses the formatted hex layout and writes
+/// the raw binary bytes directly to the writer, suitable for piping into
+/// `xxd`, `hexdump`, or other tools.
 pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if let Some(abs_offset) = opts.offset {
         // Absolute offset mode: dump raw bytes from file position

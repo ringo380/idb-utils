@@ -1,9 +1,46 @@
-//! CLI subcommand implementations.
+//! CLI subcommand implementations for the `inno` binary.
 //!
-//! Each subcommand has an `Options` struct (clap derive) and a
-//! `pub fn execute(opts, writer) -> Result<(), IdbError>` entry point.
-//! The `writer: &mut dyn Write` parameter allows output to be captured
-//! in tests or redirected as needed.
+//! The `inno` binary provides ten subcommands for analyzing InnoDB data files,
+//! redo logs, and system tablespaces. CLI argument parsing uses clap derive macros,
+//! with the top-level [`app::Cli`] struct and [`app::Commands`] enum defined in
+//! [`app`] and shared between `main.rs` and `build.rs` (for man page generation)
+//! via `include!()`.
+//!
+//! Each subcommand module follows the same pattern: an `Options` struct holding
+//! the parsed arguments and a `pub fn execute(opts, writer) -> Result<(), IdbError>`
+//! entry point. The `writer: &mut dyn Write` parameter allows output to be
+//! captured in tests or redirected to a file via the global `--output` flag.
+//!
+//! # Subcommands
+//!
+//! | Command | Module | Purpose |
+//! |---------|--------|---------|
+//! | `inno parse` | [`parse`] | Parse FIL headers for every page and show a page-type summary table |
+//! | `inno pages` | [`pages`] | Deep structure analysis of INDEX, UNDO, BLOB/LOB, and SDI pages |
+//! | `inno dump` | [`dump`] | Hex dump of raw bytes by page number or absolute file offset |
+//! | `inno checksum` | [`checksum`] | Validate CRC-32C and legacy InnoDB checksums for every page |
+//! | `inno corrupt` | [`corrupt`] | Inject random bytes into a page for testing recovery workflows |
+//! | `inno find` | [`find`] | Search a MySQL data directory for pages matching a page number |
+//! | `inno tsid` | [`tsid`] | List or look up tablespace (space) IDs across `.ibd`/`.ibu` files |
+//! | `inno sdi` | [`sdi`] | Extract SDI metadata (MySQL 8.0+ serialized data dictionary) |
+//! | `inno log` | [`log`] | Analyze redo log file headers, checkpoints, and data blocks |
+//! | `inno info` | [`info`] | Inspect `ibdata1`, compare LSNs, or query a live MySQL instance |
+//!
+//! # Common patterns
+//!
+//! - **`--json`** — Every subcommand supports structured JSON output via
+//!   `#[derive(Serialize)]` structs and `serde_json`.
+//! - **`--page-size`** — Override auto-detected page size (useful for non-standard
+//!   4K, 8K, 32K, or 64K tablespaces).
+//! - **`--verbose` / `-v`** — Show additional detail such as per-page checksum
+//!   status, FSEG internals, or MLOG record types.
+//! - **`--color`** (global) — Control colored terminal output (`auto`, `always`,
+//!   `never`).
+//! - **`--output` / `-o`** (global) — Redirect output to a file instead of stdout.
+//!
+//! Progress bars (via [`indicatif`]) are displayed for long-running operations
+//! in `parse`, `checksum`, and `find`. The `wprintln!` and `wprint!` macros
+//! wrap `writeln!`/`write!` to convert `io::Error` into `IdbError`.
 
 pub mod app;
 pub mod checksum;

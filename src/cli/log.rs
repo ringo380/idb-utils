@@ -48,11 +48,25 @@ struct BlockJson {
     record_types: Vec<String>,
 }
 
-/// Execute the `inno log` subcommand.
+/// Analyze the structure of an InnoDB redo log file.
 ///
-/// Opens an InnoDB redo log file and displays the file header, checkpoint
-/// records, and data block details including block numbers, data lengths,
-/// checksum status, and (in verbose mode) MLOG record types.
+/// InnoDB redo logs are organized as a sequence of 512-byte blocks. The first
+/// four blocks are reserved: block 0 is the **log file header** (group ID,
+/// start LSN, file number, creator string), blocks 1 and 3 are **checkpoint
+/// records** (checkpoint number, LSN, offset, buffer size, archived LSN), and
+/// block 2 is reserved/unused. All remaining blocks are **data blocks**
+/// containing the actual redo log records.
+///
+/// This command reads and displays all three sections. For data blocks, each
+/// block's header is decoded to show the block number, data length,
+/// first-record-group offset, checkpoint number, flush flag, and CRC-32C
+/// checksum validation status.
+///
+/// With `--verbose`, the payload bytes of each non-empty data block are
+/// scanned for MLOG record type bytes (e.g., `MLOG_REC_INSERT`,
+/// `MLOG_UNDO_INSERT`, `MLOG_WRITE_STRING`) and a frequency summary is
+/// printed. Use `--blocks N` to limit output to the first N data blocks,
+/// or `--no-empty` to skip blocks with zero data length.
 pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut log = LogFile::open(&opts.file)?;
 

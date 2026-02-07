@@ -37,10 +37,24 @@ struct TsidEntryJson {
     space_id: u32,
 }
 
-/// Execute the `inno tsid` subcommand.
+/// List or look up tablespace IDs from files in a MySQL data directory.
 ///
-/// Scans `.ibd` and `.ibu` files under a MySQL data directory and reports
-/// their tablespace (space) IDs, read from the FSP header of each file.
+/// Recursively discovers all `.ibd` (tablespace) and `.ibu` (undo tablespace)
+/// files under the data directory, opens page 0 of each, and reads the space ID
+/// from the FSP header at offset `FIL_PAGE_DATA` (byte 38). The space ID
+/// uniquely identifies each tablespace within a MySQL instance and appears in
+/// error logs, `INFORMATION_SCHEMA.INNODB_TABLESPACES`, and FIL headers of
+/// every page.
+///
+/// Two modes are available:
+///
+/// - **List mode** (`-l`): Prints every discovered file alongside its space ID,
+///   sorted by file path. Useful for building a map of the data directory.
+/// - **Lookup mode** (`-t <id>`): Filters results to only the file(s) with the
+///   given space ID. Useful for resolving a space ID from an error message back
+///   to a physical `.ibd` file on disk.
+///
+/// If neither `-l` nor `-t` is specified, both modes behave as list mode.
 pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {

@@ -30,6 +30,14 @@ pub enum ColorMode {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Parse .ibd file and display page summary
+    ///
+    /// Reads the 38-byte FIL header of every page in a tablespace, decodes the
+    /// page type, checksum, LSN, prev/next pointers, and space ID, then prints
+    /// a per-page breakdown followed by a page-type frequency summary table.
+    /// Page 0 additionally shows the FSP header (space ID, size, flags).
+    /// Use `--no-empty` to skip zero-checksum allocated pages, or `-p` to
+    /// inspect a single page in detail. With `--verbose`, checksum validation
+    /// and LSN consistency results are included for each page.
     Parse {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]
@@ -57,6 +65,14 @@ pub enum Commands {
     },
 
     /// Detailed page structure analysis
+    ///
+    /// Goes beyond FIL headers to decode the internal structure of each page
+    /// type: INDEX pages show the B+Tree index header, FSEG inode pointers, and
+    /// infimum/supremum system records; UNDO pages show the undo page header
+    /// and segment state; BLOB/LOB pages show chain pointers and data lengths;
+    /// and page 0 shows extended FSP header fields including compression and
+    /// encryption flags. Use `-l` for a compact one-line-per-page listing,
+    /// `-t INDEX` to filter by page type, or `-p` for a single page deep dive.
     Pages {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]
@@ -92,6 +108,13 @@ pub enum Commands {
     },
 
     /// Hex dump of raw page bytes
+    ///
+    /// Operates in two modes: **page mode** (default) reads a full page by
+    /// number and produces a formatted hex dump with file-relative offsets;
+    /// **offset mode** (`--offset`) reads bytes at an arbitrary file position,
+    /// useful for inspecting structures that cross page boundaries. Use
+    /// `--length` to limit the number of bytes shown, or `--raw` to emit
+    /// unformatted binary bytes suitable for piping to other tools.
     Dump {
         /// Path to InnoDB data file
         #[arg(short, long)]
@@ -119,6 +142,13 @@ pub enum Commands {
     },
 
     /// Intentionally corrupt pages for testing
+    ///
+    /// Writes random bytes into a tablespace file to simulate data corruption.
+    /// Targets can be the FIL header (`-k`), the record data area (`-r`), or
+    /// an absolute byte offset (`--offset`). If no page is specified, one is
+    /// chosen at random. Use `--verify` to print before/after checksum
+    /// comparisons confirming the page is now invalid — useful for verifying
+    /// that `inno checksum` correctly detects the damage.
     Corrupt {
         /// Path to data file
         #[arg(short, long)]
@@ -158,6 +188,13 @@ pub enum Commands {
     },
 
     /// Search for pages across data directory
+    ///
+    /// Recursively discovers all `.ibd` files under a MySQL data directory,
+    /// opens each as a tablespace, and reads the FIL header of every page
+    /// looking for a matching `page_number` field. Optional `--checksum` and
+    /// `--space-id` filters narrow results when the same page number appears
+    /// in multiple tablespaces. Use `--first` to stop after the first match
+    /// for faster lookups.
     Find {
         /// MySQL data directory path
         #[arg(short, long)]
@@ -189,6 +226,13 @@ pub enum Commands {
     },
 
     /// List/find tablespace IDs
+    ///
+    /// Scans `.ibd` and `.ibu` files under a MySQL data directory and reads
+    /// the space ID from the FSP header (page 0, offset 38) of each file.
+    /// In **list mode** (`-l`) it prints every file and its space ID; in
+    /// **lookup mode** (`-t <id>`) it finds the file that owns a specific
+    /// tablespace ID. Useful for mapping a space ID seen in error logs or
+    /// `INFORMATION_SCHEMA` back to a physical file on disk.
     Tsid {
         /// MySQL data directory path
         #[arg(short, long)]
@@ -212,6 +256,14 @@ pub enum Commands {
     },
 
     /// Extract SDI metadata (MySQL 8.0+)
+    ///
+    /// Locates SDI (Serialized Dictionary Information) pages in a tablespace
+    /// by scanning for page type 17853, then reassembles multi-page SDI
+    /// records by following the page chain. The zlib-compressed payload is
+    /// decompressed and printed as JSON. Each tablespace in MySQL 8.0+
+    /// embeds its own table/column/index definitions as SDI records,
+    /// eliminating the need for the `.frm` files used in older versions.
+    /// Use `--pretty` for indented JSON output.
     Sdi {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]
@@ -227,6 +279,15 @@ pub enum Commands {
     },
 
     /// Analyze InnoDB redo log files
+    ///
+    /// Opens an InnoDB redo log file (`ib_logfile0`/`ib_logfile1` for
+    /// MySQL < 8.0.30, or `#ib_redo*` files for 8.0.30+) and displays
+    /// the log file header, both checkpoint records, and per-block details
+    /// including block number, data length, checkpoint number, and CRC-32C
+    /// checksum status. With `--verbose`, MLOG record types within each
+    /// data block are decoded and summarized. Use `--blocks N` to limit
+    /// output to the first N data blocks, or `--no-empty` to skip blocks
+    /// that contain no redo data.
     Log {
         /// Path to redo log file (ib_logfile0, ib_logfile1, or #ib_redo*)
         #[arg(short, long)]
@@ -250,6 +311,15 @@ pub enum Commands {
     },
 
     /// Show InnoDB file and system information
+    ///
+    /// Operates in three modes. **`--ibdata`** reads the `ibdata1` page 0
+    /// FIL header and redo log checkpoint LSNs. **`--lsn-check`** compares
+    /// the `ibdata1` header LSN with the latest redo log checkpoint LSN to
+    /// detect whether the system tablespace and redo log are in sync (useful
+    /// for diagnosing crash-recovery state). **`-D`/`-t`** queries a live
+    /// MySQL instance via `INFORMATION_SCHEMA.INNODB_TABLES` and
+    /// `INNODB_INDEXES` for tablespace IDs, table IDs, index root pages,
+    /// and key InnoDB status metrics (requires the `mysql` feature).
     Info {
         /// Inspect ibdata1 page 0 header
         #[arg(long)]
@@ -301,6 +371,14 @@ pub enum Commands {
     },
 
     /// Validate page checksums
+    ///
+    /// Reads every page in a tablespace and validates its stored checksum
+    /// against both CRC-32C (MySQL 5.7.7+) and legacy InnoDB algorithms.
+    /// Also checks that the header LSN low-32 bits match the FIL trailer.
+    /// All-zero pages are counted as empty and skipped. With `--verbose`,
+    /// per-page results are printed including the detected algorithm and
+    /// stored vs. calculated values. Exits with code 1 if any page has an
+    /// invalid checksum, making it suitable for use in scripts and CI.
     Checksum {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]

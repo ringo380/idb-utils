@@ -51,7 +51,29 @@ struct PageDetailJson {
     fsp_header: Option<FspHeader>,
 }
 
-/// Execute the `inno pages` subcommand.
+/// Perform deep structural analysis of pages in an InnoDB tablespace.
+///
+/// Unlike `parse` which only decodes FIL headers, this command dives into
+/// page-type-specific internal structures:
+///
+/// - **INDEX pages** (type 17855): Decodes the index header (index ID, B+Tree
+///   level, record counts, heap top, garbage bytes, insert direction), FSEG
+///   inode pointers for leaf and non-leaf segments, and infimum/supremum system
+///   record metadata.
+/// - **UNDO pages** (type 2): Shows the undo page header (type, start/free
+///   offsets, used bytes) and segment header (state, last log offset).
+/// - **BLOB/ZBLOB pages** (types 10, 11, 12): Shows data length and next-page
+///   chain pointer for old-style externally stored columns.
+/// - **LOB_FIRST pages** (MySQL 8.0+): Shows version, flags, total data length,
+///   and transaction ID for new-style LOB first pages.
+/// - **Page 0** (FSP_HDR): Shows extended FSP header fields including
+///   compression algorithm, encryption flags, and first unused segment ID.
+///
+/// In **list mode** (`-l`), output is a compact one-line-per-page summary
+/// showing page number, type, description, and byte offset. In **detail mode**
+/// (the default), each page gets a full multi-section breakdown. Use `-t` to
+/// filter by page type name (supports aliases like "undo", "blob", "lob",
+/// "sdi", "compressed", "encrypted").
 pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = match opts.page_size {
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,

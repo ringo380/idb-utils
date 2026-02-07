@@ -43,10 +43,25 @@ struct FindMatchJson {
     space_id: u32,
 }
 
-/// Execute the `inno find` subcommand.
+/// Search a MySQL data directory for pages matching a given page number.
 ///
-/// Searches all `.ibd` files under a MySQL data directory for pages matching
-/// a given page number, with optional checksum and space ID filters.
+/// Recursively discovers all `.ibd` files under the specified data directory
+/// using [`find_tablespace_files`],
+/// opens each as a [`Tablespace`], and
+/// iterates over every page reading the FIL header. A page is considered a
+/// match when its stored `page_number` field (bytes 4–7 of the FIL header)
+/// equals the target value.
+///
+/// Optional filters narrow the results:
+/// - `--checksum`: only match pages whose stored checksum (bytes 0–3) equals
+///   the given value.
+/// - `--space-id`: only match pages whose space ID (bytes 34–37) equals the
+///   given value, useful when the same page number exists in multiple
+///   tablespaces.
+///
+/// With `--first`, searching stops after the first match across all files,
+/// providing a fast lookup when only one hit is expected. A progress bar is
+/// displayed for the file-level scan (suppressed in `--json` mode).
 pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {
