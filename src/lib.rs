@@ -28,6 +28,7 @@
 //! | [`inno dump`](cli::app::Commands::Dump) | Hex dump of raw page bytes |
 //! | [`inno checksum`](cli::app::Commands::Checksum) | Validate page checksums (CRC-32C and legacy) |
 //! | [`inno corrupt`](cli::app::Commands::Corrupt) | Intentionally corrupt pages for testing |
+//! | [`inno recover`](cli::app::Commands::Recover) | Assess page-level recoverability and count salvageable records |
 //! | [`inno find`](cli::app::Commands::Find) | Search data directory for pages by number |
 //! | [`inno tsid`](cli::app::Commands::Tsid) | List or find tablespace IDs |
 //! | [`inno sdi`](cli::app::Commands::Sdi) | Extract SDI metadata (MySQL 8.0+) |
