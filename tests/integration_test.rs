@@ -740,6 +740,258 @@ fn test_find_json_output() {
     assert!(parsed.get("matches").is_some());
 }
 
+// ---------- CLI recover pipeline ----------
+
+#[test]
+fn test_recover_all_intact() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: false,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok(), "recover should succeed: {:?}", result.err());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Recovery Analysis"));
+    assert!(output.contains("Intact:"));
+    assert!(output.contains("100.0% of pages intact"));
+}
+
+#[test]
+fn test_recover_with_corrupt_page() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let mut page2 = build_index_page(2, 1, 3000);
+    // Corrupt page 2's checksum
+    BigEndian::write_u32(&mut page2[FIL_PAGE_SPACE_OR_CHKSUM..], 0xBADBAD);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: false,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Corrupt:"));
+    assert!(output.contains("page"));
+}
+
+#[test]
+fn test_recover_with_empty_page() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_allocated_page(2, 1);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: false,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Empty:"));
+}
+
+#[test]
+fn test_recover_single_page() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: Some(1),
+        verbose: false,
+        json: false,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("1 pages x"));
+}
+
+#[test]
+fn test_recover_json_output() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_allocated_page(2, 1);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: true,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&output).expect("recover --json should produce valid JSON");
+    assert!(parsed.is_object());
+    assert!(parsed.get("summary").is_some());
+    assert!(parsed.get("total_pages").is_some());
+    assert!(parsed.get("recoverable_records").is_some());
+    assert_eq!(parsed["total_pages"], 3);
+}
+
+#[test]
+fn test_recover_json_verbose_includes_pages() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: true,
+        json: true,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let pages = parsed.get("pages").and_then(|v| v.as_array());
+    assert!(pages.is_some(), "verbose JSON should include pages array");
+    assert_eq!(pages.unwrap().len(), 2);
+}
+
+#[test]
+fn test_recover_force_extracts_corrupt_records() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let mut page1 = build_index_page(1, 1, 2000);
+    // Corrupt the checksum but leave the header valid
+    BigEndian::write_u32(&mut page1[FIL_PAGE_SPACE_OR_CHKSUM..], 0xBADBAD);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    // Without force
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: true,
+        force: false,
+        page_size: None,
+    };
+    let mut out = Vec::new();
+    idb::cli::recover::execute(&opts, &mut out).unwrap();
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    // Without force, might have force_recoverable_records field
+    assert!(parsed.get("force_recoverable_records").is_some() || parsed["recoverable_records"] == 0);
+
+    // With force
+    let opts_force = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: true,
+        force: true,
+        page_size: None,
+    };
+    let mut out2 = Vec::new();
+    idb::cli::recover::execute(&opts_force, &mut out2).unwrap();
+    let output2 = String::from_utf8(out2).unwrap();
+    let parsed2: serde_json::Value = serde_json::from_str(&output2).unwrap();
+    // force_recoverable_records should NOT be present when force is used
+    assert!(parsed2.get("force_recoverable_records").is_none());
+}
+
+#[test]
+fn test_recover_page_size_override() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: true,
+        force: false,
+        page_size: Some(16384),
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["page_size"], 16384);
+    assert_eq!(parsed["page_size_source"], "user-specified");
+}
+
+#[test]
+fn test_recover_verbose_text_output() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: true,
+        json: false,
+        force: false,
+        page_size: None,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::recover::execute(&opts, &mut out);
+    assert!(result.is_ok());
+    let output = String::from_utf8(out).unwrap();
+    assert!(output.contains("Page    0:"));
+    assert!(output.contains("Page    1:"));
+    assert!(output.contains("FSP_HDR"));
+    assert!(output.contains("INDEX"));
+    assert!(output.contains("LSN="));
+}
+
 // ---------- CLI tsid with JSON ----------
 
 #[test]

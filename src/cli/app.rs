@@ -370,6 +370,48 @@ pub enum Commands {
         page_size: Option<u32>,
     },
 
+    /// Recover data from corrupt/damaged tablespace files
+    ///
+    /// Scans a tablespace file and classifies each page as intact, corrupt,
+    /// empty, or unreadable. For INDEX pages, counts recoverable user records
+    /// by walking the compact record chain. Produces a recovery assessment
+    /// showing how many pages and records can be salvaged.
+    ///
+    /// Use `--force` to also extract records from pages with bad checksums
+    /// but valid-looking headers — useful when data is partially damaged
+    /// but the record chain is still intact. Use `--page-size` to override
+    /// page size detection when page 0 is corrupt.
+    ///
+    /// With `--verbose`, per-page details are shown including page type,
+    /// status, LSN, and record count. With `--json`, a structured report
+    /// is emitted including optional per-record detail when combined with
+    /// `--verbose`.
+    Recover {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Analyze a single page instead of full scan
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Show per-page details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Extract records from corrupt pages with valid headers
+        #[arg(long)]
+        force: bool,
+
+        /// Override page size (critical when page 0 is corrupt)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+    },
+
     /// Validate page checksums
     ///
     /// Reads every page in a tablespace and validates its stored checksum

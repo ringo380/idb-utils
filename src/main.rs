@@ -217,6 +217,25 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Recover {
+            file,
+            page,
+            verbose,
+            json,
+            force,
+            page_size,
+        } => cli::recover::execute(
+            &cli::recover::RecoverOptions {
+                file,
+                page,
+                verbose,
+                json,
+                force,
+                page_size,
+            },
+            &mut writer,
+        ),
+
         Commands::Checksum {
             file,
             verbose,
