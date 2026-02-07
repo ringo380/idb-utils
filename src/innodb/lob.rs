@@ -1,3 +1,11 @@
+//! Large object (BLOB/LOB) page header parsing.
+//!
+//! InnoDB stores large column values on dedicated overflow pages. Old-style BLOB
+//! pages (types 10-12) use a simple 8-byte header ([`BlobPageHeader`]) with the data
+//! length and next-page pointer. MySQL 8.0+ introduces structured LOB first pages
+//! (type 22) with a richer header ([`LobFirstPageHeader`]) containing version,
+//! flags, total data length, transaction ID, and index entry pointers.
+
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 

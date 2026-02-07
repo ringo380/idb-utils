@@ -1,3 +1,9 @@
+//! Filesystem helpers for tablespace file discovery.
+//!
+//! Provides [`find_tablespace_files`] to recursively search a MySQL data
+//! directory for `.ibd` and `.ibu` files. Used by the `find` and `tsid`
+//! subcommands.
+
 use std::path::{Path, PathBuf};
 
 use crate::IdbError;

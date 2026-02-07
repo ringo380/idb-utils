@@ -1,3 +1,14 @@
+//! InnoDB page header and trailer parsing.
+//!
+//! Every InnoDB page begins with a 38-byte FIL header ([`FilHeader`]) containing
+//! the checksum, page number, prev/next pointers, LSN, page type, flush LSN, and
+//! space ID. The last 8 bytes form the FIL trailer ([`FilTrailer`]) with the
+//! old-style checksum and low 32 bits of the LSN.
+//!
+//! Page 0 of every tablespace also contains the FSP header ([`FspHeader`]) at
+//! byte offset 38, which stores the space ID, tablespace size, and feature flags
+//! (page size, compression, encryption).
+
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 

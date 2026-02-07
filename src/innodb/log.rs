@@ -1,3 +1,15 @@
+//! InnoDB redo log file parsing.
+//!
+//! Reads InnoDB redo log files (`ib_logfile0`/`ib_logfile1` for MySQL < 8.0.30,
+//! or `#ib_redo*` files for 8.0.30+). The file layout consists of a 2048-byte
+//! header (4 blocks of 512 bytes each) containing the log file header and two
+//! checkpoint records, followed by 512-byte data blocks.
+//!
+//! Use [`LogFile::open`] to read and parse the header and checkpoint records,
+//! then [`LogFile::read_block`] to read individual data blocks. Each block's
+//! [`LogBlockHeader`] provides the block number, data length, checkpoint number,
+//! and CRC-32C checksum validation status.
+
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 use std::fs::File;

@@ -1,3 +1,8 @@
+//! Hex dump formatting utilities.
+//!
+//! Helpers for formatting byte offsets, hex values, and producing traditional
+//! hex dump output with offset columns and ASCII sidebars.
+
 /// Format a byte offset as "decimal (0xhex)".
 pub fn format_offset(offset: u64) -> String {
     format!("{} (0x{:x})", offset, offset)

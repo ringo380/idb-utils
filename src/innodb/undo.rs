@@ -1,3 +1,11 @@
+//! UNDO log page parsing.
+//!
+//! UNDO log pages (page type 2 / `FIL_PAGE_UNDO_LOG`) store previous versions
+//! of modified records for MVCC and rollback. Each undo page has an
+//! [`UndoPageHeader`] at `FIL_PAGE_DATA` (byte 38) describing the undo type
+//! and free space pointers, followed by an [`UndoSegmentHeader`] with the
+//! segment state and transaction metadata.
+
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 

@@ -7,6 +7,24 @@
 //!
 //! Start with [`tablespace::Tablespace`] to open a `.ibd` file, then use
 //! [`page::FilHeader`] to inspect individual pages.
+//!
+//! # Modules
+//!
+//! | Module | Purpose |
+//! |--------|---------|
+//! | [`tablespace`] | File I/O abstraction, page size auto-detection, page iteration |
+//! | [`page`] | FIL header (38 bytes), FIL trailer (8 bytes), FSP header parsing |
+//! | [`page_types`] | Page type enum mapping `u16` codes to names and descriptions |
+//! | [`checksum`] | CRC-32C and legacy InnoDB checksum validation |
+//! | [`index`] | INDEX page internals — B+Tree header, FSEG, system records |
+//! | [`record`] | Row-level record parsing — compact format, variable-length fields |
+//! | [`sdi`] | SDI metadata extraction from MySQL 8.0+ tablespaces |
+//! | [`log`] | Redo log file header, checkpoints, and data block parsing |
+//! | [`undo`] | UNDO log page header and segment header parsing |
+//! | [`lob`] | Large object page headers (old-style BLOB and MySQL 8.0+ LOB) |
+//! | [`compression`] | Compression algorithm detection and decompression (zlib, LZ4) |
+//! | [`encryption`] | Encryption detection from FSP flags |
+//! | [`constants`] | InnoDB page/file structure constants from MySQL source headers |
 
 pub mod checksum;
 pub mod compression;

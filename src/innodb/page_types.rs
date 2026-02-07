@@ -1,3 +1,12 @@
+//! InnoDB page type definitions.
+//!
+//! Maps the 2-byte page type field (bytes 24-25 of the FIL header) to a
+//! [`PageType`] enum. Each variant carries its MySQL source name, a human-readable
+//! description, and a usage note via the `PageType::metadata` method.
+//!
+//! Covers all page types from MySQL 5.7 through 9.x, including INDEX (17855),
+//! SDI (17853), UNDO, INODE, BLOB/LOB, redo log, and encryption key pages.
+
 use serde::Serialize;
 use std::fmt;
 

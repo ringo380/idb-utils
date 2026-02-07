@@ -1,3 +1,16 @@
+//! InnoDB page checksum validation.
+//!
+//! Implements the two checksum algorithms used by MySQL's InnoDB engine:
+//!
+//! - **CRC-32C** (default since MySQL 5.7.7): XOR of two independent CRC32c
+//!   values computed over bytes `[4..26)` and `[38..page_size-8)`. These are
+//!   NOT chained — each range is checksummed separately and the results XORed.
+//!
+//! - **Legacy InnoDB** (MySQL < 5.7.7): Uses `ut_fold_ulint_pair` with wrapping
+//!   `u32` arithmetic, processing bytes one at a time over the same two ranges.
+//!
+//! Use [`validate_checksum`] to check a page against both algorithms.
+
 use byteorder::{BigEndian, ByteOrder};
 use crate::innodb::constants::*;
 

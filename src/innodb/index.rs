@@ -1,3 +1,14 @@
+//! INDEX page internal structure parsing.
+//!
+//! INDEX pages (page type 17855 / `FIL_PAGE_INDEX`) are the B+Tree nodes that
+//! store table data and secondary index entries. Each INDEX page contains a
+//! 36-byte [`IndexHeader`] at `FIL_PAGE_DATA` (byte 38), followed by two
+//! 10-byte FSEG inode pointers ([`FsegHeader`]) for the leaf and non-leaf
+//! segments, and the infimum/supremum system records.
+//!
+//! Use [`IndexHeader::parse`] and [`FsegHeader::parse`] to decode these
+//! structures from raw page bytes.
+
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 

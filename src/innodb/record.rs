@@ -1,3 +1,11 @@
+//! Row-level record parsing for InnoDB compact format.
+//!
+//! InnoDB stores rows in compact record format (MySQL 5.0+), where each record
+//! has a 5-byte header containing the info bits, record type, heap number, and
+//! next-record pointer. This module provides [`RecordType`] classification and
+//! [`walk_compact_records`] to traverse the singly-linked record chain within
+//! an INDEX page, starting from the infimum record.
+
 use byteorder::{BigEndian, ByteOrder};
 
 use crate::innodb::constants::*;

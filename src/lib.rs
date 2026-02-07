@@ -1,23 +1,57 @@
 //! InnoDB file analysis toolkit.
 //!
-//! `idb` provides Rust types and functions for parsing, inspecting, and
-//! manipulating InnoDB tablespace files (`.ibd`), redo log files, and
-//! system tablespace data (`ibdata1`).
+//! The `innodb-utils` crate (library name `idb`) provides Rust types and
+//! functions for parsing, inspecting, and manipulating InnoDB tablespace
+//! files (`.ibd`), redo log files, and system tablespace data (`ibdata1`).
 //!
-//! # Two ways to use this crate
+//! # CLI Reference
 //!
-//! 1. **As a CLI tool** — install the `inno` binary via `cargo install innodb-utils`
-//!    and use its subcommands (`inno parse`, `inno checksum`, `inno sdi`, etc.).
-//! 2. **As a library** — depend on `idb` in your `Cargo.toml` and use the types
-//!    in [`innodb`] directly.
+//! Install the `inno` binary and use its subcommands to work with InnoDB
+//! files from the command line.
 //!
-//! # Feature flags
+//! ## Installation
 //!
-//! | Feature | Default | Description |
-//! |---------|---------|-------------|
-//! | `mysql` | off | Enables live MySQL queries via `mysql_async` + `tokio` (used by `inno info`). |
+//! ```text
+//! cargo install innodb-utils          # crates.io
+//! brew install ringo380/tap/inno      # Homebrew (macOS/Linux)
+//! ```
 //!
-//! # Quick example
+//! Pre-built binaries for Linux and macOS (x86_64 + aarch64) are available
+//! on the [GitHub releases page](https://github.com/ringo380/idb-utils/releases).
+//!
+//! ## Subcommands
+//!
+//! | Command | Purpose |
+//! |---------|---------|
+//! | [`inno parse`](cli::app::Commands::Parse) | Parse `.ibd` file and display page summary |
+//! | [`inno pages`](cli::app::Commands::Pages) | Detailed page structure analysis (INDEX, UNDO, LOB, SDI) |
+//! | [`inno dump`](cli::app::Commands::Dump) | Hex dump of raw page bytes |
+//! | [`inno checksum`](cli::app::Commands::Checksum) | Validate page checksums (CRC-32C and legacy) |
+//! | [`inno corrupt`](cli::app::Commands::Corrupt) | Intentionally corrupt pages for testing |
+//! | [`inno find`](cli::app::Commands::Find) | Search data directory for pages by number |
+//! | [`inno tsid`](cli::app::Commands::Tsid) | List or find tablespace IDs |
+//! | [`inno sdi`](cli::app::Commands::Sdi) | Extract SDI metadata (MySQL 8.0+) |
+//! | [`inno log`](cli::app::Commands::Log) | Analyze InnoDB redo log files |
+//! | [`inno info`](cli::app::Commands::Info) | Inspect ibdata1, compare LSNs, query MySQL |
+//!
+//! ## Global options
+//!
+//! All subcommands accept `--color <auto|always|never>` and `--output <file>`.
+//! Most subcommands also accept `--json` for machine-readable output and
+//! `--page-size` to override auto-detection.
+//!
+//! See the [`cli`] module for full details.
+//!
+//! # Library API
+//!
+//! Add `idb` as a dependency to use the parsing library directly:
+//!
+//! ```toml
+//! [dependencies]
+//! idb = { package = "innodb-utils", version = "1" }
+//! ```
+//!
+//! ## Quick example
 //!
 //! ```no_run
 //! use idb::innodb::tablespace::Tablespace;
@@ -37,14 +71,40 @@
 //! println!("Checksum valid: {}", result.valid);
 //! ```
 //!
-//! # Key entry points
+//! ## Key entry points
 //!
-//! - [`innodb::tablespace::Tablespace`] — open and read `.ibd` files
-//! - [`innodb::page::FilHeader`] — the 38-byte header on every InnoDB page
-//! - [`innodb::page_types::PageType`] — page type enum with names and descriptions
-//! - [`innodb::checksum::validate_checksum`] — CRC-32C and legacy checksum validation
-//! - [`innodb::sdi`] — SDI metadata extraction (MySQL 8.0+)
-//! - [`innodb::log::LogFile`] — redo log file reader
+//! | Type / Function | Purpose |
+//! |-----------------|---------|
+//! | [`Tablespace`](innodb::tablespace::Tablespace) | Open `.ibd` files, read pages, iterate |
+//! | [`FilHeader`](innodb::page::FilHeader) | Parse the 38-byte header on every InnoDB page |
+//! | [`PageType`](innodb::page_types::PageType) | Map page type codes to names and descriptions |
+//! | [`validate_checksum`](innodb::checksum::validate_checksum) | CRC-32C and legacy checksum validation |
+//! | [`extract_sdi_from_pages`](innodb::sdi::extract_sdi_from_pages) | SDI metadata extraction (MySQL 8.0+) |
+//! | [`LogFile`](innodb::log::LogFile) | Read and inspect redo log files |
+//!
+//! ## Module overview
+//!
+//! | Module | Purpose |
+//! |--------|---------|
+//! | [`innodb::tablespace`] | File I/O, page size detection, page iteration |
+//! | [`innodb::page`] | FIL header/trailer, FSP header parsing |
+//! | [`innodb::page_types`] | Page type enum with names and descriptions |
+//! | [`innodb::checksum`] | CRC-32C and legacy InnoDB checksum algorithms |
+//! | [`innodb::index`] | INDEX page internals (B+Tree header, FSEG) |
+//! | [`innodb::record`] | Row-level record parsing (compact format) |
+//! | [`innodb::sdi`] | SDI metadata extraction and decompression |
+//! | [`innodb::log`] | Redo log file structure and block parsing |
+//! | [`innodb::undo`] | UNDO log page structures |
+//! | [`innodb::lob`] | Large object (BLOB/LOB) page headers |
+//! | [`innodb::compression`] | Compression detection and decompression |
+//! | [`innodb::encryption`] | Encryption detection from FSP flags |
+//! | [`innodb::constants`] | InnoDB page/file structure constants |
+//!
+//! ## Feature flags
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `mysql` | off | Enables live MySQL queries via `mysql_async` + `tokio` (used by `inno info`). |
 
 pub mod cli;
 pub mod innodb;

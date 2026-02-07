@@ -1,3 +1,13 @@
+//! InnoDB tablespace file I/O.
+//!
+//! Provides [`Tablespace`], the primary entry point for opening and reading
+//! `.ibd` tablespace files. The page size is auto-detected from the FSP flags
+//! on page 0 (supports 4K, 8K, 16K, 32K, and 64K pages). Individual pages
+//! can be read by number, and the full file can be iterated page-by-page.
+//!
+//! The FSP header from page 0 is also parsed and cached, giving access to
+//! the space ID, tablespace size, and feature flags (compression, encryption).
+
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;

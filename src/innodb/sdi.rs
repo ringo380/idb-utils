@@ -1,3 +1,15 @@
+//! SDI (Serialized Dictionary Information) extraction.
+//!
+//! MySQL 8.0+ embeds table, column, and index definitions directly inside each
+//! tablespace as SDI records, replacing the `.frm` files used in earlier versions.
+//! SDI data lives on dedicated SDI pages (page type 17853) and is stored as
+//! zlib-compressed JSON.
+//!
+//! Use [`extract_sdi_from_pages`] to scan a set of pages, reassemble multi-page
+//! records by following the B+Tree page chain, decompress the payload, and return
+//! the parsed [`SdiRecord`] entries. Each record contains the SDI type (table or
+//! tablespace), object ID, and the raw JSON string.
+
 use byteorder::{BigEndian, ByteOrder};
 use flate2::read::ZlibDecoder;
 use std::io::Read;

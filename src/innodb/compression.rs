@@ -1,3 +1,8 @@
+//! Tablespace compression detection and decompression.
+//!
+//! Detects the compression algorithm from FSP flags (bits 11-12) and provides
+//! zlib and LZ4 decompression helpers for compressed page data.
+
 use flate2::read::ZlibDecoder;
 use std::io::Read;
 

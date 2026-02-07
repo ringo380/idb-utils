@@ -1,3 +1,8 @@
+//! Tablespace encryption detection.
+//!
+//! Detects whether a tablespace is encrypted by inspecting bit 13 of the FSP
+//! flags (MySQL 5.7.11+). Currently only AES encryption is recognized.
+
 /// Encryption algorithm detected from FSP flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionAlgorithm {
