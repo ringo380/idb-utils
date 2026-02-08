@@ -99,6 +99,23 @@ struct RecoveredRecord {
     data_hex: String,
 }
 
+/// Computed statistics from page analysis, used by output functions.
+struct RecoverStats {
+    file_size: u64,
+    page_size: u32,
+    page_size_source: Option<String>,
+    scan_count: u64,
+    intact: u64,
+    corrupt: u64,
+    empty: u64,
+    unreadable: u64,
+    total_records: u64,
+    corrupt_records: u64,
+    corrupt_page_numbers: Vec<u64>,
+    index_pages_total: u64,
+    index_pages_recoverable: u64,
+}
+
 /// Internal per-page analysis result.
 struct PageAnalysis {
     page_number: u64,
@@ -211,20 +228,19 @@ fn analyze_page(
     };
 
     // Count records on INDEX pages
-    let (record_count, records) = if header.page_type == PageType::Index
-        && (status == PageStatus::Intact || force)
-    {
-        let recs = walk_compact_records(page_data);
-        let count = recs.len();
-        let recovered = if verbose_json {
-            extract_records(page_data, &recs, page_size)
+    let (record_count, records) =
+        if header.page_type == PageType::Index && (status == PageStatus::Intact || force) {
+            let recs = walk_compact_records(page_data);
+            let count = recs.len();
+            let recovered = if verbose_json {
+                extract_records(page_data, &recs, page_size)
+            } else {
+                Vec::new()
+            };
+            (Some(count), recovered)
         } else {
-            Vec::new()
+            (None, Vec::new())
         };
-        (Some(count), recovered)
-    } else {
-        (None, Vec::new())
-    };
 
     PageAnalysis {
         page_number: page_num,
@@ -402,75 +418,49 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
         }
     }
 
+    let stats = RecoverStats {
+        file_size,
+        page_size,
+        page_size_source,
+        scan_count,
+        intact,
+        corrupt,
+        empty,
+        unreadable,
+        total_records,
+        corrupt_records,
+        corrupt_page_numbers,
+        index_pages_total,
+        index_pages_recoverable,
+    };
+
     if opts.json {
-        output_json(
-            opts,
-            &analyses,
-            file_size,
-            page_size,
-            page_size_source,
-            scan_count,
-            intact,
-            corrupt,
-            empty,
-            unreadable,
-            total_records,
-            corrupt_records,
-            writer,
-        )
+        output_json(opts, &analyses, &stats, writer)
     } else {
-        output_text(
-            opts,
-            &analyses,
-            file_size,
-            page_size,
-            page_size_source,
-            scan_count,
-            intact,
-            corrupt,
-            empty,
-            unreadable,
-            total_records,
-            corrupt_records,
-            &corrupt_page_numbers,
-            index_pages_total,
-            index_pages_recoverable,
-            writer,
-        )
+        output_text(opts, &analyses, &stats, writer)
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn output_text(
     opts: &RecoverOptions,
     analyses: &[PageAnalysis],
-    file_size: u64,
-    page_size: u32,
-    page_size_source: Option<String>,
-    scan_count: u64,
-    intact: u64,
-    corrupt: u64,
-    empty: u64,
-    unreadable: u64,
-    total_records: u64,
-    corrupt_records: u64,
-    corrupt_page_numbers: &[u64],
-    index_pages_total: u64,
-    index_pages_recoverable: u64,
+    stats: &RecoverStats,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     wprintln!(writer, "Recovery Analysis: {}", opts.file)?;
     wprintln!(
         writer,
         "File size: {} bytes ({} pages x {} bytes)",
-        file_size, scan_count, page_size
+        stats.file_size,
+        stats.scan_count,
+        stats.page_size
     )?;
 
-    let source_note = match &page_size_source {
+    let source_note = match &stats.page_size_source {
         Some(s) => format!(" ({})", s),
         None => " (auto-detected)".to_string(),
     };
-    wprintln!(writer, "Page size: {}{}", page_size, source_note)?;
+    wprintln!(writer, "Page size: {}{}", stats.page_size, source_note)?;
     wprintln!(writer)?;
 
     // Verbose: per-page detail
@@ -511,85 +501,80 @@ fn output_text(
 
     // Summary
     wprintln!(writer, "Page Status Summary:")?;
-    wprintln!(writer, "  Intact:      {:>4} pages", intact)?;
-    if corrupt > 0 {
-        let pages_str = if corrupt_page_numbers.len() <= 10 {
-            let nums: Vec<String> = corrupt_page_numbers.iter().map(|n| n.to_string()).collect();
+    wprintln!(writer, "  Intact:      {:>4} pages", stats.intact)?;
+    if stats.corrupt > 0 {
+        let pages_str = if stats.corrupt_page_numbers.len() <= 10 {
+            let nums: Vec<String> = stats
+                .corrupt_page_numbers
+                .iter()
+                .map(|n| n.to_string())
+                .collect();
             format!(" (pages {})", nums.join(", "))
         } else {
-            format!(" ({} pages)", corrupt)
+            format!(" ({} pages)", stats.corrupt)
         };
         wprintln!(
             writer,
             "  Corrupt:     {:>4} pages{}",
-            format!("{}", corrupt).red(),
+            format!("{}", stats.corrupt).red(),
             pages_str
         )?;
     } else {
-        wprintln!(writer, "  Corrupt:     {:>4} pages", corrupt)?;
+        wprintln!(writer, "  Corrupt:     {:>4} pages", stats.corrupt)?;
     }
-    wprintln!(writer, "  Empty:       {:>4} pages", empty)?;
-    if unreadable > 0 {
+    wprintln!(writer, "  Empty:       {:>4} pages", stats.empty)?;
+    if stats.unreadable > 0 {
         wprintln!(
             writer,
             "  Unreadable:  {:>4} pages",
-            format!("{}", unreadable).red()
+            format!("{}", stats.unreadable).red()
         )?;
     } else {
-        wprintln!(writer, "  Unreadable:  {:>4} pages", unreadable)?;
+        wprintln!(writer, "  Unreadable:  {:>4} pages", stats.unreadable)?;
     }
-    wprintln!(writer, "  Total:       {:>4} pages", scan_count)?;
+    wprintln!(writer, "  Total:       {:>4} pages", stats.scan_count)?;
     wprintln!(writer)?;
 
-    if index_pages_total > 0 {
+    if stats.index_pages_total > 0 {
         wprintln!(
             writer,
             "Recoverable INDEX Pages: {} of {}",
-            index_pages_recoverable, index_pages_total
+            stats.index_pages_recoverable,
+            stats.index_pages_total
         )?;
-        wprintln!(writer, "  Total user records: {}", total_records)?;
-        if corrupt_records > 0 && !opts.force {
+        wprintln!(writer, "  Total user records: {}", stats.total_records)?;
+        if stats.corrupt_records > 0 && !opts.force {
             wprintln!(
                 writer,
                 "  Records on corrupt pages: {} (use --force to include)",
-                corrupt_records
+                stats.corrupt_records
             )?;
-        } else if corrupt_records > 0 {
+        } else if stats.corrupt_records > 0 {
             wprintln!(
                 writer,
                 "  Records on corrupt pages: {} (included with --force)",
-                corrupt_records
+                stats.corrupt_records
             )?;
         }
         wprintln!(writer)?;
     }
 
-    let total_non_empty = intact + corrupt + unreadable;
+    let total_non_empty = stats.intact + stats.corrupt + stats.unreadable;
     if total_non_empty > 0 {
-        let pct = (intact as f64 / total_non_empty as f64) * 100.0;
+        let pct = (stats.intact as f64 / total_non_empty as f64) * 100.0;
         wprintln!(writer, "Overall: {:.1}% of pages intact", pct)?;
     }
 
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn output_json(
     opts: &RecoverOptions,
     analyses: &[PageAnalysis],
-    file_size: u64,
-    page_size: u32,
-    page_size_source: Option<String>,
-    scan_count: u64,
-    intact: u64,
-    corrupt: u64,
-    empty: u64,
-    unreadable: u64,
-    total_records: u64,
-    corrupt_records: u64,
+    stats: &RecoverStats,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    let all_records = total_records + if opts.force { corrupt_records } else { 0 };
+    let all_records = stats.total_records + if opts.force { stats.corrupt_records } else { 0 };
 
     let pages: Vec<PageRecoveryInfo> = if opts.verbose {
         analyses
@@ -618,23 +603,23 @@ fn output_json(
         Vec::new()
     };
 
-    let force_recs = if corrupt_records > 0 && !opts.force {
-        Some(corrupt_records)
+    let force_recs = if stats.corrupt_records > 0 && !opts.force {
+        Some(stats.corrupt_records)
     } else {
         None
     };
 
     let report = RecoverReport {
         file: opts.file.clone(),
-        file_size,
-        page_size,
-        page_size_source,
-        total_pages: scan_count,
+        file_size: stats.file_size,
+        page_size: stats.page_size,
+        page_size_source: stats.page_size_source.clone(),
+        total_pages: stats.scan_count,
         summary: RecoverSummary {
-            intact,
-            corrupt,
-            empty,
-            unreadable,
+            intact: stats.intact,
+            corrupt: stats.corrupt,
+            empty: stats.empty,
+            unreadable: stats.unreadable,
         },
         recoverable_records: all_records,
         force_recoverable_records: force_recs,
