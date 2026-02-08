@@ -640,7 +640,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 69 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 40 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 74 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 79 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
