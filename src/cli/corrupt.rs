@@ -158,7 +158,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
         let verify_json = if opts.verify {
             let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
             let post_result = validate_checksum(&post_data, page_size as u32);
-            let pre = pre_checksum.unwrap();
+            let pre = pre_checksum.expect("pre_checksum set when --verify is active");
             Some(VerifyResultJson {
                 page: page_num,
                 before: checksum_to_json(&pre),
@@ -167,7 +167,14 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
         } else {
             None
         };
-        return output_json_with_verify(opts, corrupt_offset, Some(page_num), &random_data, verify_json, writer);
+        return output_json_with_verify(
+            opts,
+            corrupt_offset,
+            Some(page_num),
+            &random_data,
+            verify_json,
+            writer,
+        );
     }
 
     wprintln!(
@@ -188,27 +195,43 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     if opts.verify {
         let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
         let post_result = validate_checksum(&post_data, page_size as u32);
-        let pre = pre_checksum.unwrap();
+        let pre = pre_checksum.expect("pre_checksum set when --verify is active");
         wprintln!(writer)?;
         wprintln!(writer, "{}:", "Verification".bold())?;
         wprintln!(
             writer,
             "  Before: {} (algorithm={:?}, stored={}, calculated={})",
-            if pre.valid { "OK".green().to_string() } else { "INVALID".red().to_string() },
-            pre.algorithm, pre.stored_checksum, pre.calculated_checksum
+            if pre.valid {
+                "OK".green().to_string()
+            } else {
+                "INVALID".red().to_string()
+            },
+            pre.algorithm,
+            pre.stored_checksum,
+            pre.calculated_checksum
         )?;
         wprintln!(
             writer,
             "  After:  {} (algorithm={:?}, stored={}, calculated={})",
-            if post_result.valid { "OK".green().to_string() } else { "INVALID".red().to_string() },
-            post_result.algorithm, post_result.stored_checksum, post_result.calculated_checksum
+            if post_result.valid {
+                "OK".green().to_string()
+            } else {
+                "INVALID".red().to_string()
+            },
+            post_result.algorithm,
+            post_result.stored_checksum,
+            post_result.calculated_checksum
         )?;
     }
 
     Ok(())
 }
 
-fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn corrupt_at_offset(
+    opts: &CorruptOptions,
+    abs_offset: u64,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     // Validate offset is within file
     let file_size = File::open(&opts.file)
         .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", opts.file, e)))?
@@ -236,14 +259,19 @@ fn corrupt_at_offset(opts: &CorruptOptions, abs_offset: u64, writer: &mut dyn Wr
     wprintln!(
         writer,
         "Writing {} bytes of random data to {} at offset {}...",
-        opts.bytes, opts.file, abs_offset
+        opts.bytes,
+        opts.file,
+        abs_offset
     )?;
 
     wprintln!(writer, "Data written: {}", format_bytes(&random_data).red())?;
     wprintln!(writer, "Completed.")?;
 
     if opts.verify {
-        wprintln!(writer, "Note: --verify is not available in absolute offset mode (no page context).")?;
+        wprintln!(
+            writer,
+            "Note: --verify is not available in absolute offset mode (no page context)."
+        )?;
     }
 
     Ok(())

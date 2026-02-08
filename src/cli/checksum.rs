@@ -3,7 +3,7 @@ use std::io::Write;
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::cli::{wprintln, create_progress_bar};
+use crate::cli::{create_progress_bar, wprintln};
 use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
@@ -78,7 +78,9 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     wprintln!(
         writer,
         "Validating checksums for {} ({} pages, page size {})...",
-        opts.file, page_count, page_size
+        opts.file,
+        page_count,
+        page_size
     )?;
     wprintln!(writer)?;
 
@@ -183,7 +185,10 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     }
 
     if invalid_count > 0 {
-        std::process::exit(1);
+        return Err(IdbError::Parse(format!(
+            "{} pages with invalid checksums",
+            invalid_count
+        )));
     }
 
     Ok(())
@@ -278,7 +283,10 @@ fn execute_json(
     wprintln!(writer, "{}", json)?;
 
     if invalid_count > 0 {
-        std::process::exit(1);
+        return Err(IdbError::Parse(format!(
+            "{} pages with invalid checksums",
+            invalid_count
+        )));
     }
 
     Ok(())
