@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--color auto|always|never`** global flag to control colored output across all subcommands
 - **`--output <file>`** global flag to redirect output to a file instead of stdout
 - **`--verify` flag on `inno corrupt`** to show before/after checksum comparison when corrupting pages
-- **`--page-size` on `find`, `tsid`, and `info`** subcommands (previously only on 6 of 10 subcommands)
+- **`--page-size` on `find`, `tsid`, and `info`** subcommands (previously only on 6 of 11 subcommands)
 - **Progress bars** for long-running operations in `checksum`, `parse`, and `find` subcommands (via `indicatif`)
 - **Man page generation** at build time via `clap_mangen` (`inno.1` + one per subcommand)
 - **Pre-built binary releases** via GitHub Actions workflow for Linux (x86_64, aarch64) and macOS (x86_64, aarch64)
@@ -64,7 +64,7 @@ Complete rewrite from Perl scripts to a unified Rust CLI tool.
 
 ### Added
 
-- **Unified `inno` binary** with 10 subcommands dispatched via clap derive macros
+- **Unified `inno` binary** with 11 subcommands dispatched via clap derive macros
 - **`inno parse`** — Parse .ibd files with page headers, type summaries, verbose/extended modes
 - **`inno pages`** — Detailed page structure analysis for INDEX, UNDO, LOB, and SDI pages
 - **`inno dump`** — Hex dump of raw page bytes with offset and length controls
