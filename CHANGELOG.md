@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-02-07
+
+### Added
+
+- 30 integration tests for comprehensive subcommand flag/mode coverage across all 11 subcommands (79 integration tests total)
+- 5 unit tests for `find_tablespace_files()` utility (74 unit tests total)
+- Format check (`cargo fmt --check`) and security audit CI jobs
+
+### Changed
+
+- Refactor `recover` subcommand to use `RecoverStats` struct, eliminating `too_many_arguments` warnings
+- Replace `std::process::exit(1)` with proper `Err(IdbError)` returns in `checksum`
+- Replace `.unwrap()` with descriptive `.expect()` in `corrupt`
+- Apply `rustfmt` formatting across entire codebase
+
 ## [1.2.3] - 2026-02-07
 
 ### Added
