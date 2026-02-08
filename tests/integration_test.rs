@@ -1414,9 +1414,16 @@ fn test_info_ibdata_basic() {
 
     let mut out = Vec::new();
     let result = idb::cli::info::execute(&opts, &mut out);
-    assert!(result.is_ok(), "info ibdata should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "info ibdata should succeed: {:?}",
+        result.err()
+    );
     let output = String::from_utf8(out).unwrap();
-    assert!(output.contains("ibdata1 Page 0 Header"), "should show ibdata1 header");
+    assert!(
+        output.contains("ibdata1 Page 0 Header"),
+        "should show ibdata1 header"
+    );
     assert!(output.contains("Checksum:"), "should show checksum");
     assert!(output.contains("LSN:"), "should show LSN");
     assert!(output.contains("Space ID:"), "should show space ID");
@@ -1511,7 +1518,10 @@ fn test_info_lsn_check() {
     let result = idb::cli::info::execute(&opts, &mut out);
     assert!(result.is_ok());
     let output = String::from_utf8(out).unwrap();
-    assert!(output.contains("LSN Sync Check"), "should show LSN sync check header");
+    assert!(
+        output.contains("LSN Sync Check"),
+        "should show LSN sync check header"
+    );
     // ibdata1 LSN=1000 and checkpoint1 LSN=1000, so should be IN SYNC
     assert!(
         output.contains("IN SYNC"),
@@ -1823,7 +1833,11 @@ fn test_dump_offset_mode() {
 
     let mut out = Vec::new();
     let result = idb::cli::dump::execute(&opts, &mut out);
-    assert!(result.is_ok(), "dump offset mode should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "dump offset mode should succeed: {:?}",
+        result.err()
+    );
     let output = String::from_utf8(out).unwrap();
     assert!(
         output.contains("offset 100"),
@@ -1849,7 +1863,11 @@ fn test_dump_offset_raw_mode() {
     let result = idb::cli::dump::execute(&opts, &mut out);
     assert!(result.is_ok());
     assert_eq!(out.len(), 16, "raw mode should output exactly 16 bytes");
-    assert_eq!(&out[..16], &page0[..16], "raw bytes should match file content");
+    assert_eq!(
+        &out[..16],
+        &page0[..16],
+        "raw bytes should match file content"
+    );
 }
 
 #[test]
@@ -1938,7 +1956,11 @@ fn test_corrupt_header_mode() {
 
     let mut out = Vec::new();
     let result = idb::cli::corrupt::execute(&opts, &mut out);
-    assert!(result.is_ok(), "corrupt header mode should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "corrupt header mode should succeed: {:?}",
+        result.err()
+    );
     let output = String::from_utf8(out).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     // Offset should be within the first 38 bytes of page 1 (bytes 16384..16422)
@@ -1975,11 +1997,18 @@ fn test_corrupt_offset_mode() {
 
     let mut out = Vec::new();
     let result = idb::cli::corrupt::execute(&opts, &mut out);
-    assert!(result.is_ok(), "corrupt offset mode should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "corrupt offset mode should succeed: {:?}",
+        result.err()
+    );
     let output = String::from_utf8(out).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed["offset"], 100, "should corrupt at exact offset 100");
-    assert!(parsed["page"].is_null(), "offset mode should have null page");
+    assert!(
+        parsed["page"].is_null(),
+        "offset mode should have null page"
+    );
 }
 
 #[test]
@@ -2006,10 +2035,17 @@ fn test_corrupt_random_page() {
 
     let mut out = Vec::new();
     let result = idb::cli::corrupt::execute(&opts, &mut out);
-    assert!(result.is_ok(), "random page corrupt should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "random page corrupt should succeed: {:?}",
+        result.err()
+    );
     let output = String::from_utf8(out).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert!(parsed["page"].is_number(), "should have a page number in JSON");
+    assert!(
+        parsed["page"].is_number(),
+        "should have a page number in JSON"
+    );
     let page = parsed["page"].as_u64().unwrap();
     assert!(page < 3, "random page should be within range 0..3");
 }
@@ -2050,7 +2086,10 @@ fn test_find_checksum_filter() {
     let output1 = String::from_utf8(out1).unwrap();
     let parsed1: serde_json::Value = serde_json::from_str(&output1).unwrap();
     let matches1 = parsed1["matches"].as_array().unwrap();
-    assert!(!matches1.is_empty(), "should find page with matching checksum");
+    assert!(
+        !matches1.is_empty(),
+        "should find page with matching checksum"
+    );
 
     // Search with wrong checksum — should find nothing
     let opts_no_match = idb::cli::find::FindOptions {
@@ -2068,7 +2107,10 @@ fn test_find_checksum_filter() {
     let output2 = String::from_utf8(out2).unwrap();
     let parsed2: serde_json::Value = serde_json::from_str(&output2).unwrap();
     let matches2 = parsed2["matches"].as_array().unwrap();
-    assert!(matches2.is_empty(), "should not find page with wrong checksum");
+    assert!(
+        matches2.is_empty(),
+        "should not find page with wrong checksum"
+    );
 }
 
 #[test]

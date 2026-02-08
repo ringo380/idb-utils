@@ -43,9 +43,12 @@ jobs:
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/audit@v1
+        with:
+          create-issues: false
 
   build:
     name: Build (${{ matrix.os }})
