@@ -158,4 +158,3 @@ pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbErro
 
     Ok(())
 }
-

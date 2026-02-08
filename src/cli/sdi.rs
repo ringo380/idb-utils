@@ -47,13 +47,21 @@ pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError
         return Ok(());
     }
 
-    wprintln!(writer, "Found {} SDI page(s): {:?}", sdi_pages.len(), sdi_pages)?;
+    wprintln!(
+        writer,
+        "Found {} SDI page(s): {:?}",
+        sdi_pages.len(),
+        sdi_pages
+    )?;
 
     // Use multi-page reassembly to extract records
     let records = sdi::extract_sdi_from_pages(&mut ts, &sdi_pages)?;
 
     if records.is_empty() {
-        wprintln!(writer, "No SDI records found (pages may be non-leaf or empty).")?;
+        wprintln!(
+            writer,
+            "No SDI records found (pages may be non-leaf or empty)."
+        )?;
         return Ok(());
     }
 
@@ -69,11 +77,15 @@ pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError
         wprintln!(
             writer,
             "Compressed: {} bytes, Uncompressed: {} bytes",
-            rec.compressed_len, rec.uncompressed_len
+            rec.compressed_len,
+            rec.uncompressed_len
         )?;
 
         if rec.data.is_empty() {
-            wprintln!(writer, "(Data could not be decompressed - may span multiple pages)")?;
+            wprintln!(
+                writer,
+                "(Data could not be decompressed - may span multiple pages)"
+            )?;
             continue;
         }
 

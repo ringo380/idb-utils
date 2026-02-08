@@ -73,8 +73,8 @@ macro_rules! wprint {
     };
 }
 
-pub(crate) use wprintln;
 pub(crate) use wprint;
+pub(crate) use wprintln;
 
 use indicatif::{ProgressBar, ProgressStyle};
 

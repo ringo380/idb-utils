@@ -150,7 +150,8 @@ pub fn extract_sdi_from_pages(
                 if rec_header.data_complete {
                     // Data fits in single page
                     let data_start = rec.offset + SDI_DATA_OFFSET;
-                    let compressed = &page_data[data_start..data_start + rec_header.compressed_len as usize];
+                    let compressed =
+                        &page_data[data_start..data_start + rec_header.compressed_len as usize];
                     let json = decompress_sdi_data(compressed, rec_header.uncompressed_len)
                         .unwrap_or_default();
                     all_records.push(SdiRecord {
@@ -164,11 +165,19 @@ pub fn extract_sdi_from_pages(
                     // Data spans multiple pages — collect from current and continuation pages
                     let data_start = rec.offset + SDI_DATA_OFFSET;
                     let available_this_page = page_data.len() - data_start;
-                    let mut compressed_data = Vec::with_capacity(rec_header.compressed_len as usize);
-                    compressed_data.extend_from_slice(&page_data[data_start..data_start + available_this_page]);
+                    let mut compressed_data =
+                        Vec::with_capacity(rec_header.compressed_len as usize);
+                    compressed_data.extend_from_slice(
+                        &page_data[data_start..data_start + available_this_page],
+                    );
 
                     let remaining = rec_header.compressed_len as usize - available_this_page;
-                    collect_continuation_data(ts, header.next_page, remaining, &mut compressed_data)?;
+                    collect_continuation_data(
+                        ts,
+                        header.next_page,
+                        remaining,
+                        &mut compressed_data,
+                    )?;
 
                     let json = decompress_sdi_data(&compressed_data, rec_header.uncompressed_len)
                         .unwrap_or_default();
@@ -571,8 +580,14 @@ mod tests {
 
         BigEndian::write_u32(&mut page[origin + SDI_TYPE_OFFSET..], 1); // Table
         BigEndian::write_u64(&mut page[origin + SDI_ID_OFFSET..], 42);
-        BigEndian::write_u32(&mut page[origin + SDI_UNCOMP_LEN_OFFSET..], json.len() as u32);
-        BigEndian::write_u32(&mut page[origin + SDI_COMP_LEN_OFFSET..], compressed.len() as u32);
+        BigEndian::write_u32(
+            &mut page[origin + SDI_UNCOMP_LEN_OFFSET..],
+            json.len() as u32,
+        );
+        BigEndian::write_u32(
+            &mut page[origin + SDI_COMP_LEN_OFFSET..],
+            compressed.len() as u32,
+        );
         page[origin + SDI_DATA_OFFSET..origin + SDI_DATA_OFFSET + compressed.len()]
             .copy_from_slice(&compressed);
 

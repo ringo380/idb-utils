@@ -11,8 +11,8 @@
 //!
 //! Use [`validate_checksum`] to check a page against both algorithms.
 
-use byteorder::{BigEndian, ByteOrder};
 use crate::innodb::constants::*;
+use byteorder::{BigEndian, ByteOrder};
 
 /// Checksum algorithms used by InnoDB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

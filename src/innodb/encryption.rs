@@ -45,7 +45,10 @@ mod tests {
         assert_eq!(detect_encryption(1 << 13), EncryptionAlgorithm::Aes);
         // Other bits shouldn't affect encryption detection
         assert_eq!(detect_encryption(0xFF), EncryptionAlgorithm::None);
-        assert_eq!(detect_encryption(0xFF | (1 << 13)), EncryptionAlgorithm::Aes);
+        assert_eq!(
+            detect_encryption(0xFF | (1 << 13)),
+            EncryptionAlgorithm::Aes
+        );
     }
 
     #[test]

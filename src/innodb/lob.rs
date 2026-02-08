@@ -9,7 +9,7 @@
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
 
-use crate::innodb::constants::{FIL_PAGE_DATA, FIL_NULL};
+use crate::innodb::constants::{FIL_NULL, FIL_PAGE_DATA};
 
 /// Old-style BLOB page header offsets (relative to FIL_PAGE_DATA).
 ///

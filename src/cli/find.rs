@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::cli::{wprintln, create_progress_bar};
+use crate::cli::{create_progress_bar, wprintln};
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
 use crate::util::fs::find_tablespace_files;
@@ -202,4 +202,3 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
 
     Ok(())
 }
-

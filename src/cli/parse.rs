@@ -4,7 +4,7 @@ use std::io::Write;
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
 
-use crate::cli::{wprintln, wprint, create_progress_bar};
+use crate::cli::{create_progress_bar, wprint, wprintln};
 use crate::innodb::checksum;
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
@@ -182,7 +182,13 @@ fn execute_json(
 }
 
 /// Print detailed information about a single page.
-fn print_page_info(writer: &mut dyn Write, page_data: &[u8], page_num: u64, page_size: u32, verbose: bool) -> Result<(), IdbError> {
+fn print_page_info(
+    writer: &mut dyn Write,
+    page_data: &[u8],
+    page_num: u64,
+    page_size: u32,
+    verbose: bool,
+) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => {
@@ -210,7 +216,11 @@ fn print_page_info(writer: &mut dyn Write, page_data: &[u8], page_num: u64, page
     )?;
 
     if verbose {
-        wprintln!(writer, "PAGE_N_HEAP (Amount of records in page): {}", read_page_n_heap(page_data))?;
+        wprintln!(
+            writer,
+            "PAGE_N_HEAP (Amount of records in page): {}",
+            read_page_n_heap(page_data)
+        )?;
     }
 
     wprint!(writer, "Prev Page: ")?;
@@ -242,7 +252,10 @@ fn print_page_info(writer: &mut dyn Write, page_data: &[u8], page_num: u64, page
         wprintln!(
             writer,
             "Checksum Status: {} ({:?}, stored={}, calculated={})",
-            status, csum_result.algorithm, csum_result.stored_checksum, csum_result.calculated_checksum
+            status,
+            csum_result.algorithm,
+            csum_result.stored_checksum,
+            csum_result.calculated_checksum
         )?;
     }
 
@@ -252,7 +265,8 @@ fn print_page_info(writer: &mut dyn Write, page_data: &[u8], page_num: u64, page
     let ps = page_size as usize;
     if page_data.len() >= ps {
         let trailer_offset = ps - 8;
-        if let Some(trailer) = crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..]) {
+        if let Some(trailer) = crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..])
+        {
             wprintln!(writer, "{}", "TRAILER".bold())?;
             wprintln!(writer, "Old-style Checksum: {}", trailer.checksum)?;
             wprintln!(writer, "Low 32 bits of LSN: {}", trailer.lsn_low32)?;

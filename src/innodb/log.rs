@@ -434,9 +434,8 @@ impl LogFile {
     /// Read and parse the log file header (block 0).
     pub fn read_header(&mut self) -> Result<LogFileHeader, IdbError> {
         let block = self.read_block(0)?;
-        LogFileHeader::parse(&block).ok_or_else(|| {
-            IdbError::Parse("Failed to parse log file header (block 0)".to_string())
-        })
+        LogFileHeader::parse(&block)
+            .ok_or_else(|| IdbError::Parse("Failed to parse log file header (block 0)".to_string()))
     }
 
     /// Read and parse a checkpoint (slot 0 = block 1, slot 1 = block 3).
@@ -564,7 +563,10 @@ mod tests {
         BigEndian::write_u64(&mut block[LOG_CHECKPOINT_LSN..], 0x00000000DEADBEEF);
         BigEndian::write_u32(&mut block[LOG_CHECKPOINT_OFFSET..], 2048);
         BigEndian::write_u32(&mut block[LOG_CHECKPOINT_BUF_SIZE..], 65536);
-        BigEndian::write_u64(&mut block[LOG_CHECKPOINT_ARCHIVED_LSN..], 0x00000000CAFEBABE);
+        BigEndian::write_u64(
+            &mut block[LOG_CHECKPOINT_ARCHIVED_LSN..],
+            0x00000000CAFEBABE,
+        );
 
         let cp = LogCheckpoint::parse(&block).unwrap();
         assert_eq!(cp.number, 99);

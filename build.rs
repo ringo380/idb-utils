@@ -7,9 +7,8 @@ use std::path::PathBuf;
 include!("src/cli/app.rs");
 
 fn main() {
-    let out_dir = PathBuf::from(
-        std::env::var("OUT_DIR").unwrap_or_else(|_| "target/man".to_string()),
-    );
+    let out_dir =
+        PathBuf::from(std::env::var("OUT_DIR").unwrap_or_else(|_| "target/man".to_string()));
     let man_dir = out_dir.join("man");
     fs::create_dir_all(&man_dir).unwrap();
 

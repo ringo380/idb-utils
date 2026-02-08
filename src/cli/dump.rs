@@ -42,7 +42,13 @@ pub struct DumpOptions {
 pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if let Some(abs_offset) = opts.offset {
         // Absolute offset mode: dump raw bytes from file position
-        return dump_at_offset(&opts.file, abs_offset, opts.length.unwrap_or(256), opts.raw, writer);
+        return dump_at_offset(
+            &opts.file,
+            abs_offset,
+            opts.length.unwrap_or(256),
+            opts.raw,
+            writer,
+        );
     }
 
     // Page mode: dump a specific page (or page 0 by default)
@@ -67,7 +73,9 @@ pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         wprintln!(
             writer,
             "Hex dump of {} page {} ({} bytes):",
-            opts.file, page_num, dump_len
+            opts.file,
+            page_num,
+            dump_len
         )?;
         wprintln!(writer)?;
         wprintln!(writer, "{}", hex_dump(&page_data[..dump_len], base_offset))?;
@@ -76,9 +84,15 @@ pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     Ok(())
 }
 
-fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let mut f = File::open(file)
-        .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", file, e)))?;
+fn dump_at_offset(
+    file: &str,
+    offset: u64,
+    length: usize,
+    raw: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let mut f =
+        File::open(file).map_err(|e| IdbError::Io(format!("Cannot open {}: {}", file, e)))?;
 
     let file_size = f
         .metadata()
@@ -99,8 +113,12 @@ fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool, writer: &mu
         .map_err(|e| IdbError::Io(format!("Cannot seek to offset {}: {}", offset, e)))?;
 
     let mut buf = vec![0u8; read_len];
-    f.read_exact(&mut buf)
-        .map_err(|e| IdbError::Io(format!("Cannot read {} bytes at offset {}: {}", read_len, offset, e)))?;
+    f.read_exact(&mut buf).map_err(|e| {
+        IdbError::Io(format!(
+            "Cannot read {} bytes at offset {}: {}",
+            read_len, offset, e
+        ))
+    })?;
 
     if raw {
         writer
@@ -110,7 +128,9 @@ fn dump_at_offset(file: &str, offset: u64, length: usize, raw: bool, writer: &mu
         wprintln!(
             writer,
             "Hex dump of {} at offset {} ({} bytes):",
-            file, offset, read_len
+            file,
+            offset,
+            read_len
         )?;
         wprintln!(writer)?;
         wprintln!(writer, "{}", hex_dump(&buf, offset))?;

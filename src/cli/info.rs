@@ -112,20 +112,31 @@ pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     {
         if opts.database.is_some() || opts.table.is_some() {
             return Err(IdbError::Argument(
-                "MySQL support not compiled. Rebuild with: cargo build --features mysql".to_string(),
+                "MySQL support not compiled. Rebuild with: cargo build --features mysql"
+                    .to_string(),
             ));
         }
     }
 
     // No mode specified, show help
     wprintln!(writer, "Usage:")?;
-    wprintln!(writer, "  idb info --ibdata -d <datadir>          Read ibdata1 page 0 header")?;
-    wprintln!(writer, "  idb info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs")?;
+    wprintln!(
+        writer,
+        "  idb info --ibdata -d <datadir>          Read ibdata1 page 0 header"
+    )?;
+    wprintln!(
+        writer,
+        "  idb info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs"
+    )?;
     wprintln!(writer, "  idb info -D <database> -t <table>       Show table/index info (requires --features mysql)")?;
     Ok(())
 }
 
-fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn execute_ibdata(
+    opts: &InfoOptions,
+    datadir: &std::path::Path,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     let ibdata_path = datadir.join("ibdata1");
     if !ibdata_path.exists() {
         return Err(IdbError::Io(format!(
@@ -136,9 +147,8 @@ fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dy
 
     // Read page 0 of ibdata1
     let page0 = read_file_bytes(&ibdata_path, 0, SIZE_PAGE_DEFAULT as usize)?;
-    let header = FilHeader::parse(&page0).ok_or_else(|| {
-        IdbError::Parse("Cannot parse ibdata1 page 0 FIL header".to_string())
-    })?;
+    let header = FilHeader::parse(&page0)
+        .ok_or_else(|| IdbError::Parse("Cannot parse ibdata1 page 0 FIL header".to_string()))?;
 
     // Try to read redo log checkpoint LSNs
     let (cp1_lsn, cp2_lsn) = read_redo_checkpoint_lsns(datadir);
@@ -165,7 +175,12 @@ fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dy
     wprintln!(writer, "  File:       {}", ibdata_path.display())?;
     wprintln!(writer, "  Checksum:   {}", header.checksum)?;
     wprintln!(writer, "  Page No:    {}", header.page_number)?;
-    wprintln!(writer, "  Page Type:  {} ({})", header.page_type.as_u16(), header.page_type.name())?;
+    wprintln!(
+        writer,
+        "  Page Type:  {} ({})",
+        header.page_type.as_u16(),
+        header.page_type.name()
+    )?;
     wprintln!(writer, "  LSN:        {}", header.lsn)?;
     wprintln!(writer, "  Flush LSN:  {}", header.flush_lsn)?;
     wprintln!(writer, "  Space ID:   {}", header.space_id)?;
@@ -181,7 +196,11 @@ fn execute_ibdata(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dy
     Ok(())
 }
 
-fn execute_lsn_check(opts: &InfoOptions, datadir: &std::path::Path, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn execute_lsn_check(
+    opts: &InfoOptions,
+    datadir: &std::path::Path,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     let ibdata_path = datadir.join("ibdata1");
     if !ibdata_path.exists() {
         return Err(IdbError::Io(format!(
@@ -247,11 +266,7 @@ fn read_redo_checkpoint_lsns(datadir: &std::path::Path) -> (Option<u64>, Option<
         if let Ok(entries) = std::fs::read_dir(&redo_dir) {
             let mut redo_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with("#ib_redo")
-                })
+                .filter(|e| e.file_name().to_string_lossy().starts_with("#ib_redo"))
                 .collect();
             redo_files.sort_by_key(|e| e.file_name());
             if let Some(first) = redo_files.first() {
@@ -304,12 +319,14 @@ fn read_u64_at(path: &std::path::Path, offset: u64) -> Option<u64> {
 fn execute_table_info(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     use mysql_async::prelude::*;
 
-    let database = opts.database.as_deref().ok_or_else(|| {
-        IdbError::Argument("Database name required (-D <database>)".to_string())
-    })?;
-    let table = opts.table.as_deref().ok_or_else(|| {
-        IdbError::Argument("Table name required (-t <table>)".to_string())
-    })?;
+    let database = opts
+        .database
+        .as_deref()
+        .ok_or_else(|| IdbError::Argument("Database name required (-D <database>)".to_string()))?;
+    let table = opts
+        .table
+        .as_deref()
+        .ok_or_else(|| IdbError::Argument("Table name required (-t <table>)".to_string()))?;
 
     // Build MySQL config from CLI args or defaults file
     let mut config = crate::util::mysql::MysqlConfig::default();
@@ -428,8 +445,17 @@ fn execute_table_info(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), 
 }
 
 #[cfg(feature = "mysql")]
-fn print_table_info(writer: &mut dyn Write, database: &str, table: &str, rows: &[(u64, u64)]) -> Result<(), IdbError> {
-    wprintln!(writer, "{}", format!("Table: {}.{}", database, table).bold())?;
+fn print_table_info(
+    writer: &mut dyn Write,
+    database: &str,
+    table: &str,
+    rows: &[(u64, u64)],
+) -> Result<(), IdbError> {
+    wprintln!(
+        writer,
+        "{}",
+        format!("Table: {}.{}", database, table).bold()
+    )?;
     for (space_id, table_id) in rows {
         wprintln!(writer, "  Space ID:  {}", space_id)?;
         wprintln!(writer, "  Table ID:  {}", table_id)?;

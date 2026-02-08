@@ -84,7 +84,10 @@ mod tests {
         assert_eq!(detect_compression(2 << 11), CompressionAlgorithm::Lz4);
         assert_eq!(detect_compression(3 << 11), CompressionAlgorithm::None);
         // Other bits set shouldn't affect compression detection
-        assert_eq!(detect_compression(0xFF | (1 << 11)), CompressionAlgorithm::Zlib);
+        assert_eq!(
+            detect_compression(0xFF | (1 << 11)),
+            CompressionAlgorithm::Zlib
+        );
     }
 
     #[test]

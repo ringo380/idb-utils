@@ -78,10 +78,7 @@ impl Tablespace {
     }
 
     /// Open with a specific page size (bypass auto-detection).
-    pub fn open_with_page_size<P: AsRef<Path>>(
-        path: P,
-        page_size: u32,
-    ) -> Result<Self, IdbError> {
+    pub fn open_with_page_size<P: AsRef<Path>>(path: P, page_size: u32) -> Result<Self, IdbError> {
         let path = path.as_ref();
         let mut file = File::open(path)
             .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;

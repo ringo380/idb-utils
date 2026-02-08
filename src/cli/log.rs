@@ -5,8 +5,8 @@ use serde::Serialize;
 
 use crate::cli::wprintln;
 use crate::innodb::log::{
-    validate_log_block_checksum, LogBlockHeader, LogFile, LogFileHeader,
-    MlogRecordType, LOG_BLOCK_HDR_SIZE, LOG_BLOCK_SIZE, LOG_FILE_HDR_BLOCKS,
+    validate_log_block_checksum, LogBlockHeader, LogFile, LogFileHeader, MlogRecordType,
+    LOG_BLOCK_HDR_SIZE, LOG_BLOCK_SIZE, LOG_FILE_HDR_BLOCKS,
 };
 use crate::IdbError;
 
@@ -82,7 +82,12 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
     wprintln!(writer, "{}", "InnoDB Redo Log File".bold())?;
     wprintln!(writer, "  File:       {}", opts.file)?;
     wprintln!(writer, "  Size:       {} bytes", log.file_size())?;
-    wprintln!(writer, "  Blocks:     {} total ({} data)", log.block_count(), log.data_block_count())?;
+    wprintln!(
+        writer,
+        "  Blocks:     {} total ({} data)",
+        log.block_count(),
+        log.data_block_count()
+    )?;
     wprintln!(writer)?;
 
     // Print header
@@ -137,8 +142,13 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
         wprintln!(
             writer,
             "  Block {:>6}  no={:<10} len={:<5} first_rec={:<5} chk_no={:<10} csum={}{}",
-            block_idx, hdr.block_no, hdr.data_len, hdr.first_rec_group, hdr.checkpoint_no,
-            checksum_str, flush_str,
+            block_idx,
+            hdr.block_no,
+            hdr.data_len,
+            hdr.first_rec_group,
+            hdr.checkpoint_no,
+            checksum_str,
+            flush_str,
         )?;
 
         // Verbose: show MLOG record types
@@ -171,7 +181,11 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
     Ok(())
 }
 
-fn print_checkpoint(writer: &mut dyn Write, label: &str, cp: &Option<crate::innodb::log::LogCheckpoint>) -> Result<(), IdbError> {
+fn print_checkpoint(
+    writer: &mut dyn Write,
+    label: &str,
+    cp: &Option<crate::innodb::log::LogCheckpoint>,
+) -> Result<(), IdbError> {
     wprintln!(writer, "{}", label.bold())?;
     match cp {
         Some(cp) => {
@@ -191,7 +205,11 @@ fn print_checkpoint(writer: &mut dyn Write, label: &str, cp: &Option<crate::inno
     Ok(())
 }
 
-fn print_record_types(writer: &mut dyn Write, block_data: &[u8], hdr: &LogBlockHeader) -> Result<(), IdbError> {
+fn print_record_types(
+    writer: &mut dyn Write,
+    block_data: &[u8],
+    hdr: &LogBlockHeader,
+) -> Result<(), IdbError> {
     let data_end = (hdr.data_len as usize).min(LOG_BLOCK_SIZE - 4);
     if data_end <= LOG_BLOCK_HDR_SIZE {
         return Ok(());
@@ -212,7 +230,8 @@ fn print_record_types(writer: &mut dyn Write, block_data: &[u8], hdr: &LogBlockH
 
     if !types.is_empty() {
         // Count occurrences
-        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for t in &types {
             *counts.entry(t.to_string()).or_insert(0) += 1;
         }

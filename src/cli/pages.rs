@@ -3,7 +3,7 @@ use std::io::Write;
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::cli::{wprintln, wprint};
+use crate::cli::{wprint, wprintln};
 use crate::innodb::checksum;
 use crate::innodb::compression;
 use crate::innodb::encryption;
@@ -195,7 +195,12 @@ fn execute_json(
 }
 
 /// Print a compact one-line summary per page (list mode).
-fn print_list_line(page_data: &[u8], page_num: u64, page_size: u32, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn print_list_line(
+    page_data: &[u8],
+    page_num: u64,
+    page_size: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => return Ok(()),
@@ -223,7 +228,13 @@ fn print_list_line(page_data: &[u8], page_num: u64, page_size: u32, writer: &mut
 }
 
 /// Print full detailed information about a page.
-fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn print_full_page(
+    page_data: &[u8],
+    page_num: u64,
+    page_size: u32,
+    verbose: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => {
@@ -299,7 +310,11 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
     if pt == PageType::LobFirst {
         if let Some(lob_hdr) = LobFirstPageHeader::parse(page_data) {
             wprintln!(writer)?;
-            wprintln!(writer, "=== LOB First Page Header: Page {}", header.page_number)?;
+            wprintln!(
+                writer,
+                "=== LOB First Page Header: Page {}",
+                header.page_number
+            )?;
             wprintln!(writer, "Version: {}", lob_hdr.version)?;
             wprintln!(writer, "Flags: {}", lob_hdr.flags)?;
             wprintln!(writer, "Total Data Length: {} bytes", lob_hdr.data_len)?;
@@ -314,7 +329,12 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
         if let Some(undo_hdr) = UndoPageHeader::parse(page_data) {
             wprintln!(writer)?;
             wprintln!(writer, "=== UNDO Header: Page {}", header.page_number)?;
-            wprintln!(writer, "Undo Type: {} ({})", undo_hdr.page_type.name(), undo_hdr.page_type.name())?;
+            wprintln!(
+                writer,
+                "Undo Type: {} ({})",
+                undo_hdr.page_type.name(),
+                undo_hdr.page_type.name()
+            )?;
             wprintln!(writer, "Log Start Offset: {}", undo_hdr.start)?;
             wprintln!(writer, "Free Offset: {}", undo_hdr.free)?;
             wprintln!(
@@ -335,8 +355,7 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
     let ps = page_size as usize;
     if page_data.len() >= ps {
         let trailer_offset = ps - 8;
-        if let Some(trailer) =
-            crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..])
+        if let Some(trailer) = crate::innodb::page::FilTrailer::parse(&page_data[trailer_offset..])
         {
             wprintln!(writer, "=== TRAILER: Page {}", header.page_number)?;
             wprintln!(writer, "Old-style Checksum: {}", trailer.checksum)?;
@@ -353,7 +372,8 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
                 wprintln!(
                     writer,
                     "Checksum Status: {} ({:?})",
-                    status, csum_result.algorithm
+                    status,
+                    csum_result.algorithm
                 )?;
 
                 let lsn_valid = checksum::validate_lsn(page_data, page_size);
@@ -371,7 +391,12 @@ fn print_full_page(page_data: &[u8], page_num: u64, page_size: u32, verbose: boo
 }
 
 /// Print the INDEX page header details.
-fn print_index_header(idx: &IndexHeader, page_num: u32, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn print_index_header(
+    idx: &IndexHeader,
+    page_num: u32,
+    verbose: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     wprintln!(writer, "=== INDEX Header: Page {}", page_num)?;
     wprintln!(writer, "Index ID: {}", idx.index_id)?;
     wprintln!(writer, "Node Level: {}", idx.level)?;
@@ -418,15 +443,28 @@ fn print_index_header(idx: &IndexHeader, page_num: u32, verbose: bool, writer: &
     )?;
     wprintln!(writer, "Inserts in this direction: {}", idx.n_direction)?;
     if verbose {
-        wprintln!(writer, "-- Number of consecutive inserts in this direction.")?;
+        wprintln!(
+            writer,
+            "-- Number of consecutive inserts in this direction."
+        )?;
     }
 
     Ok(())
 }
 
 /// Print FSEG (file segment) header details.
-fn print_fseg_headers(page_data: &[u8], page_num: u32, idx: &IndexHeader, verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
-    wprintln!(writer, "=== FSEG_HDR - File Segment Header: Page {}", page_num)?;
+fn print_fseg_headers(
+    page_data: &[u8],
+    page_num: u32,
+    idx: &IndexHeader,
+    verbose: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    wprintln!(
+        writer,
+        "=== FSEG_HDR - File Segment Header: Page {}",
+        page_num
+    )?;
 
     if let Some(leaf) = FsegHeader::parse_leaf(page_data) {
         wprintln!(writer, "Inode Space ID: {}", leaf.space_id)?;
@@ -448,7 +486,11 @@ fn print_fseg_headers(page_data: &[u8], page_num: u32, idx: &IndexHeader, verbos
 }
 
 /// Print system records (infimum/supremum) info.
-fn print_system_records(page_data: &[u8], page_num: u32, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn print_system_records(
+    page_data: &[u8],
+    page_num: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     let sys = match SystemRecords::parse(page_data) {
         Some(s) => s,
         None => return Ok(()),
@@ -466,7 +508,11 @@ fn print_system_records(page_data: &[u8], page_num: u32, writer: &mut dyn Write)
     wprintln!(writer, "Deleted: {}", if sys.deleted { "1" } else { "0" })?;
     wprintln!(writer, "Heap Number: {}", sys.heap_no)?;
     wprintln!(writer, "Next Record Offset (Infimum): {}", sys.infimum_next)?;
-    wprintln!(writer, "Next Record Offset (Supremum): {}", sys.supremum_next)?;
+    wprintln!(
+        writer,
+        "Next Record Offset (Supremum): {}",
+        sys.supremum_next
+    )?;
     wprintln!(
         writer,
         "Left-most node on non-leaf level: {}",
@@ -477,7 +523,12 @@ fn print_system_records(page_data: &[u8], page_num: u32, writer: &mut dyn Write)
 }
 
 /// Print detailed FSP header with additional fields.
-fn print_fsp_header_detail(fsp: &FspHeader, page0: &[u8], verbose: bool, writer: &mut dyn Write) -> Result<(), IdbError> {
+fn print_fsp_header_detail(
+    fsp: &FspHeader,
+    page0: &[u8],
+    verbose: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     wprintln!(writer, "=== File Header")?;
     wprintln!(writer, "Space ID: {}", fsp.space_id)?;
     if verbose {
@@ -485,7 +536,11 @@ fn print_fsp_header_detail(fsp: &FspHeader, page0: &[u8], verbose: bool, writer:
     }
     wprintln!(writer, "Size: {}", fsp.size)?;
     wprintln!(writer, "Flags: {}", fsp.flags)?;
-    wprintln!(writer, "Page Free Limit: {} (this should always be 64 on a single-table file)", fsp.free_limit)?;
+    wprintln!(
+        writer,
+        "Page Free Limit: {} (this should always be 64 on a single-table file)",
+        fsp.free_limit
+    )?;
 
     // Compression and encryption detection from flags
     let comp = compression::detect_compression(fsp.flags);
@@ -524,8 +579,14 @@ fn matches_page_type_filter(page_type: &PageType, filter: &str) -> bool {
     // Common aliases and prefix matching
     match filter_upper.as_str() {
         "UNDO" => *page_type == PageType::UndoLog,
-        "BLOB" => matches!(page_type, PageType::Blob | PageType::ZBlob | PageType::ZBlob2),
-        "LOB" => matches!(page_type, PageType::LobIndex | PageType::LobData | PageType::LobFirst),
+        "BLOB" => matches!(
+            page_type,
+            PageType::Blob | PageType::ZBlob | PageType::ZBlob2
+        ),
+        "LOB" => matches!(
+            page_type,
+            PageType::LobIndex | PageType::LobData | PageType::LobFirst
+        ),
         "SDI" => matches!(page_type, PageType::Sdi | PageType::SdiBlob),
         "COMPRESSED" | "COMP" => matches!(
             page_type,
