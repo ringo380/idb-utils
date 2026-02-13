@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-02-13
+
 ### Added
 
+- **`inno watch`** — New subcommand for real-time tablespace monitoring. Polls an InnoDB tablespace file at a configurable interval and reports page-level changes (modified, added, removed) based on LSN comparison. Validates checksums for each changed page to detect corruption during writes. Re-opens the tablespace each cycle to detect file growth and avoid stale file handles. Supports `--verbose` for per-field diffs, `--json` for NDJSON streaming output, `--page-size` override, and `--keyring` for encrypted tablespaces. Graceful Ctrl+C shutdown with a summary of total changes. (Closes #13)
+- New dependencies: `ctrlc 3`, `chrono 0.4`
+- 5 unit tests and 5 integration tests for `watch` subcommand
 - **Encrypted tablespace decryption** — Read encrypted InnoDB tablespaces when provided with a MySQL `keyring_file` keyring. Parses encryption info from page 0 (magic version, master key ID, server UUID, encrypted tablespace key+IV). Loads the MySQL `keyring_file` binary format with XOR de-obfuscation and SHA-256 integrity verification. Decrypts tablespace key+IV using AES-256-ECB with the master key, then decrypts page bodies using AES-256-CBC. Transparent decryption: when `--keyring` is provided, `read_page()` automatically decrypts encrypted pages before returning data. Supports `keyring_file` plugin format (MySQL 5.7.11+); magic versions V1 (`lCA`), V2 (`lCB`), V3 (`lCC`/MySQL 8.0.5+). (Closes #12)
-- `--keyring <path>` option on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, and `diff` subcommands
+- `--keyring <path>` option on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, `diff`, and `watch` subcommands
 - `--decrypt` flag on `dump` subcommand for hex-dumping decrypted page content
 - `inno pages` displays encryption info (master key ID, server UUID, magic version) in FSP header detail when encryption is detected
 - New `innodb::decryption` module with `DecryptionContext` for AES-256 page decryption

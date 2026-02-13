@@ -9,6 +9,7 @@ IDB Utils gives you low-level visibility into InnoDB's on-disk structures. Use i
 - **Inspect tablespace files** — parse page headers, examine B+Tree index structures, walk undo logs, inspect BLOB/LOB chains
 - **Validate data integrity** — verify CRC-32C and legacy InnoDB checksums, detect LSN mismatches between headers and trailers
 - **Compare tablespace files** — diff two `.ibd` files page-by-page to detect changes between backups, find corruption drift, or analyze before/after differences
+- **Monitor tablespace changes** — watch a live `.ibd` file and report page-level modifications in real time, with LSN-based change detection and checksum validation
 - **Extract metadata** — read MySQL 8.0+ SDI (Serialized Dictionary Information) directly from `.ibd` files without a running server
 - **Analyze redo logs** — parse log file headers, checkpoints, and data blocks from both legacy and MySQL 8.0.30+ formats
 - **Assess data recoverability** — scan damaged tablespaces, classify page integrity, count salvageable records on INDEX pages
@@ -75,6 +76,9 @@ inno log -f /var/lib/mysql/ib_logfile0
 # Compare two tablespace files (e.g., before/after a backup)
 inno diff backup.ibd current.ibd -v
 
+# Monitor a tablespace for live changes (Ctrl+C to stop)
+inno watch -f users.ibd -i 500 -v
+
 # Assess recoverability of a damaged tablespace
 inno recover -f users.ibd --force -v
 
@@ -99,6 +103,7 @@ Every subcommand supports `--json` for machine-readable output and `--help` for 
 | [`dump`](#inno-dump) | Hex dump of raw page bytes |
 | [`checksum`](#inno-checksum) | Validate page checksums (CRC-32C and legacy InnoDB) |
 | [`diff`](#inno-diff) | Compare two tablespace files page-by-page |
+| [`watch`](#inno-watch) | Monitor a tablespace file for page-level changes |
 | [`corrupt`](#inno-corrupt) | Intentionally corrupt pages for recovery testing |
 | [`recover`](#inno-recover) | Assess page-level recoverability and count salvageable records |
 | [`find`](#inno-find) | Search for pages across a MySQL data directory |
@@ -324,6 +329,54 @@ inno diff backup.ibd current.ibd -p 5
 
 # Machine-readable output
 inno diff backup.ibd current.ibd --json
+```
+
+---
+
+### inno watch
+
+Monitor a tablespace file for page-level changes in real time. Polls the file at a configurable interval and reports which pages have been modified, added, or removed since the last poll. Change detection is based on LSN comparison — if a page's LSN changes between polls, it was modified. Checksums are validated for each changed page.
+
+```
+inno watch -f <file> [-i <ms>] [-v] [--json] [--page-size <size>] [--keyring <path>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Path to .ibd file (required) |
+| `-i, --interval` | Polling interval in milliseconds (default: 1000) |
+| `-v, --verbose` | Show old/new LSN values for changed pages |
+| `--json` | Stream output as NDJSON (one JSON object per line) |
+| `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
+
+The tablespace is re-opened each cycle to detect file growth and avoid stale file handles. Press Ctrl+C for a clean exit with a summary of total changes.
+
+**Text output** shows a timestamped summary per poll cycle with per-page details:
+```
+Watching users.ibd (256 pages, 16384 bytes/page, MySQL)
+Polling every 1000ms. Press Ctrl+C to stop.
+
+14:23:01  3 pages modified
+  Page 5     INDEX        LSN +4444  checksum valid
+  Page 42    INDEX        LSN +100   checksum valid
+  Page 12    UNDO_LOG     LSN +1500  checksum valid
+```
+
+**JSON output** (NDJSON) emits one event object per line:
+```bash
+inno watch -f users.ibd --json | jq -c 'select(.event == "poll")'
+```
+
+```bash
+# Watch a tablespace with 500ms polling and verbose LSN diffs
+inno watch -f users.ibd -i 500 -v
+
+# Stream changes as JSON for monitoring
+inno watch -f users.ibd --json
+
+# Watch an encrypted tablespace
+inno watch -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring
 ```
 
 ---
@@ -625,7 +678,7 @@ inno pages -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring
 inno sdi -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring --pretty
 ```
 
-The `--keyring` option is available on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, and `diff`. When provided, encrypted pages are transparently decrypted before analysis.
+The `--keyring` option is available on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, `diff`, and `watch`. When provided, encrypted pages are transparently decrypted before analysis.
 
 **Supported keyring format:** Legacy `keyring_file` plugin (binary format, MySQL 5.7.11+). The newer `component_keyring_file` (JSON format, MySQL 8.0.34+) is not yet supported.
 
@@ -746,7 +799,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 116 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, decryption, keyring, SDI, redo logs, records, undo, recovery, vendor detection) and 125 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 121 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, decryption, keyring, SDI, redo logs, records, undo, recovery, vendor detection, watch) and 130 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
@@ -786,6 +839,7 @@ src/
     dump.rs            inno dump
     checksum.rs        inno checksum
     diff.rs            inno diff
+    watch.rs           inno watch
     corrupt.rs         inno corrupt
     recover.rs         inno recover
     find.rs            inno find
@@ -816,6 +870,7 @@ src/
 tests/
   integration_test.rs  Integration tests with synthetic .ibd files
   diff_test.rs         Diff subcommand integration tests
+  watch_test.rs        Watch subcommand integration tests
   encryption_test.rs   Encrypted tablespace decryption integration tests
   mariadb_test.rs      MariaDB format support integration tests
 ```
