@@ -1,6 +1,6 @@
 //! CLI subcommand implementations for the `inno` binary.
 //!
-//! The `inno` binary provides twelve subcommands for analyzing InnoDB data files,
+//! The `inno` binary provides thirteen subcommands for analyzing InnoDB data files,
 //! redo logs, and system tablespaces. CLI argument parsing uses clap derive macros,
 //! with the top-level [`app::Cli`] struct and [`app::Commands`] enum defined in
 //! [`app`] and shared between `main.rs` and `build.rs` (for man page generation)
@@ -20,6 +20,7 @@
 //! | `inno dump` | [`dump`] | Hex dump of raw bytes by page number or absolute file offset |
 //! | `inno checksum` | [`checksum`] | Validate CRC-32C and legacy InnoDB checksums for every page |
 //! | `inno diff` | [`diff`] | Compare two tablespace files page-by-page and report differences |
+//! | `inno watch` | [`watch`] | Monitor a tablespace file for page-level changes in real time |
 //! | `inno corrupt` | [`corrupt`] | Inject random bytes into a page for testing recovery workflows |
 //! | `inno recover` | [`recover`] | Assess page-level recoverability and count salvageable records |
 //! | `inno find` | [`find`] | Search a MySQL data directory for pages matching a page number |
@@ -57,6 +58,7 @@ pub mod parse;
 pub mod recover;
 pub mod sdi;
 pub mod tsid;
+pub mod watch;
 
 /// Write a line to the given writer, converting io::Error to IdbError.
 macro_rules! wprintln {

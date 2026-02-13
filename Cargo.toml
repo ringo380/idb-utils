@@ -34,6 +34,8 @@ aes = "0.8"
 cbc = "0.1"
 ecb = "0.1"
 sha2 = "0.10"
+ctrlc = "3"
+chrono = "0.4"
 mysql_async = { version = "0.36", optional = true }
 tokio = { version = "1", features = ["rt", "macros"], optional = true }
 

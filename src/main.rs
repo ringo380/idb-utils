@@ -265,6 +265,25 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Watch {
+            file,
+            interval,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::watch::execute(
+            &cli::watch::WatchOptions {
+                file,
+                interval,
+                verbose,
+                json,
+                page_size,
+                keyring,
+            },
+            &mut writer,
+        ),
+
         Commands::Diff {
             file1,
             file2,

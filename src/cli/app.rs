@@ -467,6 +467,44 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Monitor a tablespace file for page-level changes
+    ///
+    /// Polls an InnoDB tablespace file at a configurable interval and reports
+    /// which pages have been modified, added, or removed since the last poll.
+    /// Change detection is based on LSN comparison — if a page's LSN changes
+    /// between polls, it was modified by a write. Checksums are validated for
+    /// each changed page to detect corruption during writes.
+    ///
+    /// The tablespace is re-opened each cycle to detect file growth and avoid
+    /// stale file handles. Use `--verbose` for per-field diffs on changed
+    /// pages, or `--json` for NDJSON streaming output (one JSON object per
+    /// line). Press Ctrl+C for a clean exit with a summary of total changes.
+    Watch {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Polling interval in milliseconds
+        #[arg(short, long, default_value = "1000")]
+        interval: u64,
+
+        /// Show per-field diffs for changed pages
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in NDJSON streaming format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Compare two tablespace files page-by-page
     ///
     /// Reads two InnoDB tablespace files and compares them page-by-page,

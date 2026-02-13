@@ -28,6 +28,7 @@
 //! | [`inno dump`](cli::app::Commands::Dump) | Hex dump of raw page bytes |
 //! | [`inno checksum`](cli::app::Commands::Checksum) | Validate page checksums (CRC-32C, legacy, MariaDB full\_crc32) |
 //! | [`inno diff`](cli::app::Commands::Diff) | Compare two tablespace files page-by-page |
+//! | [`inno watch`](cli::app::Commands::Watch) | Monitor a tablespace file for page-level changes |
 //! | [`inno corrupt`](cli::app::Commands::Corrupt) | Intentionally corrupt pages for testing |
 //! | [`inno recover`](cli::app::Commands::Recover) | Assess page-level recoverability and count salvageable records |
 //! | [`inno find`](cli::app::Commands::Find) | Search data directory for pages by number |
