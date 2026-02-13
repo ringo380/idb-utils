@@ -19,6 +19,8 @@ pub struct ChecksumOptions {
     pub json: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +69,10 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
     };
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts, keyring_path)?;
+    }
 
     let page_size = ts.page_size();
     let page_count = ts.page_count();

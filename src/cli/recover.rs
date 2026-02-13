@@ -26,6 +26,8 @@ pub struct RecoverOptions {
     pub force: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
 }
 
 /// Page integrity status.
@@ -305,6 +307,11 @@ fn extract_records(
 /// Run the recovery analysis and output results.
 pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let (mut ts, page_size_source) = open_tablespace(&opts.file, opts.page_size, writer)?;
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts, keyring_path)?;
+    }
+
     let page_size = ts.page_size();
     let page_count = ts.page_count();
     let file_size = ts.file_size();

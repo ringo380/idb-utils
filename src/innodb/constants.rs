@@ -180,6 +180,40 @@ pub const FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED: u16 = 37401;
 /// MariaDB instant ALTER TABLE metadata page.
 pub const FIL_PAGE_TYPE_INSTANT: u16 = 18;
 
+// ── Encryption constants ──────────────────────────────────────────
+
+/// Size of the encryption magic marker. 3 bytes.
+pub const ENCRYPTION_MAGIC_SIZE: usize = 3;
+
+/// Length of the AES-256 key in bytes (32 bytes = 256 bits).
+pub const ENCRYPTION_KEY_LEN: usize = 32;
+
+/// Length of the server UUID string. 36 bytes (ASCII).
+pub const ENCRYPTION_SERVER_UUID_LEN: usize = 36;
+
+/// Total size of the encryption info structure on page 0.
+/// Layout: magic(3) + master_key_id(4) + uuid(36) + encrypted_key_iv(64) + crc32(4) = 111.
+pub const ENCRYPTION_INFO_SIZE: usize = 111;
+
+/// Maximum size of the encryption info area including trailing padding.
+pub const ENCRYPTION_INFO_MAX_SIZE: usize = 115;
+
+/// Encryption magic bytes for version 1.
+pub const ENCRYPTION_MAGIC_V1: &[u8; 3] = b"lCA";
+
+/// Encryption magic bytes for version 2.
+pub const ENCRYPTION_MAGIC_V2: &[u8; 3] = b"lCB";
+
+/// Encryption magic bytes for version 3 (MySQL 8.0.5+).
+pub const ENCRYPTION_MAGIC_V3: &[u8; 3] = b"lCC";
+
+/// Offset within the FIL header where the original page type is stored
+/// when a page has been encrypted. 2 bytes at offset 26.
+pub const FIL_PAGE_ORIGINAL_TYPE_V1: usize = 26;
+
+/// Size of a single XDES (extent descriptor) entry. 40 bytes.
+pub const XDES_SIZE: usize = 40;
+
 // ── Insert direction values ─────────────────────────────────────────
 
 /// Insert direction: left.

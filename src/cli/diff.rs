@@ -25,6 +25,8 @@ pub struct DiffOptions {
     pub json: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
 }
 
 // ── JSON output structs ─────────────────────────────────────────────
@@ -215,6 +217,11 @@ pub fn execute(opts: &DiffOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         Some(ps) => Tablespace::open_with_page_size(&opts.file2, ps)?,
         None => Tablespace::open(&opts.file2)?,
     };
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts1, keyring_path)?;
+        crate::cli::setup_decryption(&mut ts2, keyring_path)?;
+    }
 
     let ps1 = ts1.page_size();
     let ps2 = ts2.page_size();

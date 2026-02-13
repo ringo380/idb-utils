@@ -23,15 +23,19 @@
 //! | [`undo`] | UNDO log page header and segment header parsing |
 //! | [`lob`] | Large object page headers (old-style BLOB and MySQL 8.0+ LOB) |
 //! | [`compression`] | Compression algorithm detection and decompression (zlib, LZ4) |
-//! | [`encryption`] | Encryption detection from FSP flags |
+//! | [`encryption`] | Encryption detection from FSP flags, encryption info parsing |
+//! | [`keyring`] | MySQL `keyring_file` plugin format reader |
+//! | [`decryption`] | AES-256-CBC page decryption using tablespace keys |
 //! | [`vendor`] | Vendor detection (MySQL, Percona, MariaDB) and format variants |
 //! | [`constants`] | InnoDB page/file structure constants from MySQL source headers |
 
 pub mod checksum;
 pub mod compression;
 pub mod constants;
+pub mod decryption;
 pub mod encryption;
 pub mod index;
+pub mod keyring;
 pub mod lob;
 pub mod log;
 pub mod page;

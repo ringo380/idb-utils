@@ -39,6 +39,7 @@ fn main() {
             no_empty,
             json,
             page_size,
+            keyring,
         } => cli::parse::execute(
             &cli::parse::ParseOptions {
                 file,
@@ -47,6 +48,7 @@ fn main() {
                 no_empty,
                 page_size,
                 json,
+                keyring,
             },
             &mut writer,
         ),
@@ -60,6 +62,7 @@ fn main() {
             filter_type,
             json,
             page_size,
+            keyring,
         } => cli::pages::execute(
             &cli::pages::PagesOptions {
                 file,
@@ -70,6 +73,7 @@ fn main() {
                 filter_type,
                 page_size,
                 json,
+                keyring,
             },
             &mut writer,
         ),
@@ -81,6 +85,8 @@ fn main() {
             length,
             raw,
             page_size,
+            keyring,
+            decrypt,
         } => cli::dump::execute(
             &cli::dump::DumpOptions {
                 file,
@@ -89,6 +95,8 @@ fn main() {
                 length,
                 raw,
                 page_size,
+                keyring,
+                decrypt,
             },
             &mut writer,
         ),
@@ -160,11 +168,13 @@ fn main() {
             file,
             pretty,
             page_size,
+            keyring,
         } => cli::sdi::execute(
             &cli::sdi::SdiOptions {
                 file,
                 pretty,
                 page_size,
+                keyring,
             },
             &mut writer,
         ),
@@ -224,6 +234,7 @@ fn main() {
             json,
             force,
             page_size,
+            keyring,
         } => cli::recover::execute(
             &cli::recover::RecoverOptions {
                 file,
@@ -232,6 +243,7 @@ fn main() {
                 json,
                 force,
                 page_size,
+                keyring,
             },
             &mut writer,
         ),
@@ -241,12 +253,14 @@ fn main() {
             verbose,
             json,
             page_size,
+            keyring,
         } => cli::checksum::execute(
             &cli::checksum::ChecksumOptions {
                 file,
                 verbose,
                 json,
                 page_size,
+                keyring,
             },
             &mut writer,
         ),
@@ -259,6 +273,7 @@ fn main() {
             page,
             json,
             page_size,
+            keyring,
         } => cli::diff::execute(
             &cli::diff::DiffOptions {
                 file1,
@@ -268,6 +283,7 @@ fn main() {
                 page,
                 json,
                 page_size,
+                keyring,
             },
             &mut writer,
         ),

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Encrypted tablespace decryption** — Read encrypted InnoDB tablespaces when provided with a MySQL `keyring_file` keyring. Parses encryption info from page 0 (magic version, master key ID, server UUID, encrypted tablespace key+IV). Loads the MySQL `keyring_file` binary format with XOR de-obfuscation and SHA-256 integrity verification. Decrypts tablespace key+IV using AES-256-ECB with the master key, then decrypts page bodies using AES-256-CBC. Transparent decryption: when `--keyring` is provided, `read_page()` automatically decrypts encrypted pages before returning data. Supports `keyring_file` plugin format (MySQL 5.7.11+); magic versions V1 (`lCA`), V2 (`lCB`), V3 (`lCC`/MySQL 8.0.5+). (Closes #12)
+- `--keyring <path>` option on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, and `diff` subcommands
+- `--decrypt` flag on `dump` subcommand for hex-dumping decrypted page content
+- `inno pages` displays encryption info (master key ID, server UUID, magic version) in FSP header detail when encryption is detected
+- New `innodb::decryption` module with `DecryptionContext` for AES-256 page decryption
+- New `innodb::keyring` module for parsing MySQL `keyring_file` binary format
+- `Tablespace::encryption_info()` and `Tablespace::is_encrypted()` accessors
+- 14 encryption integration tests covering end-to-end decrypt, keyring loading, error cases, and CLI subcommand behavior
+- New dependencies: `aes 0.8`, `cbc 0.1`, `ecb 0.1`, `sha2 0.10`
+
 ## [1.3.0] - 2026-02-12
 
 ### Added

@@ -20,6 +20,7 @@ pub struct ParseOptions {
     pub no_empty: bool,
     pub page_size: Option<u32>,
     pub json: bool,
+    pub keyring: Option<String>,
 }
 
 /// JSON-serializable page info.
@@ -57,6 +58,10 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
     };
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts, keyring_path)?;
+    }
 
     let page_size = ts.page_size();
 

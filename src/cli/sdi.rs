@@ -13,6 +13,8 @@ pub struct SdiOptions {
     pub pretty: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
 }
 
 /// Extract SDI metadata from a MySQL 8.0+ tablespace.
@@ -37,6 +39,10 @@ pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
     };
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts, keyring_path)?;
+    }
 
     // MariaDB does not use SDI — return a clear error
     if ts.vendor_info().vendor == crate::innodb::vendor::InnoDbVendor::MariaDB {

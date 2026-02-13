@@ -20,6 +20,10 @@ pub struct DumpOptions {
     pub raw: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
+    /// Decrypt page before dumping (requires --keyring).
+    pub decrypt: bool,
 }
 
 /// Produce a hex dump of raw bytes from an InnoDB tablespace file.
@@ -56,6 +60,16 @@ pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
     };
+
+    if opts.decrypt {
+        if let Some(ref keyring_path) = opts.keyring {
+            crate::cli::setup_decryption(&mut ts, keyring_path)?;
+        } else {
+            return Err(IdbError::Argument(
+                "--decrypt requires --keyring <path>".to_string(),
+            ));
+        }
+    }
 
     let page_size = ts.page_size();
     let page_num = opts.page.unwrap_or(0);

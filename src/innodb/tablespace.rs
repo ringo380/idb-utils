@@ -13,6 +13,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::innodb::constants::*;
+use crate::innodb::decryption::DecryptionContext;
+use crate::innodb::encryption::{self, EncryptionInfo};
 use crate::innodb::page::{FilHeader, FilTrailer, FspHeader};
 use crate::innodb::vendor::{detect_vendor_from_flags, VendorInfo};
 use crate::IdbError;
@@ -25,6 +27,8 @@ pub struct Tablespace {
     page_count: u64,
     fsp_header: Option<FspHeader>,
     vendor_info: VendorInfo,
+    encryption_info: Option<EncryptionInfo>,
+    decryption_ctx: Option<DecryptionContext>,
 }
 
 impl Tablespace {
@@ -74,6 +78,9 @@ impl Tablespace {
 
         let page_count = file_size / page_size as u64;
 
+        // Parse encryption info from page 0
+        let encryption_info = encryption::parse_encryption_info(&buf, page_size);
+
         Ok(Tablespace {
             file,
             file_size,
@@ -81,6 +88,8 @@ impl Tablespace {
             page_count,
             fsp_header,
             vendor_info,
+            encryption_info,
+            decryption_ctx: None,
         })
     }
 
@@ -108,6 +117,8 @@ impl Tablespace {
         };
         let page_count = file_size / page_size as u64;
 
+        let encryption_info = encryption::parse_encryption_info(&buf, page_size);
+
         Ok(Tablespace {
             file,
             file_size,
@@ -115,6 +126,8 @@ impl Tablespace {
             page_count,
             fsp_header,
             vendor_info,
+            encryption_info,
+            decryption_ctx: None,
         })
     }
 
@@ -143,7 +156,29 @@ impl Tablespace {
         &self.vendor_info
     }
 
+    /// Returns the parsed encryption info from page 0, if present.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.encryption_info.as_ref()
+    }
+
+    /// Returns true if the tablespace has encryption info on page 0.
+    pub fn is_encrypted(&self) -> bool {
+        self.encryption_info.is_some()
+    }
+
+    /// Set a decryption context for transparent page decryption.
+    ///
+    /// When set, [`read_page`](Self::read_page) and
+    /// [`for_each_page`](Self::for_each_page) will automatically decrypt
+    /// pages with encrypted page types (15, 16, 17) before returning them.
+    pub fn set_decryption_context(&mut self, ctx: DecryptionContext) {
+        self.decryption_ctx = Some(ctx);
+    }
+
     /// Read a single page by page number into a newly allocated buffer.
+    ///
+    /// If a decryption context has been set and the page has an encrypted
+    /// page type, the page is decrypted before being returned.
     pub fn read_page(&mut self, page_num: u64) -> Result<Vec<u8>, IdbError> {
         if page_num >= self.page_count {
             return Err(IdbError::Parse(format!(
@@ -162,6 +197,11 @@ impl Tablespace {
         self.file
             .read_exact(&mut buf)
             .map_err(|e| IdbError::Io(format!("Cannot read page {}: {}", page_num, e)))?;
+
+        // Decrypt if a decryption context is available
+        if let Some(ref ctx) = self.decryption_ctx {
+            let _ = ctx.decrypt_page(&mut buf, self.page_size as usize)?;
+        }
 
         Ok(buf)
     }
@@ -182,6 +222,9 @@ impl Tablespace {
     }
 
     /// Iterate over all pages, calling the callback with (page_number, page_data).
+    ///
+    /// If a decryption context has been set, encrypted pages are decrypted
+    /// before being passed to the callback.
     pub fn for_each_page<F>(&mut self, mut callback: F) -> Result<(), IdbError>
     where
         F: FnMut(u64, &[u8]) -> Result<(), IdbError>,
@@ -190,11 +233,17 @@ impl Tablespace {
             .seek(SeekFrom::Start(0))
             .map_err(|e| IdbError::Io(format!("Cannot seek to start: {}", e)))?;
 
-        let mut buf = vec![0u8; self.page_size as usize];
+        let ps = self.page_size as usize;
+        let mut buf = vec![0u8; ps];
         for page_num in 0..self.page_count {
             self.file
                 .read_exact(&mut buf)
                 .map_err(|e| IdbError::Io(format!("Cannot read page {}: {}", page_num, e)))?;
+
+            if let Some(ref ctx) = self.decryption_ctx {
+                let _ = ctx.decrypt_page(&mut buf, ps)?;
+            }
+
             callback(page_num, &buf)?;
         }
         Ok(())

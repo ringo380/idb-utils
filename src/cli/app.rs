@@ -62,6 +62,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Detailed page structure analysis
@@ -105,6 +109,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Hex dump of raw page bytes
@@ -139,6 +147,14 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+
+        /// Decrypt page before dumping (requires --keyring)
+        #[arg(long)]
+        decrypt: bool,
     },
 
     /// Intentionally corrupt pages for testing
@@ -276,6 +292,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Analyze InnoDB redo log files
@@ -410,6 +430,10 @@ pub enum Commands {
         /// Override page size (critical when page 0 is corrupt)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Validate page checksums
@@ -437,6 +461,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Compare two tablespace files page-by-page
@@ -477,5 +505,9 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 }

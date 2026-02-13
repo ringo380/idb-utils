@@ -34,6 +34,8 @@ pub struct PagesOptions {
     pub page_size: Option<u32>,
     /// Emit output as JSON.
     pub json: bool,
+    /// Path to MySQL keyring file for decrypting encrypted tablespaces.
+    pub keyring: Option<String>,
 }
 
 /// JSON-serializable detailed page info.
@@ -79,6 +81,10 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
         None => Tablespace::open(&opts.file)?,
     };
+
+    if let Some(ref keyring_path) = opts.keyring {
+        crate::cli::setup_decryption(&mut ts, keyring_path)?;
+    }
 
     let page_size = ts.page_size();
 
@@ -552,6 +558,19 @@ fn print_fsp_header_detail(
     }
     if enc != encryption::EncryptionAlgorithm::None {
         wprintln!(writer, "Encryption: {}", enc)?;
+
+        // Display detailed encryption info if available
+        if let Some(info) = encryption::parse_encryption_info(page0, fsp.page_size_from_flags_with_vendor(vendor_info)) {
+            let version_desc = match info.magic_version {
+                1 => "V1",
+                2 => "V2",
+                3 => "V3 (MySQL 8.0.5+)",
+                _ => "Unknown",
+            };
+            wprintln!(writer, "  Master Key ID: {}", info.master_key_id)?;
+            wprintln!(writer, "  Server UUID:   {}", info.server_uuid)?;
+            wprintln!(writer, "  Magic:         {}", version_desc)?;
+        }
     }
 
     // Try to read the first unused segment ID (at FSP offset 72, 8 bytes)

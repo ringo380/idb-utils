@@ -100,7 +100,9 @@
 //! | [`innodb::undo`] | UNDO log page structures |
 //! | [`innodb::lob`] | Large object (BLOB/LOB) page headers |
 //! | [`innodb::compression`] | Compression detection and decompression |
-//! | [`innodb::encryption`] | Encryption detection from FSP flags |
+//! | [`innodb::encryption`] | Encryption detection and encryption info parsing |
+//! | [`innodb::decryption`] | AES-256-CBC page decryption with keyring support |
+//! | [`innodb::keyring`] | MySQL `keyring_file` plugin binary format reader |
 //! | [`innodb::vendor`] | Vendor detection (MySQL, Percona, MariaDB) and format info |
 //! | [`innodb::constants`] | InnoDB page/file structure constants |
 //!

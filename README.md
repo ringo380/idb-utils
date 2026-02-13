@@ -13,6 +13,7 @@ IDB Utils gives you low-level visibility into InnoDB's on-disk structures. Use i
 - **Analyze redo logs** — parse log file headers, checkpoints, and data blocks from both legacy and MySQL 8.0.30+ formats
 - **Assess data recoverability** — scan damaged tablespaces, classify page integrity, count salvageable records on INDEX pages
 - **Test recovery scenarios** — intentionally corrupt specific pages or byte ranges to exercise InnoDB recovery mechanisms
+- **Decrypt encrypted tablespaces** — read MySQL encrypted `.ibd` files using the `keyring_file` keyring plugin format, transparently decrypting pages for all analysis commands
 - **Audit a data directory** — search for pages across files, list tablespace IDs, compare LSNs between ibdata1 and redo logs
 
 ## Installation
@@ -77,6 +78,9 @@ inno diff backup.ibd current.ibd -v
 # Assess recoverability of a damaged tablespace
 inno recover -f users.ibd --force -v
 
+# Read an encrypted tablespace with a keyring file
+inno parse -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring
+
 # Search an entire data directory for page number 42
 inno find -d /var/lib/mysql -p 42
 
@@ -112,7 +116,7 @@ Every subcommand supports `--json` for machine-readable output and `--help` for 
 Parse an `.ibd` file and display page-level information. Shows FIL headers, FSP metadata, checksums, and a page type summary across the entire tablespace.
 
 ```
-inno parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>]
+inno parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -123,6 +127,7 @@ inno parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>]
 | `-e, --no-empty` | Skip pages with zero checksum and Allocated type |
 | `--json` | Output as JSON array |
 | `--page-size` | Override page size in bytes (default: auto-detect from FSP flags) |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 **All-pages mode** (default) iterates every page and prints a summary table showing how many pages of each type exist in the tablespace. **Single-page mode** (`-p N`) displays the full FIL header for that page including checksum, page type, LSN, prev/next page chain, and space ID.
 
@@ -144,7 +149,7 @@ inno parse -f users.ibd --json | jq '.[] | select(.page_type == "INDEX")'
 Detailed structural analysis of page internals. Goes deeper than `parse` by decoding type-specific headers: INDEX page B+Tree metadata, UNDO segment state, LOB/BLOB chain headers, and SDI content.
 
 ```
-inno pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-size <size>]
+inno pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -157,6 +162,7 @@ inno pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-siz
 | `-t, --type` | Filter by page type name |
 | `--json` | Output as JSON |
 | `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 **Type filter** accepts exact type names and aliases:
 
@@ -196,7 +202,7 @@ inno pages -f users.ibd -t BLOB -l
 Hex dump of raw page bytes. Output follows the standard `offset | hex bytes | ASCII` format with 16 bytes per line.
 
 ```
-inno dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-size <size>]
+inno dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-size <size>] [--keyring <path>] [--decrypt]
 ```
 
 | Flag | Description |
@@ -207,6 +213,8 @@ inno dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-
 | `-l, --length` | Number of bytes to dump (default: full page or 256 in offset mode) |
 | `--raw` | Output raw binary bytes to stdout (no hex formatting) |
 | `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
+| `--decrypt` | Decrypt page before dumping (requires `--keyring`) |
 
 ```bash
 # Dump the FIL header of page 0 (first 38 bytes)
@@ -226,7 +234,7 @@ inno dump -f users.ibd -p 3 --raw > page3.bin
 Validate page checksums across an entire tablespace. Supports both CRC-32C (MySQL 5.7.7+ default) and legacy InnoDB checksum algorithms. Also validates LSN consistency between the FIL header and trailer of each page.
 
 ```
-inno checksum -f <file> [-v] [--json] [--page-size <size>]
+inno checksum -f <file> [-v] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -235,6 +243,7 @@ inno checksum -f <file> [-v] [--json] [--page-size <size>]
 | `-v, --verbose` | Show per-page checksum status |
 | `--json` | Output as JSON with summary statistics |
 | `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 **Validation logic:**
 1. Pages with the magic checksum `0xDEADBEEF` are skipped (no checksum set)
@@ -277,7 +286,7 @@ inno checksum -f users.ibd --json
 Compare two InnoDB tablespace files page-by-page. Reports which pages are identical, modified, or only present in one file. Useful for analyzing changes between backups, before/after schema operations, or detecting corruption drift over time.
 
 ```
-inno diff <file1> <file2> [-v] [-b] [-p <page>] [--json] [--page-size <size>]
+inno diff <file1> <file2> [-v] [-b] [-p <page>] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -289,6 +298,7 @@ inno diff <file1> <file2> [-v] [-b] [-p <page>] [--json] [--page-size <size>]
 | `-p, --page` | Compare a single page only |
 | `--json` | Output as JSON |
 | `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 **Comparison levels:**
 1. **Quick byte equality** — fast path for identical pages (`page1 == page2`)
@@ -362,7 +372,7 @@ inno corrupt -f users_copy.ibd -p 3 -b 2 --json
 Scan a tablespace file and assess page-level data recoverability. Classifies each page as intact, corrupt, empty, or unreadable, and counts recoverable user records on INDEX pages by walking the compact record chain.
 
 ```
-inno recover -f <file> [-p <page>] [-v] [--json] [--force] [--page-size <size>]
+inno recover -f <file> [-p <page>] [-v] [--json] [--force] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -373,6 +383,7 @@ inno recover -f <file> [-p <page>] [-v] [--json] [--force] [--page-size <size>]
 | `--json` | Output structured JSON report |
 | `--force` | Extract records from corrupt pages with valid headers |
 | `--page-size` | Override page size (critical when page 0 is damaged) |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 **Smart page size fallback:** When auto-detection fails (e.g., page 0 is corrupt), the tool tries common page sizes (16K, 8K, 4K, 32K, 64K) based on file size divisibility. Use `--page-size` to override manually.
 
@@ -457,7 +468,7 @@ inno tsid -d /var/lib/mysql -t 42
 Extract SDI (Serialized Dictionary Information) metadata from MySQL 8.0+ tablespaces. SDI records contain the full table and tablespace definitions (column types, indexes, partitions, etc.) stored as compressed JSON directly in the `.ibd` file.
 
 ```
-inno sdi -f <file> [--pretty] [--page-size <size>]
+inno sdi -f <file> [--pretty] [--page-size <size>] [--keyring <path>]
 ```
 
 | Flag | Description |
@@ -465,6 +476,7 @@ inno sdi -f <file> [--pretty] [--page-size <size>]
 | `-f, --file` | Path to .ibd file (required) |
 | `--pretty` | Pretty-print the JSON output |
 | `--page-size` | Override page size |
+| `--keyring` | Path to MySQL keyring file for decrypting encrypted tablespaces |
 
 SDI records are zlib-compressed and may span multiple linked pages. The tool handles multi-page reassembly automatically by following the page chain.
 
@@ -579,7 +591,7 @@ MySQL credentials are resolved in order: CLI flags, then `--defaults-file`, then
 
 | Vendor | Detection | Checksums | Page Types | Compression | Encryption | SDI | Redo Logs |
 |--------|-----------|-----------|------------|-------------|------------|-----|-----------|
-| **MySQL** | Default | CRC-32C, Legacy | All standard types | zlib, LZ4 | Tablespace-level | Yes (8.0+) | Full parsing |
+| **MySQL** | Default | CRC-32C, Legacy | All standard types | zlib, LZ4 | Tablespace-level (decryption with `--keyring`) | Yes (8.0+) | Full parsing |
 | **Percona XtraDB** | Redo log `created_by` | Same as MySQL | Same as MySQL | Same as MySQL | Same as MySQL | Yes (8.0+) | Full parsing |
 | **MariaDB** | FSP flags (bit 4 / bit 16) | `full_crc32` (10.5+), CRC-32C (original) | +PageCompressed, +PageCompressedEncrypted, +Instant | zlib, LZ4, LZO, LZMA, bzip2, Snappy (detection only) | Per-page only (no TS-level flag) | N/A | Header + checkpoints only |
 
@@ -600,6 +612,34 @@ MySQL credentials are resolved in order: CLI flags, then `--defaults-file`, then
 | MySQL 8.4 / 9.x | `.ibd` | `#innodb_redo/` | Yes | `innodb_tables` / `innodb_indexes` |
 
 **Page sizes:** 4K, 8K, 16K (default), 32K, and 64K are all supported and auto-detected from FSP flags.
+
+---
+
+## Encrypted Tablespaces
+
+`inno` can read encrypted InnoDB tablespaces when provided with the MySQL keyring file:
+
+```bash
+inno parse -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring
+inno pages -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring
+inno sdi -f encrypted.ibd --keyring /var/lib/mysql-keyring/keyring --pretty
+```
+
+The `--keyring` option is available on `parse`, `pages`, `dump`, `checksum`, `recover`, `sdi`, and `diff`. When provided, encrypted pages are transparently decrypted before analysis.
+
+**Supported keyring format:** Legacy `keyring_file` plugin (binary format, MySQL 5.7.11+). The newer `component_keyring_file` (JSON format, MySQL 8.0.34+) is not yet supported.
+
+**How it works:** MySQL's InnoDB encryption uses a two-tier key architecture. A master key stored in the keyring file decrypts the per-tablespace key+IV stored on page 0. That tablespace key then decrypts individual page bodies using AES-256-CBC.
+
+For the `dump` subcommand, use `--decrypt` with `--keyring` to see decrypted page content:
+
+```bash
+# Hex dump of encrypted page (raw ciphertext)
+inno dump -f encrypted.ibd -p 3
+
+# Hex dump of decrypted page (plaintext)
+inno dump -f encrypted.ibd -p 3 --keyring /var/lib/mysql-keyring/keyring --decrypt
+```
 
 ---
 
@@ -706,7 +746,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 97 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery, vendor detection) and 111 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 116 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, decryption, keyring, SDI, redo logs, records, undo, recovery, vendor detection) and 125 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
@@ -766,7 +806,9 @@ src/
     sdi.rs             SDI page detection, record extraction, zlib decompression
     log.rs             Redo log headers, checkpoints, block parsing, MLOG types
     compression.rs     Compression detection (zlib/lz4/lzo/lzma/bzip2/snappy), decompression
-    encryption.rs      Encryption detection (AES flag in FSP flags)
+    encryption.rs      Encryption detection and encryption info parsing from page 0
+    decryption.rs      AES-256-CBC page decryption with keyring support
+    keyring.rs         MySQL keyring_file plugin binary format reader
     vendor.rs          Vendor detection (MySQL, Percona, MariaDB) and format info
   util/
     hex.rs             Hex dump formatting, offset/value formatters
@@ -774,6 +816,7 @@ src/
 tests/
   integration_test.rs  Integration tests with synthetic .ibd files
   diff_test.rs         Diff subcommand integration tests
+  encryption_test.rs   Encrypted tablespace decryption integration tests
   mariadb_test.rs      MariaDB format support integration tests
 ```
 

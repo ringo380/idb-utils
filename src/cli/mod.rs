@@ -78,7 +78,31 @@ macro_rules! wprint {
 pub(crate) use wprint;
 pub(crate) use wprintln;
 
+use crate::innodb::decryption::DecryptionContext;
+use crate::innodb::keyring::Keyring;
+use crate::innodb::tablespace::Tablespace;
+use crate::IdbError;
 use indicatif::{ProgressBar, ProgressStyle};
+
+/// Set up decryption on a tablespace if a keyring path is provided.
+///
+/// Loads the keyring file, reads the encryption info from page 0,
+/// decrypts the tablespace key, and installs the decryption context
+/// on the tablespace for transparent page decryption.
+pub(crate) fn setup_decryption(
+    ts: &mut Tablespace,
+    keyring_path: &str,
+) -> Result<(), IdbError> {
+    let keyring = Keyring::load(keyring_path)?;
+    let enc_info = ts.encryption_info().ok_or_else(|| {
+        IdbError::Parse(
+            "Keyring provided but tablespace has no encryption info on page 0".to_string(),
+        )
+    })?;
+    let ctx = DecryptionContext::from_encryption_info(enc_info, &keyring)?;
+    ts.set_decryption_context(ctx);
+    Ok(())
+}
 
 /// Create a styled progress bar for iterating over pages or files.
 pub(crate) fn create_progress_bar(count: u64, unit: &str) -> ProgressBar {

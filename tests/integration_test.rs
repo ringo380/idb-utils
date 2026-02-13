@@ -245,6 +245,7 @@ fn test_parse_execute_succeeds() {
         no_empty: false,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -270,6 +271,7 @@ fn test_parse_single_page() {
         no_empty: false,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -291,6 +293,7 @@ fn test_checksum_execute_all_valid() {
         verbose: false,
         json: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -314,6 +317,7 @@ fn test_checksum_json_output() {
         verbose: false,
         json: true,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -335,6 +339,8 @@ fn test_dump_execute_page_zero() {
         length: Some(64),
         raw: false,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -378,6 +384,7 @@ fn test_pages_execute_succeeds() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -405,6 +412,7 @@ fn test_pages_list_mode() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -433,6 +441,7 @@ fn test_pages_json_output() {
         filter_type: None,
         page_size: None,
         json: true,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -615,6 +624,7 @@ fn test_sdi_execute_no_sdi_pages() {
         file: tmp.path().to_string_lossy().to_string(),
         pretty: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -645,6 +655,8 @@ fn test_dump_raw_mode() {
         length: Some(64),
         raw: true,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -670,6 +682,7 @@ fn test_parse_nonexistent_file() {
         no_empty: false,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -708,6 +721,7 @@ fn test_parse_json_validates_output() {
         no_empty: false,
         page_size: None,
         json: true,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -734,6 +748,7 @@ fn test_checksum_json_validates_output() {
         verbose: true,
         json: true,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -798,6 +813,7 @@ fn test_recover_all_intact() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -826,6 +842,7 @@ fn test_recover_with_corrupt_page() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -851,6 +868,7 @@ fn test_recover_with_empty_page() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -874,6 +892,7 @@ fn test_recover_single_page() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -898,6 +917,7 @@ fn test_recover_json_output() {
         json: true,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -927,6 +947,7 @@ fn test_recover_json_verbose_includes_pages() {
         json: true,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -956,6 +977,7 @@ fn test_recover_force_extracts_corrupt_records() {
         json: true,
         force: false,
         page_size: None,
+        keyring: None,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out).unwrap();
@@ -974,6 +996,7 @@ fn test_recover_force_extracts_corrupt_records() {
         json: true,
         force: true,
         page_size: None,
+        keyring: None,
     };
     let mut out2 = Vec::new();
     idb::cli::recover::execute(&opts_force, &mut out2).unwrap();
@@ -997,6 +1020,7 @@ fn test_recover_page_size_override() {
         json: true,
         force: false,
         page_size: Some(16384),
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1022,6 +1046,7 @@ fn test_recover_verbose_text_output() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1267,6 +1292,8 @@ fn test_dump_nonexistent_file() {
         length: Some(64),
         raw: false,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -1288,6 +1315,7 @@ fn test_checksum_invalid_returns_error() {
         verbose: false,
         json: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1625,6 +1653,7 @@ fn test_parse_verbose_output() {
         no_empty: false,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1657,6 +1686,7 @@ fn test_parse_no_empty() {
         no_empty: true,
         page_size: None,
         json: true,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1688,6 +1718,7 @@ fn test_pages_single_page() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1716,6 +1747,7 @@ fn test_pages_verbose_output() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1750,6 +1782,7 @@ fn test_pages_show_empty() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out1 = Vec::new();
@@ -1766,6 +1799,7 @@ fn test_pages_show_empty() {
         filter_type: None,
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out2 = Vec::new();
@@ -1800,6 +1834,7 @@ fn test_pages_filter_type() {
         filter_type: Some("INDEX".to_string()),
         page_size: None,
         json: false,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -1829,6 +1864,8 @@ fn test_dump_offset_mode() {
         length: Some(32),
         raw: false,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -1857,6 +1894,8 @@ fn test_dump_offset_raw_mode() {
         length: Some(16),
         raw: true,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -1883,6 +1922,8 @@ fn test_dump_default_page_zero() {
         length: Some(64),
         raw: false,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out = Vec::new();
@@ -1905,6 +1946,8 @@ fn test_dump_length_truncation() {
         length: None, // full page
         raw: true,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out_full = Vec::new();
@@ -1918,6 +1961,8 @@ fn test_dump_length_truncation() {
         length: Some(32),
         raw: true,
         page_size: None,
+        keyring: None,
+        decrypt: false,
     };
 
     let mut out_short = Vec::new();
@@ -2273,6 +2318,7 @@ fn test_sdi_nonexistent_file() {
         file: "/nonexistent/test.ibd".to_string(),
         pretty: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
@@ -2328,6 +2374,7 @@ fn test_recover_nonexistent_file() {
         json: false,
         force: false,
         page_size: None,
+        keyring: None,
     };
 
     let mut out = Vec::new();
