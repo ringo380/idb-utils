@@ -38,6 +38,16 @@ pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError
         None => Tablespace::open(&opts.file)?,
     };
 
+    // MariaDB does not use SDI — return a clear error
+    if ts.vendor_info().vendor == crate::innodb::vendor::InnoDbVendor::MariaDB {
+        return Err(IdbError::Argument(
+            "SDI is not available for MariaDB tablespaces. MariaDB does not use \
+             Serialized Dictionary Information (SDI); table metadata is stored \
+             in the data dictionary (mysql.* tables) or .frm files."
+                .to_string(),
+        ));
+    }
+
     // Find SDI pages
     let sdi_pages = sdi::find_sdi_pages(&mut ts)?;
 

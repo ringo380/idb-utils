@@ -219,7 +219,7 @@ fn analyze_page(
         }
     };
 
-    let csum_result = validate_checksum(page_data, page_size);
+    let csum_result = validate_checksum(page_data, page_size, None);
     let lsn_valid = validate_lsn(page_data, page_size);
     let status = if csum_result.valid && lsn_valid {
         PageStatus::Intact

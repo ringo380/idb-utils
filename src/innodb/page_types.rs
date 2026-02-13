@@ -6,9 +6,13 @@
 //!
 //! Covers all page types from MySQL 5.7 through 9.x, including INDEX (17855),
 //! SDI (17853), UNDO, INODE, BLOB/LOB, redo log, and encryption key pages.
+//! Also includes MariaDB-specific types: page compression (34354),
+//! compressed+encrypted (37401), and instant ALTER (18).
 
 use serde::Serialize;
 use std::fmt;
+
+use crate::innodb::vendor::VendorInfo;
 
 /// All InnoDB page types from MySQL 5.7 through 9.x.
 ///
@@ -66,10 +70,19 @@ pub enum PageType {
     LobFirst = 22,
     /// Rollback segment array page (MySQL 8.0+)
     RsegArray = 23,
+    /// MariaDB page-level compression (type 34354)
+    PageCompressed = 34354,
+    /// MariaDB page-level compression + encryption (type 37401)
+    PageCompressedEncrypted = 37401,
+    /// MariaDB instant ALTER TABLE metadata (type 18, conflicts with SdiBlob in MySQL)
+    Instant = 18,
 }
 
 impl PageType {
     /// Parse a page type from a u16 value read from the FIL header.
+    ///
+    /// Value 18 defaults to `SdiBlob` (MySQL interpretation). Use
+    /// [`from_u16_with_vendor`] for MariaDB-aware resolution.
     pub fn from_u16(value: u16) -> Self {
         match value {
             0 => PageType::Allocated,
@@ -89,15 +102,31 @@ impl PageType {
             15 => PageType::Encrypted,
             16 => PageType::CompressedEncrypted,
             17 => PageType::EncryptedRtree,
+            18 => PageType::SdiBlob,
             20 => PageType::LobIndex,
             21 => PageType::LobData,
             22 => PageType::LobFirst,
             23 => PageType::RsegArray,
+            34354 => PageType::PageCompressed,
+            37401 => PageType::PageCompressedEncrypted,
             17853 => PageType::Sdi,
             17854 => PageType::SdiBlob,
             17855 => PageType::Index,
             17856 => PageType::Rtree,
             _ => PageType::Unknown,
+        }
+    }
+
+    /// Parse a page type from a u16 value with vendor context.
+    ///
+    /// Resolves ambiguous values:
+    /// - Value 18: `Instant` for MariaDB, `SdiBlob` for MySQL/Percona
+    pub fn from_u16_with_vendor(value: u16, vendor_info: &VendorInfo) -> Self {
+        use crate::innodb::vendor::InnoDbVendor;
+
+        match value {
+            18 if vendor_info.vendor == InnoDbVendor::MariaDB => PageType::Instant,
+            _ => Self::from_u16(value),
         }
     }
 
@@ -234,6 +263,21 @@ impl PageType {
                 "Rollback segment array",
                 "Rollback segment array page (MySQL 8.0+).",
             ),
+            PageType::PageCompressed => (
+                "PAGE_COMPRESSED",
+                "MariaDB page compression",
+                "Page-level compression (MariaDB). Algorithm ID at offset 26.",
+            ),
+            PageType::PageCompressedEncrypted => (
+                "PAGE_COMPRESSED_ENCRYPTED",
+                "MariaDB compressed + encrypted",
+                "Page-level compression with encryption (MariaDB).",
+            ),
+            PageType::Instant => (
+                "INSTANT",
+                "MariaDB instant ALTER",
+                "Instant ALTER TABLE metadata page (MariaDB).",
+            ),
         }
     }
 
@@ -262,6 +306,7 @@ impl fmt::Display for PageType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::innodb::vendor::{InnoDbVendor, MariaDbFormat};
 
     #[test]
     fn test_page_type_from_u16() {
@@ -274,6 +319,38 @@ mod tests {
     }
 
     #[test]
+    fn test_page_type_mariadb_types() {
+        assert_eq!(PageType::from_u16(34354), PageType::PageCompressed);
+        assert_eq!(PageType::from_u16(37401), PageType::PageCompressedEncrypted);
+    }
+
+    #[test]
+    fn test_page_type_18_default_is_sdi_blob() {
+        assert_eq!(PageType::from_u16(18), PageType::SdiBlob);
+    }
+
+    #[test]
+    fn test_page_type_18_mariadb_is_instant() {
+        let mariadb = VendorInfo {
+            vendor: InnoDbVendor::MariaDB,
+            mariadb_format: Some(MariaDbFormat::FullCrc32),
+        };
+        assert_eq!(
+            PageType::from_u16_with_vendor(18, &mariadb),
+            PageType::Instant
+        );
+    }
+
+    #[test]
+    fn test_page_type_18_mysql_is_sdi_blob() {
+        let mysql = VendorInfo::mysql();
+        assert_eq!(
+            PageType::from_u16_with_vendor(18, &mysql),
+            PageType::SdiBlob
+        );
+    }
+
+    #[test]
     fn test_page_type_roundtrip() {
         let types = [
             PageType::Allocated,
@@ -282,6 +359,8 @@ mod tests {
             PageType::FspHdr,
             PageType::Index,
             PageType::Sdi,
+            PageType::PageCompressed,
+            PageType::PageCompressedEncrypted,
         ];
         for pt in &types {
             assert_eq!(PageType::from_u16(pt.as_u16()), *pt);
@@ -292,5 +371,9 @@ mod tests {
     fn test_page_type_display() {
         assert_eq!(format!("{}", PageType::Index), "INDEX");
         assert_eq!(format!("{}", PageType::FspHdr), "FSP_HDR");
+        assert_eq!(
+            format!("{}", PageType::PageCompressed),
+            "PAGE_COMPRESSED"
+        );
     }
 }

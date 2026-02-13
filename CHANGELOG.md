@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Percona and MariaDB tablespace format support** — Automatic vendor detection (MySQL, Percona XtraDB, MariaDB) from FSP flags and redo log creator strings. MariaDB `full_crc32` checksum algorithm (single CRC-32C over `[0..page_size-4)`). MariaDB-specific page types: `PageCompressed` (34354), `PageCompressedEncrypted` (37401), `Instant` (18). Vendor-aware page size detection for MariaDB `full_crc32` format (page size in FSP flags bits 0-3). MariaDB compression algorithm detection (zlib, LZ4, LZO, LZMA, bzip2, Snappy) from both FSP flags and per-page headers. Vendor-aware encryption detection. All CLI subcommands pass vendor context for correct checksum validation, compression/encryption reporting, and page type resolution. `inno sdi` returns a clear error for MariaDB tablespaces (MariaDB does not use SDI). `inno log` detects vendor from redo log creator string and skips incompatible MLOG record type decoding for MariaDB logs. (Closes #11)
+- New `innodb::vendor` module with `InnoDbVendor`, `MariaDbFormat`, and `VendorInfo` types
+- `Tablespace::vendor_info()` accessor for detected vendor and format details
+- 24 MariaDB integration tests covering vendor detection, checksum validation, page types, compression, encryption, and backward compatibility
 - **`inno diff`** — New subcommand to compare two tablespace files page-by-page. Reports identical, modified, and only-in-one-file page counts with a list of modified page numbers. With `--verbose`, shows per-page FIL header field diffs (checksum, LSN, page type, space ID, prev/next, flush LSN). With `--byte-ranges` (and `-v`), shows exact byte-offset ranges where page content differs with totals and percentages. Supports `--json` for machine-readable output, `-p` for single-page comparison, and `--page-size` override. Handles page size mismatches by comparing only FIL headers with a warning. (Closes #10)
 - 8 integration tests for `diff` subcommand covering identical files, different LSNs, different page types, different page counts, single-page mode, byte ranges, JSON output, and page size mismatch
 

@@ -1,17 +1,22 @@
 //! InnoDB page checksum validation.
 //!
-//! Implements the two checksum algorithms used by MySQL's InnoDB engine:
+//! Implements the checksum algorithms used by MySQL and MariaDB InnoDB:
 //!
-//! - **CRC-32C** (default since MySQL 5.7.7): XOR of two independent CRC32c
+//! - **CRC-32C** (MySQL 5.7.7+ default): XOR of two independent CRC32c
 //!   values computed over bytes `[4..26)` and `[38..page_size-8)`. These are
 //!   NOT chained — each range is checksummed separately and the results XORed.
 //!
 //! - **Legacy InnoDB** (MySQL < 5.7.7): Uses `ut_fold_ulint_pair` with wrapping
 //!   `u32` arithmetic, processing bytes one at a time over the same two ranges.
 //!
-//! Use [`validate_checksum`] to check a page against both algorithms.
+//! - **MariaDB full_crc32** (MariaDB 10.5+): Single CRC-32C over bytes
+//!   `[0..page_size-4)`. The checksum is stored in the last 4 bytes of the page
+//!   (not in the FIL header).
+//!
+//! Use [`validate_checksum`] to check a page against all applicable algorithms.
 
 use crate::innodb::constants::*;
+use crate::innodb::vendor::VendorInfo;
 use byteorder::{BigEndian, ByteOrder};
 
 /// Checksum algorithms used by InnoDB.
@@ -21,14 +26,22 @@ pub enum ChecksumAlgorithm {
     Crc32c,
     /// Legacy InnoDB checksum (buf_calc_page_new_checksum equivalent)
     InnoDB,
+    /// MariaDB full_crc32 (single CRC-32C over entire page minus last 4 bytes)
+    MariaDbFullCrc32,
     /// No checksum (innodb_checksum_algorithm=none)
     None,
 }
 
 /// Validate a page's checksum.
 ///
-/// Returns the detected algorithm and whether the checksum matches.
-pub fn validate_checksum(page_data: &[u8], page_size: u32) -> ChecksumResult {
+/// When `vendor_info` is provided and indicates MariaDB full_crc32 format,
+/// the full_crc32 algorithm is tried first (checksum stored in the last 4
+/// bytes of the page). Otherwise, MySQL CRC-32C and legacy InnoDB are tried.
+pub fn validate_checksum(
+    page_data: &[u8],
+    page_size: u32,
+    vendor_info: Option<&VendorInfo>,
+) -> ChecksumResult {
     let ps = page_size as usize;
     if page_data.len() < ps {
         return ChecksumResult {
@@ -39,20 +52,9 @@ pub fn validate_checksum(page_data: &[u8], page_size: u32) -> ChecksumResult {
         };
     }
 
-    let stored_checksum = BigEndian::read_u32(&page_data[FIL_PAGE_SPACE_OR_CHKSUM..]);
-
-    // Check for "none" algorithm (stored checksum is BUF_NO_CHECKSUM_MAGIC = 0xDEADBEEF)
-    if stored_checksum == 0xDEADBEEF {
-        return ChecksumResult {
-            algorithm: ChecksumAlgorithm::None,
-            valid: true,
-            stored_checksum,
-            calculated_checksum: 0xDEADBEEF,
-        };
-    }
-
     // All zeros page (freshly allocated) - valid with any algorithm
-    if stored_checksum == 0 {
+    let first_u32 = BigEndian::read_u32(&page_data[FIL_PAGE_SPACE_OR_CHKSUM..]);
+    if first_u32 == 0 {
         let all_zero = page_data[..ps].iter().all(|&b| b == 0);
         if all_zero {
             return ChecksumResult {
@@ -62,6 +64,39 @@ pub fn validate_checksum(page_data: &[u8], page_size: u32) -> ChecksumResult {
                 calculated_checksum: 0,
             };
         }
+    }
+
+    // MariaDB full_crc32: try this first when vendor indicates it
+    if vendor_info.is_some_and(|v| v.is_full_crc32()) {
+        let stored = BigEndian::read_u32(&page_data[ps - 4..ps]);
+        let calculated = calculate_mariadb_full_crc32(page_data, ps);
+        if stored == calculated {
+            return ChecksumResult {
+                algorithm: ChecksumAlgorithm::MariaDbFullCrc32,
+                valid: true,
+                stored_checksum: stored,
+                calculated_checksum: calculated,
+            };
+        }
+        // full_crc32 didn't match — report failure
+        return ChecksumResult {
+            algorithm: ChecksumAlgorithm::MariaDbFullCrc32,
+            valid: false,
+            stored_checksum: stored,
+            calculated_checksum: calculated,
+        };
+    }
+
+    let stored_checksum = first_u32;
+
+    // Check for "none" algorithm (stored checksum is BUF_NO_CHECKSUM_MAGIC = 0xDEADBEEF)
+    if stored_checksum == 0xDEADBEEF {
+        return ChecksumResult {
+            algorithm: ChecksumAlgorithm::None,
+            valid: true,
+            stored_checksum,
+            calculated_checksum: 0xDEADBEEF,
+        };
     }
 
     // Try CRC-32C first (most common for MySQL 8.0+)
@@ -106,6 +141,15 @@ pub struct ChecksumResult {
     pub stored_checksum: u32,
     /// The checksum value calculated from the page data.
     pub calculated_checksum: u32,
+}
+
+/// Calculate MariaDB full_crc32 checksum.
+///
+/// MariaDB 10.5+ uses a single CRC-32C over bytes `[0..page_size-4)`.
+/// The checksum is stored in the last 4 bytes of the page (NOT in the
+/// FIL header at bytes 0-3 like MySQL).
+fn calculate_mariadb_full_crc32(page_data: &[u8], page_size: usize) -> u32 {
+    crc32c::crc32c(&page_data[0..page_size - 4])
 }
 
 /// Calculate CRC-32C checksum for an InnoDB page.
@@ -192,11 +236,12 @@ pub fn validate_lsn(page_data: &[u8], page_size: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::innodb::vendor::MariaDbFormat;
 
     #[test]
     fn test_all_zero_page_is_valid() {
         let page = vec![0u8; 16384];
-        let result = validate_checksum(&page, 16384);
+        let result = validate_checksum(&page, 16384, None);
         assert!(result.valid);
     }
 
@@ -204,17 +249,47 @@ mod tests {
     fn test_no_checksum_magic() {
         let mut page = vec![0u8; 16384];
         BigEndian::write_u32(&mut page[0..], 0xDEADBEEF);
-        let result = validate_checksum(&page, 16384);
+        let result = validate_checksum(&page, 16384, None);
         assert!(result.valid);
         assert_eq!(result.algorithm, ChecksumAlgorithm::None);
     }
 
     #[test]
+    fn test_mariadb_full_crc32() {
+        let ps = 16384usize;
+        let mut page = vec![0xABu8; ps];
+        // Write some data to make it non-trivial
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 1);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 17855);
+
+        // Calculate and store the full_crc32 checksum in last 4 bytes
+        let crc = crc32c::crc32c(&page[0..ps - 4]);
+        BigEndian::write_u32(&mut page[ps - 4..], crc);
+
+        let vendor = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+        let result = validate_checksum(&page, ps as u32, Some(&vendor));
+        assert!(result.valid);
+        assert_eq!(result.algorithm, ChecksumAlgorithm::MariaDbFullCrc32);
+    }
+
+    #[test]
+    fn test_mariadb_full_crc32_invalid() {
+        let ps = 16384usize;
+        let mut page = vec![0xABu8; ps];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 1);
+        // Wrong checksum in last 4 bytes
+        BigEndian::write_u32(&mut page[ps - 4..], 0xDEADDEAD);
+
+        let vendor = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+        let result = validate_checksum(&page, ps as u32, Some(&vendor));
+        assert!(!result.valid);
+        assert_eq!(result.algorithm, ChecksumAlgorithm::MariaDbFullCrc32);
+    }
+
+    #[test]
     fn test_lsn_validation_matching() {
         let mut page = vec![0u8; 16384];
-        // Write LSN = 0x0000000012345678 at offset 16
         BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], 0x12345678);
-        // Write low 32 bits at trailer + 4 (offset 16380)
         BigEndian::write_u32(&mut page[16380..], 0x12345678);
         assert!(validate_lsn(&page, 16384));
     }

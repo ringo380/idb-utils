@@ -133,19 +133,34 @@ impl FspHeader {
 
     /// Extract the page size from FSP flags.
     ///
-    /// Returns the page size in bytes, or None if the flags indicate the default (16K).
+    /// Returns the page size in bytes. For MariaDB full_crc32 tablespaces,
+    /// the page size is in bits 0-3 instead of bits 6-9.
     pub fn page_size_from_flags(&self) -> u32 {
-        let ssize = (self.flags & FSP_FLAGS_MASK_PAGE_SSIZE) >> FSP_FLAGS_POS_PAGE_SSIZE;
+        use crate::innodb::vendor::detect_vendor_from_flags;
+
+        let vendor_info = detect_vendor_from_flags(self.flags);
+        self.page_size_from_flags_with_vendor(&vendor_info)
+    }
+
+    /// Extract the page size from FSP flags with explicit vendor info.
+    pub fn page_size_from_flags_with_vendor(
+        &self,
+        vendor_info: &crate::innodb::vendor::VendorInfo,
+    ) -> u32 {
+        let ssize = if vendor_info.is_full_crc32() {
+            // MariaDB full_crc32: page size in bits 0-3
+            self.flags & MARIADB_FSP_FLAGS_FCRC32_PAGE_SSIZE_MASK
+        } else {
+            // MySQL / MariaDB original: page size in bits 6-9
+            (self.flags & FSP_FLAGS_MASK_PAGE_SSIZE) >> FSP_FLAGS_POS_PAGE_SSIZE
+        };
+
         if ssize == 0 {
             // Default/uncompressed: 16K
             SIZE_PAGE_DEFAULT
         } else {
-            // ssize encodes page size as: 512 << ssize for values 1-7
-            // In practice: ssize=3 => 4K, ssize=4 => 8K, ssize=5 => 16K, etc.
-            // MySQL source: page_size = (512 << ssize) for ssize 1-7
-            // But there's a special case: if ssize >= 1, page_size = 1 << (ssize + 9)
-            // ssize=1 => 1024, ssize=2 => 2048, ssize=3 => 4096, ssize=4 => 8192,
-            // ssize=5 => 16384, ssize=6 => 32768, ssize=7 => 65536
+            // ssize encodes page size as: 1 << (ssize + 9)
+            // ssize=3 => 4K, ssize=4 => 8K, ssize=5 => 16K, ssize=6 => 32K, ssize=7 => 64K
             1u32 << (ssize + 9)
         }
     }
@@ -250,5 +265,40 @@ mod tests {
             ..fsp
         };
         assert_eq!(fsp_4k.page_size_from_flags(), 4096);
+    }
+
+    #[test]
+    fn test_fsp_header_page_size_mariadb_full_crc32() {
+        use crate::innodb::vendor::{MariaDbFormat, VendorInfo};
+
+        let vendor = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+
+        // MariaDB full_crc32: ssize in bits 0-3, marker at bit 4
+        // ssize=5 (16K) + full_crc32 marker
+        let fsp = FspHeader {
+            space_id: 0,
+            size: 100,
+            free_limit: 64,
+            flags: 0x10 | 5, // bit 4 marker + ssize=5 in bits 0-3
+            frag_n_used: 0,
+        };
+        assert_eq!(fsp.page_size_from_flags_with_vendor(&vendor), 16384);
+
+        // ssize=3 (4K)
+        let fsp_4k = FspHeader {
+            flags: 0x10 | 3,
+            ..fsp
+        };
+        assert_eq!(fsp_4k.page_size_from_flags_with_vendor(&vendor), 4096);
+
+        // ssize=0 (default 16K)
+        let fsp_default = FspHeader {
+            flags: 0x10,
+            ..fsp
+        };
+        assert_eq!(
+            fsp_default.page_size_from_flags_with_vendor(&vendor),
+            SIZE_PAGE_DEFAULT
+        );
     }
 }

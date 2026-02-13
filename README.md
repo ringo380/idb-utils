@@ -575,6 +575,21 @@ MySQL credentials are resolved in order: CLI flags, then `--defaults-file`, then
 
 ---
 
+## Supported InnoDB Variants
+
+| Vendor | Detection | Checksums | Page Types | Compression | Encryption | SDI | Redo Logs |
+|--------|-----------|-----------|------------|-------------|------------|-----|-----------|
+| **MySQL** | Default | CRC-32C, Legacy | All standard types | zlib, LZ4 | Tablespace-level | Yes (8.0+) | Full parsing |
+| **Percona XtraDB** | Redo log `created_by` | Same as MySQL | Same as MySQL | Same as MySQL | Same as MySQL | Yes (8.0+) | Full parsing |
+| **MariaDB** | FSP flags (bit 4 / bit 16) | `full_crc32` (10.5+), CRC-32C (original) | +PageCompressed, +PageCompressedEncrypted, +Instant | zlib, LZ4, LZO, LZMA, bzip2, Snappy (detection only) | Per-page only (no TS-level flag) | N/A | Header + checkpoints only |
+
+**Notes:**
+- Percona XtraDB uses the same on-disk format as MySQL — files are binary-compatible. XtraDB differences are runtime-only.
+- MariaDB `full_crc32` format (10.5+) uses a single CRC-32C over `[0..page_size-4)` with the checksum stored in the last 4 bytes of the page.
+- MariaDB compression algorithms (LZO, LZMA, bzip2, Snappy) are detected but not decompressed — only zlib and LZ4 decompression is supported.
+- MariaDB redo log record types are not decoded (format is incompatible with MySQL); header and checkpoint blocks are parsed normally.
+- `inno sdi` returns a clear error for MariaDB tablespaces since MariaDB does not use SDI.
+
 ## Supported MySQL Versions
 
 | Version | Tablespaces | Redo Logs | SDI | System Tables |
@@ -691,7 +706,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 74 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 87 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 97 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery, vendor detection) and 111 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
@@ -750,14 +765,16 @@ src/
     lob.rs             BLOB page headers, LOB first page, chain walking
     sdi.rs             SDI page detection, record extraction, zlib decompression
     log.rs             Redo log headers, checkpoints, block parsing, MLOG types
-    compression.rs     Compression detection (zlib/lz4), decompression
+    compression.rs     Compression detection (zlib/lz4/lzo/lzma/bzip2/snappy), decompression
     encryption.rs      Encryption detection (AES flag in FSP flags)
+    vendor.rs          Vendor detection (MySQL, Percona, MariaDB) and format info
   util/
     hex.rs             Hex dump formatting, offset/value formatters
     mysql.rs           MySQL connection, .my.cnf parsing (feature-gated)
 tests/
   integration_test.rs  Integration tests with synthetic .ibd files
   diff_test.rs         Diff subcommand integration tests
+  mariadb_test.rs      MariaDB format support integration tests
 ```
 
 Each CLI subcommand follows the same pattern: an `Options` struct with clap derive attributes and an `execute()` function returning `Result<(), IdbError>`.

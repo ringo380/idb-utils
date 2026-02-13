@@ -68,7 +68,7 @@
 //! println!("Page type: {}", header.page_type);
 //!
 //! // Validate the page checksum
-//! let result = validate_checksum(&page, ts.page_size());
+//! let result = validate_checksum(&page, ts.page_size(), None);
 //! println!("Checksum valid: {}", result.valid);
 //! ```
 //!
@@ -79,9 +79,10 @@
 //! | [`Tablespace`](innodb::tablespace::Tablespace) | Open `.ibd` files, read pages, iterate |
 //! | [`FilHeader`](innodb::page::FilHeader) | Parse the 38-byte header on every InnoDB page |
 //! | [`PageType`](innodb::page_types::PageType) | Map page type codes to names and descriptions |
-//! | [`validate_checksum`](innodb::checksum::validate_checksum) | CRC-32C and legacy checksum validation |
+//! | [`validate_checksum`](innodb::checksum::validate_checksum) | CRC-32C, legacy, and MariaDB full\_crc32 validation |
 //! | [`extract_sdi_from_pages`](innodb::sdi::extract_sdi_from_pages) | SDI metadata extraction (MySQL 8.0+) |
 //! | [`LogFile`](innodb::log::LogFile) | Read and inspect redo log files |
+//! | [`VendorInfo`](innodb::vendor::VendorInfo) | Detected vendor (MySQL / Percona / MariaDB) and format details |
 //!
 //! ## Module overview
 //!
@@ -99,6 +100,7 @@
 //! | [`innodb::lob`] | Large object (BLOB/LOB) page headers |
 //! | [`innodb::compression`] | Compression detection and decompression |
 //! | [`innodb::encryption`] | Encryption detection from FSP flags |
+//! | [`innodb::vendor`] | Vendor detection (MySQL, Percona, MariaDB) and format info |
 //! | [`innodb::constants`] | InnoDB page/file structure constants |
 //!
 //! ## Feature flags

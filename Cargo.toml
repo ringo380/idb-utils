@@ -26,11 +26,11 @@ thiserror = "2"
 colored = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 flate2 = "1"
 lz4_flex = "0.11"
 rand = "0.9"
-mysql_async = { version = "0.34", optional = true }
+mysql_async = { version = "0.36", optional = true }
 tokio = { version = "1", features = ["rt", "macros"], optional = true }
 
 [build-dependencies]

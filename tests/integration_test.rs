@@ -158,12 +158,12 @@ fn test_crc32c_checksum_valid_pages() {
     let page1 = build_index_page(1, 1, 2000);
 
     // Verify page 0
-    let result = validate_checksum(&page0, PAGE_SIZE);
+    let result = validate_checksum(&page0, PAGE_SIZE, None);
     assert!(result.valid, "FSP_HDR page checksum should be valid");
     assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
 
     // Verify page 1
-    let result = validate_checksum(&page1, PAGE_SIZE);
+    let result = validate_checksum(&page1, PAGE_SIZE, None);
     assert!(result.valid, "INDEX page checksum should be valid");
     assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
 }
@@ -173,14 +173,14 @@ fn test_checksum_detects_corruption() {
     let mut page = build_index_page(1, 1, 2000);
 
     // Verify it's valid first
-    let result = validate_checksum(&page, PAGE_SIZE);
+    let result = validate_checksum(&page, PAGE_SIZE, None);
     assert!(result.valid);
 
     // Corrupt a byte in the data area
     page[100] ^= 0xFF;
 
     // Checksum should now fail
-    let result = validate_checksum(&page, PAGE_SIZE);
+    let result = validate_checksum(&page, PAGE_SIZE, None);
     assert!(!result.valid);
 }
 

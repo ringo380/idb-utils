@@ -96,7 +96,7 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
     if opts.filter_type.is_none() {
         let page0 = ts.read_page(0)?;
         if let Some(fsp) = FspHeader::parse(&page0) {
-            print_fsp_header_detail(&fsp, &page0, opts.verbose, writer)?;
+            print_fsp_header_detail(&fsp, &page0, opts.verbose, ts.vendor_info(), writer)?;
         }
     }
 
@@ -363,7 +363,7 @@ fn print_full_page(
             wprintln!(writer, "Byte End: {}", format_offset(byte_end))?;
 
             if verbose {
-                let csum_result = checksum::validate_checksum(page_data, page_size);
+                let csum_result = checksum::validate_checksum(page_data, page_size, None);
                 let status = if csum_result.valid {
                     "OK".green().to_string()
                 } else {
@@ -527,9 +527,11 @@ fn print_fsp_header_detail(
     fsp: &FspHeader,
     page0: &[u8],
     verbose: bool,
+    vendor_info: &crate::innodb::vendor::VendorInfo,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     wprintln!(writer, "=== File Header")?;
+    wprintln!(writer, "Vendor: {}", vendor_info)?;
     wprintln!(writer, "Space ID: {}", fsp.space_id)?;
     if verbose {
         wprintln!(writer, "-- Offset 38, Length 4")?;
@@ -543,8 +545,8 @@ fn print_fsp_header_detail(
     )?;
 
     // Compression and encryption detection from flags
-    let comp = compression::detect_compression(fsp.flags);
-    let enc = encryption::detect_encryption(fsp.flags);
+    let comp = compression::detect_compression(fsp.flags, Some(vendor_info));
+    let enc = encryption::detect_encryption(fsp.flags, Some(vendor_info));
     if comp != compression::CompressionAlgorithm::None {
         wprintln!(writer, "Compression: {}", comp)?;
     }
@@ -590,12 +592,19 @@ fn matches_page_type_filter(page_type: &PageType, filter: &str) -> bool {
         "SDI" => matches!(page_type, PageType::Sdi | PageType::SdiBlob),
         "COMPRESSED" | "COMP" => matches!(
             page_type,
-            PageType::Compressed | PageType::CompressedEncrypted
+            PageType::Compressed
+                | PageType::CompressedEncrypted
+                | PageType::PageCompressed
+                | PageType::PageCompressedEncrypted
         ),
         "ENCRYPTED" | "ENC" => matches!(
             page_type,
-            PageType::Encrypted | PageType::CompressedEncrypted | PageType::EncryptedRtree
+            PageType::Encrypted
+                | PageType::CompressedEncrypted
+                | PageType::EncryptedRtree
+                | PageType::PageCompressedEncrypted
         ),
+        "INSTANT" => *page_type == PageType::Instant,
         _ => type_name.contains(&filter_upper),
     }
 }

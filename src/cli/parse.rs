@@ -242,7 +242,7 @@ fn print_page_info(
     wprintln!(writer, "Checksum: {}", header.checksum)?;
 
     // Checksum validation
-    let csum_result = checksum::validate_checksum(page_data, page_size);
+    let csum_result = checksum::validate_checksum(page_data, page_size, None);
     if verbose {
         let status = if csum_result.valid {
             "OK".green().to_string()

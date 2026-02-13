@@ -90,6 +90,10 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
     )?;
     wprintln!(writer)?;
 
+    // Detect vendor from creator string
+    let vendor = crate::innodb::vendor::detect_vendor_from_created_by(&header.created_by);
+    let is_mariadb = vendor == crate::innodb::vendor::InnoDbVendor::MariaDB;
+
     // Print header
     wprintln!(writer, "{}", "Log File Header (block 0)".bold())?;
     wprintln!(writer, "  Group ID:   {}", header.group_id)?;
@@ -97,6 +101,15 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
     wprintln!(writer, "  File No:    {}", header.file_no)?;
     if !header.created_by.is_empty() {
         wprintln!(writer, "  Created by: {}", header.created_by)?;
+    }
+    wprintln!(writer, "  Vendor:     {}", vendor)?;
+    if is_mariadb {
+        wprintln!(
+            writer,
+            "  {}",
+            "Note: MLOG record types are not decoded for MariaDB redo logs"
+                .yellow()
+        )?;
     }
     wprintln!(writer)?;
 
@@ -151,8 +164,8 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
             flush_str,
         )?;
 
-        // Verbose: show MLOG record types
-        if opts.verbose && hdr.has_data() {
+        // Verbose: show MLOG record types (skip for MariaDB — incompatible format)
+        if opts.verbose && hdr.has_data() && !is_mariadb {
             print_record_types(writer, &block_data, &hdr)?;
         }
 
@@ -273,7 +286,9 @@ fn execute_json(
 
         let checksum_ok = validate_log_block_checksum(&block_data);
 
-        let record_types = if opts.verbose && hdr.has_data() {
+        let is_mariadb = crate::innodb::vendor::detect_vendor_from_created_by(&header.created_by)
+            == crate::innodb::vendor::InnoDbVendor::MariaDB;
+        let record_types = if opts.verbose && hdr.has_data() && !is_mariadb {
             collect_record_type_names(&block_data, &hdr)
         } else {
             Vec::new()

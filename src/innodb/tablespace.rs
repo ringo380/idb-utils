@@ -14,6 +14,7 @@ use std::path::Path;
 
 use crate::innodb::constants::*;
 use crate::innodb::page::{FilHeader, FilTrailer, FspHeader};
+use crate::innodb::vendor::{detect_vendor_from_flags, VendorInfo};
 use crate::IdbError;
 
 /// Represents an open InnoDB tablespace file (.ibd).
@@ -23,6 +24,7 @@ pub struct Tablespace {
     page_size: u32,
     page_count: u64,
     fsp_header: Option<FspHeader>,
+    vendor_info: VendorInfo,
 }
 
 impl Tablespace {
@@ -51,11 +53,15 @@ impl Tablespace {
         file.read_exact(&mut buf)
             .map_err(|e| IdbError::Io(format!("Cannot read page 0: {}", e)))?;
 
-        // Parse FSP header from page 0 to detect page size
+        // Parse FSP header from page 0 to detect page size and vendor
         let fsp_header = FspHeader::parse(&buf);
+        let vendor_info = match &fsp_header {
+            Some(fsp) => detect_vendor_from_flags(fsp.flags),
+            None => VendorInfo::mysql(),
+        };
         let page_size = match &fsp_header {
             Some(fsp) => {
-                let detected = fsp.page_size_from_flags();
+                let detected = fsp.page_size_from_flags_with_vendor(&vendor_info);
                 // Validate the detected page size
                 if matches!(detected, 4096 | 8192 | 16384 | 32768 | 65536) {
                     detected
@@ -74,6 +80,7 @@ impl Tablespace {
             page_size,
             page_count,
             fsp_header,
+            vendor_info,
         })
     }
 
@@ -95,6 +102,10 @@ impl Tablespace {
             .map_err(|e| IdbError::Io(format!("Cannot read page 0: {}", e)))?;
 
         let fsp_header = FspHeader::parse(&buf);
+        let vendor_info = match &fsp_header {
+            Some(fsp) => detect_vendor_from_flags(fsp.flags),
+            None => VendorInfo::mysql(),
+        };
         let page_count = file_size / page_size as u64;
 
         Ok(Tablespace {
@@ -103,6 +114,7 @@ impl Tablespace {
             page_size,
             page_count,
             fsp_header,
+            vendor_info,
         })
     }
 
@@ -124,6 +136,11 @@ impl Tablespace {
     /// Returns the FSP header from page 0, if available.
     pub fn fsp_header(&self) -> Option<&FspHeader> {
         self.fsp_header.as_ref()
+    }
+
+    /// Returns the detected vendor information for this tablespace.
+    pub fn vendor_info(&self) -> &VendorInfo {
+        &self.vendor_info
     }
 
     /// Read a single page by page number into a newly allocated buffer.

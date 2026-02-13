@@ -113,7 +113,7 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
             continue;
         }
 
-        let csum_result = validate_checksum(&page_data, page_size);
+        let csum_result = validate_checksum(&page_data, page_size, Some(ts.vendor_info()));
         let lsn_valid = validate_lsn(&page_data, page_size);
 
         if csum_result.valid {
@@ -233,7 +233,7 @@ fn execute_json(
             continue;
         }
 
-        let csum_result = validate_checksum(&page_data, page_size);
+        let csum_result = validate_checksum(&page_data, page_size, Some(ts.vendor_info()));
         let lsn_valid = validate_lsn(&page_data, page_size);
 
         if csum_result.valid {
@@ -250,6 +250,7 @@ fn execute_json(
             let algorithm_name = match csum_result.algorithm {
                 ChecksumAlgorithm::Crc32c => "crc32c",
                 ChecksumAlgorithm::InnoDB => "innodb",
+                ChecksumAlgorithm::MariaDbFullCrc32 => "mariadb_full_crc32",
                 ChecksumAlgorithm::None => "none",
             };
             pages.push(PageChecksumJson {

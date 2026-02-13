@@ -150,6 +150,36 @@ pub const UT_HASH_RANDOM_MASK: u32 = 1463735687;
 /// Second random mask used by `ut_fold_ulint_pair` in legacy InnoDB checksums.
 pub const UT_HASH_RANDOM_MASK2: u32 = 1653893711;
 
+// ── MariaDB FSP flag constants (fsp0types.h) ────────────────────────
+
+/// MariaDB full_crc32 page size mask (bits 0-3). Same ssize encoding as
+/// MySQL but at a different bit position.
+pub const MARIADB_FSP_FLAGS_FCRC32_PAGE_SSIZE_MASK: u32 = 0x0F;
+
+/// MariaDB full_crc32 marker (bit 4). When set, the tablespace uses
+/// MariaDB's simplified full_crc32 format (10.5+).
+pub const MARIADB_FSP_FLAGS_FCRC32_MARKER_MASK: u32 = 0x10;
+
+/// MariaDB full_crc32 compression algorithm mask (bits 5-7).
+/// 0 = none, 1 = zlib, 2 = lz4, 3 = lzo, 4 = lzma, 5 = bzip2, 6 = snappy.
+pub const MARIADB_FSP_FLAGS_FCRC32_COMPRESSED_ALGO_MASK: u32 = 0xE0;
+
+/// MariaDB original-format page compression flag (bit 16).
+/// Not used by MySQL; its presence (with MySQL compression bits zero)
+/// indicates MariaDB original format.
+pub const MARIADB_FSP_FLAGS_PAGE_COMPRESSION: u32 = 1 << 16;
+
+// ── MariaDB page type constants ─────────────────────────────────────
+
+/// MariaDB page-level compression (replaces MySQL hole-punching type 14).
+pub const FIL_PAGE_PAGE_COMPRESSED: u16 = 34354;
+
+/// MariaDB page-level compression + encryption.
+pub const FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED: u16 = 37401;
+
+/// MariaDB instant ALTER TABLE metadata page.
+pub const FIL_PAGE_TYPE_INSTANT: u16 = 18;
+
 // ── Insert direction values ─────────────────────────────────────────
 
 /// Insert direction: left.

@@ -147,7 +147,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     // Read pre-corruption page data for --verify
     let pre_checksum = if opts.verify {
         let pre_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
-        Some(validate_checksum(&pre_data, page_size as u32))
+        Some(validate_checksum(&pre_data, page_size as u32, None))
     } else {
         None
     };
@@ -157,7 +157,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
         write_corruption(&opts.file, corrupt_offset, &random_data)?;
         let verify_json = if opts.verify {
             let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
-            let post_result = validate_checksum(&post_data, page_size as u32);
+            let post_result = validate_checksum(&post_data, page_size as u32, None);
             let pre = pre_checksum.expect("pre_checksum set when --verify is active");
             Some(VerifyResultJson {
                 page: page_num,
@@ -194,7 +194,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     // --verify: show before/after checksum comparison
     if opts.verify {
         let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
-        let post_result = validate_checksum(&post_data, page_size as u32);
+        let post_result = validate_checksum(&post_data, page_size as u32, None);
         let pre = pre_checksum.expect("pre_checksum set when --verify is active");
         wprintln!(writer)?;
         wprintln!(writer, "{}:", "Verification".bold())?;
@@ -333,6 +333,7 @@ fn checksum_to_json(result: &crate::innodb::checksum::ChecksumResult) -> Checksu
     let algorithm_name = match result.algorithm {
         ChecksumAlgorithm::Crc32c => "crc32c",
         ChecksumAlgorithm::InnoDB => "innodb",
+        ChecksumAlgorithm::MariaDbFullCrc32 => "mariadb_full_crc32",
         ChecksumAlgorithm::None => "none",
     };
     ChecksumInfoJson {
