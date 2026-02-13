@@ -1,0 +1,8 @@
+# https://rustsec.org/advisories/RUSTSEC-2026-0002
+#
+# lru 0.14.0 has a soundness issue in IterMut. The fix requires lru >= 0.16.3,
+# but mysql_async 0.36.1 pins lru to 0.14.x. The upgrade to lru 0.16 is merged
+# in mysql_async master (PR #382) but not yet released. The mysql feature is
+# non-default and optional.
+[advisories]
+ignore = ["RUSTSEC-2026-0002"]
