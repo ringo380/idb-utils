@@ -250,6 +250,27 @@ fn main() {
             },
             &mut writer,
         ),
+
+        Commands::Diff {
+            file1,
+            file2,
+            verbose,
+            byte_ranges,
+            page,
+            json,
+            page_size,
+        } => cli::diff::execute(
+            &cli::diff::DiffOptions {
+                file1,
+                file2,
+                verbose,
+                byte_ranges,
+                page,
+                json,
+                page_size,
+            },
+            &mut writer,
+        ),
     };
 
     if let Err(e) = result {

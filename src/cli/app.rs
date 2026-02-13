@@ -438,4 +438,44 @@ pub enum Commands {
         #[arg(long = "page-size")]
         page_size: Option<u32>,
     },
+
+    /// Compare two tablespace files page-by-page
+    ///
+    /// Reads two InnoDB tablespace files and compares them page-by-page,
+    /// reporting which pages are identical, modified, or only present in
+    /// one file. With `--verbose`, per-page FIL header field diffs are
+    /// shown for modified pages, highlighting changes to checksums, LSNs,
+    /// page types, and space IDs. Add `--byte-ranges` (with `-v`) to see
+    /// the exact byte offsets where page content differs. Use `-p` to
+    /// compare a single page, or `--json` for machine-readable output.
+    ///
+    /// When files have different page sizes, only FIL headers (first 38
+    /// bytes) are compared and a warning is displayed.
+    Diff {
+        /// First InnoDB data file (.ibd)
+        file1: String,
+
+        /// Second InnoDB data file (.ibd)
+        file2: String,
+
+        /// Show per-page header field diffs
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Show byte-range diffs for changed pages (requires -v)
+        #[arg(short = 'b', long = "byte-ranges")]
+        byte_ranges: bool,
+
+        /// Compare a single page only
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+    },
 }

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`inno diff`** — New subcommand to compare two tablespace files page-by-page. Reports identical, modified, and only-in-one-file page counts with a list of modified page numbers. With `--verbose`, shows per-page FIL header field diffs (checksum, LSN, page type, space ID, prev/next, flush LSN). With `--byte-ranges` (and `-v`), shows exact byte-offset ranges where page content differs with totals and percentages. Supports `--json` for machine-readable output, `-p` for single-page comparison, and `--page-size` override. Handles page size mismatches by comparing only FIL headers with a warning. (Closes #10)
+- 8 integration tests for `diff` subcommand covering identical files, different LSNs, different page types, different page counts, single-page mode, byte ranges, JSON output, and page size mismatch
+
 ## [1.2.4] - 2026-02-07
 
 ### Added

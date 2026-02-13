@@ -8,6 +8,7 @@ IDB Utils gives you low-level visibility into InnoDB's on-disk structures. Use i
 
 - **Inspect tablespace files** — parse page headers, examine B+Tree index structures, walk undo logs, inspect BLOB/LOB chains
 - **Validate data integrity** — verify CRC-32C and legacy InnoDB checksums, detect LSN mismatches between headers and trailers
+- **Compare tablespace files** — diff two `.ibd` files page-by-page to detect changes between backups, find corruption drift, or analyze before/after differences
 - **Extract metadata** — read MySQL 8.0+ SDI (Serialized Dictionary Information) directly from `.ibd` files without a running server
 - **Analyze redo logs** — parse log file headers, checkpoints, and data blocks from both legacy and MySQL 8.0.30+ formats
 - **Assess data recoverability** — scan damaged tablespaces, classify page integrity, count salvageable records on INDEX pages
@@ -70,6 +71,9 @@ inno sdi -f users.ibd --pretty
 # Analyze redo log checkpoints
 inno log -f /var/lib/mysql/ib_logfile0
 
+# Compare two tablespace files (e.g., before/after a backup)
+inno diff backup.ibd current.ibd -v
+
 # Assess recoverability of a damaged tablespace
 inno recover -f users.ibd --force -v
 
@@ -90,6 +94,7 @@ Every subcommand supports `--json` for machine-readable output and `--help` for 
 | [`pages`](#inno-pages) | Detailed page structure analysis (INDEX, UNDO, LOB, SDI) |
 | [`dump`](#inno-dump) | Hex dump of raw page bytes |
 | [`checksum`](#inno-checksum) | Validate page checksums (CRC-32C and legacy InnoDB) |
+| [`diff`](#inno-diff) | Compare two tablespace files page-by-page |
 | [`corrupt`](#inno-corrupt) | Intentionally corrupt pages for recovery testing |
 | [`recover`](#inno-recover) | Assess page-level recoverability and count salvageable records |
 | [`find`](#inno-find) | Search for pages across a MySQL data directory |
@@ -263,6 +268,52 @@ inno checksum -f users.ibd --json
   "lsn_mismatches": 0,
   "pages": [...]
 }
+```
+
+---
+
+### inno diff
+
+Compare two InnoDB tablespace files page-by-page. Reports which pages are identical, modified, or only present in one file. Useful for analyzing changes between backups, before/after schema operations, or detecting corruption drift over time.
+
+```
+inno diff <file1> <file2> [-v] [-b] [-p <page>] [--json] [--page-size <size>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `<file1>` | First .ibd file (positional, required) |
+| `<file2>` | Second .ibd file (positional, required) |
+| `-v, --verbose` | Show per-page FIL header field diffs for modified pages |
+| `-b, --byte-ranges` | Show byte-offset ranges where content differs (requires `-v`) |
+| `-p, --page` | Compare a single page only |
+| `--json` | Output as JSON |
+| `--page-size` | Override page size |
+
+**Comparison levels:**
+1. **Quick byte equality** — fast path for identical pages (`page1 == page2`)
+2. **Header field diff** (`-v`) — parse both FIL headers, show changed fields with old/new values
+3. **Byte-range scan** (`-v -b`) — walk bytes to find contiguous diff ranges with totals and percentages
+
+**Page size mismatch:** When files have different page sizes, only FIL headers (first 38 bytes) are compared and a warning is displayed.
+
+**Different page counts:** Pages beyond the shorter file are reported as "only in file 1" or "only in file 2".
+
+```bash
+# Summary comparison
+inno diff backup.ibd current.ibd
+
+# Per-page header diffs
+inno diff backup.ibd current.ibd -v
+
+# Full byte-range detail
+inno diff backup.ibd current.ibd -v -b
+
+# Compare just page 5
+inno diff backup.ibd current.ibd -p 5
+
+# Machine-readable output
+inno diff backup.ibd current.ibd --json
 ```
 
 ---
@@ -640,7 +691,7 @@ cargo build --release --features mysql
 
 ### Test
 
-The test suite includes 74 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 79 integration tests that build synthetic `.ibd` files and run CLI commands against them.
+The test suite includes 74 unit tests covering InnoDB parsing logic (checksums, page types, headers, compression, encryption, SDI, redo logs, records, undo, recovery) and 87 integration tests that build synthetic `.ibd` files and run CLI commands against them.
 
 ```bash
 # Run all tests
@@ -679,6 +730,7 @@ src/
     pages.rs           inno pages
     dump.rs            inno dump
     checksum.rs        inno checksum
+    diff.rs            inno diff
     corrupt.rs         inno corrupt
     recover.rs         inno recover
     find.rs            inno find
@@ -705,6 +757,7 @@ src/
     mysql.rs           MySQL connection, .my.cnf parsing (feature-gated)
 tests/
   integration_test.rs  Integration tests with synthetic .ibd files
+  diff_test.rs         Diff subcommand integration tests
 ```
 
 Each CLI subcommand follows the same pattern: an `Options` struct with clap derive attributes and an `execute()` function returning `Result<(), IdbError>`.
