@@ -12,10 +12,13 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use serde::Serialize;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use crate::IdbError;
+
+/// Supertrait combining `Read + Seek` for type-erased readers.
+trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
 
 /// Size of a redo log block in bytes (from MySQL `log0log.h`).
 pub const LOG_BLOCK_SIZE: usize = 512;
@@ -373,30 +376,40 @@ impl std::fmt::Display for MlogRecordType {
 
 /// Redo log file reader.
 pub struct LogFile {
-    file: File,
+    reader: Box<dyn ReadSeek>,
     file_size: u64,
 }
 
 impl LogFile {
     /// Open a redo log file.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(path: &str) -> Result<Self, IdbError> {
-        let file =
-            File::open(path).map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
+        let file = std::fs::File::open(path)
+            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
         let file_size = file
             .metadata()
             .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path, e)))?
             .len();
 
+        Self::init(Box::new(file), file_size)
+    }
+
+    /// Create a log file reader from an in-memory byte buffer.
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self, IdbError> {
+        let file_size = data.len() as u64;
+        Self::init(Box::new(Cursor::new(data)), file_size)
+    }
+
+    fn init(reader: Box<dyn ReadSeek>, file_size: u64) -> Result<Self, IdbError> {
         if file_size < (LOG_FILE_HDR_BLOCKS as usize * LOG_BLOCK_SIZE) as u64 {
             return Err(IdbError::Parse(format!(
-                "File {} is too small for a redo log ({} bytes, minimum {})",
-                path,
+                "File is too small for a redo log ({} bytes, minimum {})",
                 file_size,
                 LOG_FILE_HDR_BLOCKS as usize * LOG_BLOCK_SIZE
             )));
         }
 
-        Ok(LogFile { file, file_size })
+        Ok(LogFile { reader, file_size })
     }
 
     /// Total number of 512-byte blocks in the file.
@@ -419,12 +432,12 @@ impl LogFile {
             )));
         }
 
-        self.file
+        self.reader
             .seek(SeekFrom::Start(offset))
             .map_err(|e| IdbError::Io(format!("Seek error: {}", e)))?;
 
         let mut buf = vec![0u8; LOG_BLOCK_SIZE];
-        self.file
+        self.reader
             .read_exact(&mut buf)
             .map_err(|e| IdbError::Io(format!("Read error at block {}: {}", block_no, e)))?;
 

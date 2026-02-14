@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for idb-utils.
 //!
 //! These tests construct synthetic InnoDB tablespace files (.ibd) with valid

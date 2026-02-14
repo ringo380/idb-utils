@@ -8,9 +8,7 @@
 //! The FSP header from page 0 is also parsed and cached, giving access to
 //! the space ID, tablespace size, and feature flags (compression, encryption).
 
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use crate::innodb::constants::*;
 use crate::innodb::decryption::DecryptionContext;
@@ -19,9 +17,13 @@ use crate::innodb::page::{FilHeader, FilTrailer, FspHeader};
 use crate::innodb::vendor::{detect_vendor_from_flags, VendorInfo};
 use crate::IdbError;
 
-/// Represents an open InnoDB tablespace file (.ibd).
+/// Supertrait combining `Read + Seek` for type-erased readers.
+pub(crate) trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
+
+/// Represents an open InnoDB tablespace file (.ibd) or in-memory tablespace.
 pub struct Tablespace {
-    file: File,
+    reader: Box<dyn ReadSeek>,
     file_size: u64,
     page_size: u32,
     page_count: u64,
@@ -33,9 +35,10 @@ pub struct Tablespace {
 
 impl Tablespace {
     /// Open an InnoDB tablespace file and auto-detect the page size.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, IdbError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<Self, IdbError> {
         let path = path.as_ref();
-        let mut file = File::open(path)
+        let file = std::fs::File::open(path)
             .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
 
         let file_size = file
@@ -43,6 +46,42 @@ impl Tablespace {
             .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path.display(), e)))?
             .len();
 
+        Self::init(Box::new(file), file_size, None)
+    }
+
+    /// Open with a specific page size (bypass auto-detection).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_with_page_size<P: AsRef<std::path::Path>>(path: P, page_size: u32) -> Result<Self, IdbError> {
+        let path = path.as_ref();
+        let file = std::fs::File::open(path)
+            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
+
+        let file_size = file
+            .metadata()
+            .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path.display(), e)))?
+            .len();
+
+        Self::init(Box::new(file), file_size, Some(page_size))
+    }
+
+    /// Create a tablespace from an in-memory byte buffer with auto-detected page size.
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self, IdbError> {
+        let file_size = data.len() as u64;
+        Self::init(Box::new(Cursor::new(data)), file_size, None)
+    }
+
+    /// Create a tablespace from an in-memory byte buffer with a specific page size.
+    pub fn from_bytes_with_page_size(data: Vec<u8>, page_size: u32) -> Result<Self, IdbError> {
+        let file_size = data.len() as u64;
+        Self::init(Box::new(Cursor::new(data)), file_size, Some(page_size))
+    }
+
+    /// Shared initialization: read page 0, detect page size/vendor/encryption.
+    fn init(
+        mut reader: Box<dyn ReadSeek>,
+        file_size: u64,
+        forced_page_size: Option<u32>,
+    ) -> Result<Self, IdbError> {
         if file_size < SIZE_FIL_HEAD as u64 + FSP_HEADER_SIZE as u64 {
             return Err(IdbError::Parse(format!(
                 "File too small to be a valid tablespace: {} bytes",
@@ -51,10 +90,13 @@ impl Tablespace {
         }
 
         // Read the first page (at least FIL header + FSP header area) to detect page size
-        // We read a full default-size page to be safe
-        let initial_read_size = std::cmp::min(file_size, SIZE_PAGE_DEFAULT as u64) as usize;
-        let mut buf = vec![0u8; initial_read_size];
-        file.read_exact(&mut buf)
+        let read_size = match forced_page_size {
+            Some(ps) => std::cmp::min(file_size, ps as u64) as usize,
+            None => std::cmp::min(file_size, SIZE_PAGE_DEFAULT as u64) as usize,
+        };
+        let mut buf = vec![0u8; read_size];
+        reader
+            .read_exact(&mut buf)
             .map_err(|e| IdbError::Io(format!("Cannot read page 0: {}", e)))?;
 
         // Parse FSP header from page 0 to detect page size and vendor
@@ -63,10 +105,9 @@ impl Tablespace {
             Some(fsp) => detect_vendor_from_flags(fsp.flags),
             None => VendorInfo::mysql(),
         };
-        let page_size = match &fsp_header {
+        let page_size = forced_page_size.unwrap_or_else(|| match &fsp_header {
             Some(fsp) => {
                 let detected = fsp.page_size_from_flags_with_vendor(&vendor_info);
-                // Validate the detected page size
                 if matches!(detected, 4096 | 8192 | 16384 | 32768 | 65536) {
                     detected
                 } else {
@@ -74,53 +115,18 @@ impl Tablespace {
                 }
             }
             None => SIZE_PAGE_DEFAULT,
-        };
+        });
 
         let page_count = file_size / page_size as u64;
-
-        // Parse encryption info from page 0
         let encryption_info = encryption::parse_encryption_info(&buf, page_size);
 
-        Ok(Tablespace {
-            file,
-            file_size,
-            page_size,
-            page_count,
-            fsp_header,
-            vendor_info,
-            encryption_info,
-            decryption_ctx: None,
-        })
-    }
-
-    /// Open with a specific page size (bypass auto-detection).
-    pub fn open_with_page_size<P: AsRef<Path>>(path: P, page_size: u32) -> Result<Self, IdbError> {
-        let path = path.as_ref();
-        let mut file = File::open(path)
-            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
-
-        let file_size = file
-            .metadata()
-            .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path.display(), e)))?
-            .len();
-
-        // Read page 0 for FSP header
-        let initial_read_size = std::cmp::min(file_size, page_size as u64) as usize;
-        let mut buf = vec![0u8; initial_read_size];
-        file.read_exact(&mut buf)
-            .map_err(|e| IdbError::Io(format!("Cannot read page 0: {}", e)))?;
-
-        let fsp_header = FspHeader::parse(&buf);
-        let vendor_info = match &fsp_header {
-            Some(fsp) => detect_vendor_from_flags(fsp.flags),
-            None => VendorInfo::mysql(),
-        };
-        let page_count = file_size / page_size as u64;
-
-        let encryption_info = encryption::parse_encryption_info(&buf, page_size);
+        // Seek back to start for future reads
+        reader
+            .seek(SeekFrom::Start(0))
+            .map_err(|e| IdbError::Io(format!("Cannot seek to start: {}", e)))?;
 
         Ok(Tablespace {
-            file,
+            reader,
             file_size,
             page_size,
             page_count,
@@ -190,11 +196,11 @@ impl Tablespace {
         let offset = page_num * self.page_size as u64;
         let mut buf = vec![0u8; self.page_size as usize];
 
-        self.file
+        self.reader
             .seek(SeekFrom::Start(offset))
             .map_err(|e| IdbError::Io(format!("Cannot seek to page {}: {}", page_num, e)))?;
 
-        self.file
+        self.reader
             .read_exact(&mut buf)
             .map_err(|e| IdbError::Io(format!("Cannot read page {}: {}", page_num, e)))?;
 
@@ -229,14 +235,14 @@ impl Tablespace {
     where
         F: FnMut(u64, &[u8]) -> Result<(), IdbError>,
     {
-        self.file
+        self.reader
             .seek(SeekFrom::Start(0))
             .map_err(|e| IdbError::Io(format!("Cannot seek to start: {}", e)))?;
 
         let ps = self.page_size as usize;
         let mut buf = vec![0u8; ps];
         for page_num in 0..self.page_count {
-            self.file
+            self.reader
                 .read_exact(&mut buf)
                 .map_err(|e| IdbError::Io(format!("Cannot read page {}: {}", page_num, e)))?;
 
@@ -375,6 +381,48 @@ mod tests {
             build_index_page(2, 1, 3000),
         ]);
         let mut ts = Tablespace::open(tmp.path()).unwrap();
+        let mut visited = Vec::new();
+        ts.for_each_page(|num, _data| {
+            visited.push(num);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_from_bytes_detects_page_size() {
+        let mut data = build_fsp_page(1, 2);
+        data.extend_from_slice(&build_index_page(1, 1, 2000));
+        let ts = Tablespace::from_bytes(data).unwrap();
+        assert_eq!(ts.page_size(), SIZE_PAGE_DEFAULT);
+        assert_eq!(ts.page_count(), 2);
+    }
+
+    #[test]
+    fn test_from_bytes_read_page() {
+        let mut data = build_fsp_page(5, 2);
+        data.extend_from_slice(&build_index_page(1, 5, 9999));
+        let mut ts = Tablespace::from_bytes(data).unwrap();
+        let page = ts.read_page(1).unwrap();
+        let hdr = FilHeader::parse(&page).unwrap();
+        assert_eq!(hdr.page_number, 1);
+        assert_eq!(hdr.space_id, 5);
+        assert_eq!(hdr.lsn, 9999);
+    }
+
+    #[test]
+    fn test_from_bytes_rejects_too_small() {
+        let result = Tablespace::from_bytes(vec![0u8; 10]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_bytes_for_each_page() {
+        let mut data = build_fsp_page(1, 3);
+        data.extend_from_slice(&build_index_page(1, 1, 2000));
+        data.extend_from_slice(&build_index_page(2, 1, 3000));
+        let mut ts = Tablespace::from_bytes(data).unwrap();
         let mut visited = Vec::new();
         ts.for_each_page(|num, _data| {
             visited.push(num);

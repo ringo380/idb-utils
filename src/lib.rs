@@ -113,9 +113,12 @@
 //! |---------|---------|-------------|
 //! | `mysql` | off | Enables live MySQL queries via `mysql_async` + `tokio` (used by `inno info`). |
 
+#[cfg(feature = "cli")]
 pub mod cli;
 pub mod innodb;
 pub mod util;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 use thiserror::Error;
 

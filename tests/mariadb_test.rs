@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for MariaDB tablespace format support.
 //!
 //! These tests construct synthetic tablespace files with MariaDB-specific FSP

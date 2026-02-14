@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for `inno watch` subcommand.
 //!
 //! Since watch is a polling loop, these tests exercise the snapshot and

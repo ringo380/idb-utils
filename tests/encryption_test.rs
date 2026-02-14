@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for encrypted tablespace support.
 //!
 //! These tests construct synthetic encrypted InnoDB tablespace files and

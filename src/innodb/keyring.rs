@@ -5,8 +5,6 @@
 //! prefixes and the key data is XOR-obfuscated. The file ends with a
 //! SHA-256 digest over all preceding bytes for integrity verification.
 
-use std::path::Path;
-
 use sha2::{Digest, Sha256};
 
 use crate::IdbError;
@@ -34,15 +32,11 @@ pub struct Keyring {
 }
 
 impl Keyring {
-    /// Load and parse a MySQL `keyring_file` from disk.
+    /// Parse a keyring from raw bytes (file contents including trailing SHA-256).
     ///
-    /// Reads the binary file, verifies the trailing SHA-256 checksum,
-    /// and parses all key entries with XOR de-obfuscation.
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, IdbError> {
-        let path = path.as_ref();
-        let data = std::fs::read(path)
-            .map_err(|e| IdbError::Io(format!("Cannot read keyring file {}: {}", path.display(), e)))?;
-
+    /// Verifies the trailing SHA-256 checksum and parses all key entries
+    /// with XOR de-obfuscation.
+    pub fn from_bytes(data: &[u8]) -> Result<Self, IdbError> {
         if data.len() < 32 {
             return Err(IdbError::Parse(
                 "Keyring file too small (must contain at least SHA-256 digest)".to_string(),
@@ -64,10 +58,20 @@ impl Keyring {
             ));
         }
 
-        // Parse entries from content
         let entries = parse_entries(content)?;
-
         Ok(Keyring { entries })
+    }
+
+    /// Load and parse a MySQL `keyring_file` from disk.
+    ///
+    /// Reads the binary file, verifies the trailing SHA-256 checksum,
+    /// and parses all key entries with XOR de-obfuscation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load<P: AsRef<std::path::Path>>(path: P) -> Result<Self, IdbError> {
+        let path = path.as_ref();
+        let data = std::fs::read(path)
+            .map_err(|e| IdbError::Io(format!("Cannot read keyring file {}: {}", path.display(), e)))?;
+        Self::from_bytes(&data)
     }
 
     /// Find a key entry by its full key ID string.

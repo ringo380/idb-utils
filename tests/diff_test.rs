@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for `inno diff` subcommand.
 
 use byteorder::{BigEndian, ByteOrder};
