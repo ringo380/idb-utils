@@ -49,6 +49,35 @@ impl IndexHeader {
     /// Parse an INDEX page header from a full page buffer.
     ///
     /// The INDEX header starts at FIL_PAGE_DATA (byte 38).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::index::IndexHeader;
+    /// use idb::innodb::constants::*;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Build a minimal page buffer (at least 38 + 36 = 74 bytes)
+    /// let mut page = vec![0u8; 256];
+    /// let base = FIL_PAGE_DATA; // byte 38
+    ///
+    /// // Set some fields in the INDEX header
+    /// BigEndian::write_u16(&mut page[base + PAGE_N_DIR_SLOTS..], 4);
+    /// BigEndian::write_u16(&mut page[base + PAGE_N_HEAP..], 0x8003); // compact + 3 records
+    /// BigEndian::write_u16(&mut page[base + PAGE_N_RECS..], 1);
+    /// BigEndian::write_u16(&mut page[base + PAGE_LEVEL..], 0);       // leaf page
+    /// BigEndian::write_u64(&mut page[base + PAGE_INDEX_ID..], 100);
+    /// BigEndian::write_u16(&mut page[base + PAGE_DIRECTION..], PAGE_RIGHT);
+    ///
+    /// let hdr = IndexHeader::parse(&page).unwrap();
+    /// assert_eq!(hdr.n_dir_slots, 4);
+    /// assert!(hdr.is_compact());
+    /// assert_eq!(hdr.n_heap(), 3);
+    /// assert_eq!(hdr.n_recs, 1);
+    /// assert!(hdr.is_leaf());
+    /// assert_eq!(hdr.index_id, 100);
+    /// assert_eq!(hdr.direction_name(), "Right");
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA;
         if page_data.len() < base + 36 {
@@ -116,6 +145,23 @@ pub struct FsegHeader {
 
 impl FsegHeader {
     /// Parse an FSEG header from a byte slice (must be at least 10 bytes).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::index::FsegHeader;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut data = vec![0u8; 10];
+    /// BigEndian::write_u32(&mut data[0..], 3);   // space_id
+    /// BigEndian::write_u32(&mut data[4..], 7);   // page_no
+    /// BigEndian::write_u16(&mut data[8..], 50);  // offset
+    ///
+    /// let fseg = FsegHeader::parse(&data).unwrap();
+    /// assert_eq!(fseg.space_id, 3);
+    /// assert_eq!(fseg.page_no, 7);
+    /// assert_eq!(fseg.offset, 50);
+    /// ```
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.len() < FSEG_HEADER_SIZE {
             return None;
@@ -130,6 +176,25 @@ impl FsegHeader {
     /// Parse the leaf FSEG header from a full page buffer.
     ///
     /// Leaf FSEG header is at FIL_PAGE_DATA + 36 (after the INDEX header).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::index::FsegHeader;
+    /// use idb::innodb::constants::{FIL_PAGE_DATA, FSEG_HEADER_SIZE};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut page = vec![0u8; 256];
+    /// let leaf_base = FIL_PAGE_DATA + 36; // byte 74
+    /// BigEndian::write_u32(&mut page[leaf_base..], 1);       // space_id
+    /// BigEndian::write_u32(&mut page[leaf_base + 4..], 10);  // page_no
+    /// BigEndian::write_u16(&mut page[leaf_base + 8..], 38);  // offset
+    ///
+    /// let leaf = FsegHeader::parse_leaf(&page).unwrap();
+    /// assert_eq!(leaf.space_id, 1);
+    /// assert_eq!(leaf.page_no, 10);
+    /// assert_eq!(leaf.offset, 38);
+    /// ```
     pub fn parse_leaf(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA + 36; // IDX_HDR_SIZE = 36
         if page_data.len() < base + FSEG_HEADER_SIZE {
@@ -141,6 +206,25 @@ impl FsegHeader {
     /// Parse the non-leaf (internal) FSEG header from a full page buffer.
     ///
     /// Internal FSEG header is at FIL_PAGE_DATA + 36 + 10 (after leaf FSEG).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::index::FsegHeader;
+    /// use idb::innodb::constants::{FIL_PAGE_DATA, FSEG_HEADER_SIZE};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut page = vec![0u8; 256];
+    /// let internal_base = FIL_PAGE_DATA + 36 + FSEG_HEADER_SIZE; // byte 84
+    /// BigEndian::write_u32(&mut page[internal_base..], 2);       // space_id
+    /// BigEndian::write_u32(&mut page[internal_base + 4..], 20);  // page_no
+    /// BigEndian::write_u16(&mut page[internal_base + 8..], 38);  // offset
+    ///
+    /// let internal = FsegHeader::parse_internal(&page).unwrap();
+    /// assert_eq!(internal.space_id, 2);
+    /// assert_eq!(internal.page_no, 20);
+    /// assert_eq!(internal.offset, 38);
+    /// ```
     pub fn parse_internal(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA + 36 + FSEG_HEADER_SIZE;
         if page_data.len() < base + FSEG_HEADER_SIZE {

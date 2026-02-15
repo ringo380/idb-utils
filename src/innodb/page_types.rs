@@ -83,6 +83,24 @@ impl PageType {
     ///
     /// Value 18 defaults to `SdiBlob` (MySQL interpretation). Use
     /// [`from_u16_with_vendor`] for MariaDB-aware resolution.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page_types::PageType;
+    ///
+    /// // INDEX pages (B+Tree data) use type code 17855
+    /// let page_type = PageType::from_u16(17855);
+    /// assert_eq!(page_type, PageType::Index);
+    ///
+    /// // FSP_HDR (file space header, page 0) uses type code 8
+    /// let fsp = PageType::from_u16(8);
+    /// assert_eq!(fsp, PageType::FspHdr);
+    ///
+    /// // Unrecognized values map to Unknown
+    /// let unknown = PageType::from_u16(9999);
+    /// assert_eq!(unknown, PageType::Unknown);
+    /// ```
     pub fn from_u16(value: u16) -> Self {
         match value {
             0 => PageType::Allocated,
@@ -121,6 +139,25 @@ impl PageType {
     ///
     /// Resolves ambiguous values:
     /// - Value 18: `Instant` for MariaDB, `SdiBlob` for MySQL/Percona
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page_types::PageType;
+    /// use idb::innodb::vendor::{VendorInfo, MariaDbFormat};
+    ///
+    /// // For MySQL, value 18 is SDI BLOB
+    /// let mysql = VendorInfo::mysql();
+    /// assert_eq!(PageType::from_u16_with_vendor(18, &mysql), PageType::SdiBlob);
+    ///
+    /// // For MariaDB, value 18 is Instant ALTER TABLE metadata
+    /// let mariadb = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+    /// assert_eq!(PageType::from_u16_with_vendor(18, &mariadb), PageType::Instant);
+    ///
+    /// // Non-ambiguous values are unaffected by vendor
+    /// assert_eq!(PageType::from_u16_with_vendor(17855, &mysql), PageType::Index);
+    /// assert_eq!(PageType::from_u16_with_vendor(17855, &mariadb), PageType::Index);
+    /// ```
     pub fn from_u16_with_vendor(value: u16, vendor_info: &VendorInfo) -> Self {
         use crate::innodb::vendor::InnoDbVendor;
 
@@ -282,6 +319,17 @@ impl PageType {
     }
 
     /// Returns the name of this page type as used in MySQL source.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page_types::PageType;
+    ///
+    /// assert_eq!(PageType::Index.name(), "INDEX");
+    /// assert_eq!(PageType::FspHdr.name(), "FSP_HDR");
+    /// assert_eq!(PageType::Sdi.name(), "SDI");
+    /// assert_eq!(PageType::PageCompressed.name(), "PAGE_COMPRESSED");
+    /// ```
     pub fn name(self) -> &'static str {
         self.metadata().0
     }

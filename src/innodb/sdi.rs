@@ -113,6 +113,20 @@ pub fn extract_sdi_from_page(page_data: &[u8]) -> Option<Vec<SdiRecord>> {
 ///
 /// When a record's compressed data spans beyond the current page, this function
 /// follows the next-page chain to collect all compressed bytes before decompression.
+///
+/// # Examples
+///
+/// ```no_run
+/// use idb::innodb::tablespace::Tablespace;
+/// use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+///
+/// let mut ts = Tablespace::open("table.ibd").unwrap();
+/// let sdi_pages = find_sdi_pages(&mut ts).unwrap();
+/// let records = extract_sdi_from_pages(&mut ts, &sdi_pages).unwrap();
+/// for rec in &records {
+///     println!("SDI type={}, id={}, data length={}", rec.sdi_type, rec.sdi_id, rec.data.len());
+/// }
+/// ```
 pub fn extract_sdi_from_pages(
     ts: &mut crate::innodb::tablespace::Tablespace,
     sdi_pages: &[u64],
@@ -315,6 +329,16 @@ fn decompress_sdi_data(compressed: &[u8], _uncompressed_len: u32) -> Option<Stri
 }
 
 /// Returns a human-readable name for an SDI type value (1 = "Table", 2 = "Tablespace").
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::sdi::sdi_type_name;
+///
+/// assert_eq!(sdi_type_name(1), "Table");
+/// assert_eq!(sdi_type_name(2), "Tablespace");
+/// assert_eq!(sdi_type_name(0), "Unknown");
+/// ```
 pub fn sdi_type_name(sdi_type: u32) -> &'static str {
     match sdi_type {
         1 => "Table",
@@ -324,6 +348,22 @@ pub fn sdi_type_name(sdi_type: u32) -> &'static str {
 }
 
 /// Check if a page is an SDI page.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::sdi::is_sdi_page;
+/// use byteorder::{BigEndian, ByteOrder};
+///
+/// // A zeroed-out buffer is not an SDI page.
+/// let page = vec![0u8; 256];
+/// assert!(!is_sdi_page(&page));
+///
+/// // Write SDI page type (17853) at the FIL_PAGE_TYPE offset (byte 24).
+/// let mut page = vec![0u8; 256];
+/// BigEndian::write_u16(&mut page[24..], 17853);
+/// assert!(is_sdi_page(&page));
+/// ```
 pub fn is_sdi_page(page_data: &[u8]) -> bool {
     FilHeader::parse(page_data)
         .map(|h| h.page_type == PageType::Sdi)
@@ -368,6 +408,30 @@ fn sdi_header_offset(page_size: u32) -> usize {
 /// Returns Some(page_num) if SDI version marker is found and the root page
 /// number is valid (non-zero and within the tablespace). Returns None if
 /// SDI is not present or the offset doesn't contain valid SDI info.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::sdi::read_sdi_root_page;
+/// use byteorder::{BigEndian, ByteOrder};
+///
+/// let page_size = 16384u32;
+/// let mut page0 = vec![0u8; page_size as usize];
+///
+/// // SDI header offset for 16K pages: 38 + 112 + 256*40 = 10390
+/// let sdi_offset = 10390;
+///
+/// // Write SDI version = 1 (expected value)
+/// BigEndian::write_u32(&mut page0[sdi_offset..], 1);
+/// // Write SDI root page = 3
+/// BigEndian::write_u32(&mut page0[sdi_offset + 4..], 3);
+///
+/// assert_eq!(read_sdi_root_page(&page0, page_size, 100), Some(3));
+///
+/// // Wrong version returns None.
+/// BigEndian::write_u32(&mut page0[sdi_offset..], 0);
+/// assert_eq!(read_sdi_root_page(&page0, page_size, 100), None);
+/// ```
 pub fn read_sdi_root_page(page0: &[u8], page_size: u32, page_count: u64) -> Option<u64> {
     let offset = sdi_header_offset(page_size);
 
@@ -393,6 +457,17 @@ pub fn read_sdi_root_page(page0: &[u8], page_size: u32, page_count: u64) -> Opti
 ///
 /// First tries to read the SDI root page number from page 0 (fast path),
 /// then falls back to scanning all pages if that fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// use idb::innodb::tablespace::Tablespace;
+/// use idb::innodb::sdi::find_sdi_pages;
+///
+/// let mut ts = Tablespace::open("table.ibd").unwrap();
+/// let pages = find_sdi_pages(&mut ts).unwrap();
+/// println!("Found {} SDI page(s): {:?}", pages.len(), pages);
+/// ```
 pub fn find_sdi_pages(
     ts: &mut crate::innodb::tablespace::Tablespace,
 ) -> Result<Vec<u64>, crate::IdbError> {

@@ -14,6 +14,21 @@ use std::io::Read;
 use crate::innodb::vendor::VendorInfo;
 
 /// Compression algorithm detected or used for a page.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::CompressionAlgorithm;
+///
+/// let algo = CompressionAlgorithm::Zlib;
+/// assert_eq!(format!("{algo}"), "Zlib");
+///
+/// let algo = CompressionAlgorithm::None;
+/// assert_eq!(format!("{algo}"), "None");
+///
+/// let algo = CompressionAlgorithm::Lz4;
+/// assert_eq!(format!("{algo}"), "LZ4");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionAlgorithm {
     None,
@@ -37,6 +52,27 @@ pub enum CompressionAlgorithm {
 /// - MySQL/Percona: reads bits 11-12
 ///
 /// Without vendor info, defaults to MySQL bit layout.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::{detect_compression, CompressionAlgorithm};
+/// use idb::innodb::vendor::{VendorInfo, MariaDbFormat};
+///
+/// // No compression flags → None
+/// assert_eq!(detect_compression(0, None), CompressionAlgorithm::None);
+///
+/// // MySQL: bit 11 set → Zlib
+/// assert_eq!(detect_compression(1 << 11, None), CompressionAlgorithm::Zlib);
+///
+/// // MySQL: bits 11-12 = 2 → LZ4
+/// assert_eq!(detect_compression(2 << 11, None), CompressionAlgorithm::Lz4);
+///
+/// // MariaDB full_crc32: bits 5-7 = 1 → Zlib
+/// let maria = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+/// let flags = 0x10 | (1 << 5); // bit 4 (marker) + algo=1
+/// assert_eq!(detect_compression(flags, Some(&maria)), CompressionAlgorithm::Zlib);
+/// ```
 pub fn detect_compression(
     fsp_flags: u32,
     vendor_info: Option<&VendorInfo>,
@@ -74,6 +110,27 @@ pub fn detect_compression(
 ///
 /// For page types 34354 (PAGE_COMPRESSED) and 37401 (PAGE_COMPRESSED_ENCRYPTED),
 /// the algorithm ID is stored as a u8 at byte offset 26 (FIL_PAGE_FILE_FLUSH_LSN).
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::{detect_mariadb_page_compression, CompressionAlgorithm};
+///
+/// // Build a minimal page with algorithm ID at byte 26
+/// let mut page = vec![0u8; 38];
+///
+/// // Algorithm ID 2 = LZ4
+/// page[26] = 2;
+/// assert_eq!(detect_mariadb_page_compression(&page), Some(CompressionAlgorithm::Lz4));
+///
+/// // Algorithm ID 1 = Zlib
+/// page[26] = 1;
+/// assert_eq!(detect_mariadb_page_compression(&page), Some(CompressionAlgorithm::Zlib));
+///
+/// // Too-short buffer returns None
+/// let short = vec![0u8; 10];
+/// assert_eq!(detect_mariadb_page_compression(&short), None);
+/// ```
 pub fn detect_mariadb_page_compression(page_data: &[u8]) -> Option<CompressionAlgorithm> {
     if page_data.len() < 27 {
         return None;
@@ -101,6 +158,28 @@ fn mariadb_algo_from_id(id: u8) -> CompressionAlgorithm {
 /// Decompress zlib-compressed page data.
 ///
 /// Returns the decompressed data, or None if decompression fails.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::decompress_zlib;
+///
+/// // Compress some data with flate2, then decompress with decompress_zlib
+/// use flate2::write::ZlibEncoder;
+/// use flate2::Compression;
+/// use std::io::Write;
+///
+/// let original = b"Hello, InnoDB!";
+/// let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+/// encoder.write_all(original).unwrap();
+/// let compressed = encoder.finish().unwrap();
+///
+/// let result = decompress_zlib(&compressed).unwrap();
+/// assert_eq!(result, original);
+///
+/// // Invalid data returns None
+/// assert!(decompress_zlib(&[0xFF, 0xFE]).is_none());
+/// ```
 pub fn decompress_zlib(compressed: &[u8]) -> Option<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed);
     let mut decompressed = Vec::new();
@@ -112,6 +191,18 @@ pub fn decompress_zlib(compressed: &[u8]) -> Option<Vec<u8>> {
 ///
 /// `uncompressed_len` is the expected output size (typically the page size).
 /// Returns the decompressed data, or None if decompression fails.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::decompress_lz4;
+///
+/// let original = b"Hello, LZ4 compression!";
+/// let compressed = lz4_flex::compress(original);
+///
+/// let result = decompress_lz4(&compressed, original.len()).unwrap();
+/// assert_eq!(result, original);
+/// ```
 pub fn decompress_lz4(compressed: &[u8], uncompressed_len: usize) -> Option<Vec<u8>> {
     lz4_flex::decompress(compressed, uncompressed_len).ok()
 }
@@ -120,6 +211,28 @@ pub fn decompress_lz4(compressed: &[u8], uncompressed_len: usize) -> Option<Vec<
 ///
 /// Hole-punched pages have their data zeroed out after the compressed content.
 /// The FIL header is preserved, and the actual data is followed by trailing zeros.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::is_hole_punched;
+///
+/// let page_size = 16384u32;
+///
+/// // All-zero page is considered hole-punched
+/// let zeros = vec![0u8; page_size as usize];
+/// assert!(is_hole_punched(&zeros, page_size));
+///
+/// // Data in the first part but zeros in the last quarter → hole-punched
+/// let mut page = vec![0u8; page_size as usize];
+/// page[0] = 0xFF;
+/// page[100] = 0xAB;
+/// assert!(is_hole_punched(&page, page_size));
+///
+/// // Non-zero byte in the last quarter → not hole-punched
+/// page[page_size as usize - 10] = 0x01;
+/// assert!(!is_hole_punched(&page, page_size));
+/// ```
 pub fn is_hole_punched(page_data: &[u8], page_size: u32) -> bool {
     if page_data.len() < page_size as usize {
         return false;

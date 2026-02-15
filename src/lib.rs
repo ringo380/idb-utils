@@ -112,6 +112,25 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `mysql` | off | Enables live MySQL queries via `mysql_async` + `tokio` (used by `inno info`). |
+//!
+//! # WASM
+//!
+//! The library can be compiled to WebAssembly for browser-based InnoDB file analysis:
+//!
+//! ```bash
+//! wasm-pack build --release --target web --no-default-features
+//! ```
+//!
+//! The WASM API exposes JSON-returning functions for all core operations:
+//! `get_tablespace_info`, `parse_tablespace`, `analyze_pages`,
+//! `validate_checksums`, `extract_sdi`, `diff_tablespaces`, `hex_dump_page`,
+//! `assess_recovery`, and `parse_redo_log`. Each function accepts raw file
+//! bytes as a `Uint8Array` and returns a JSON string (or plain text for hex
+//! dumps). See the [`wasm`] module documentation for details on individual
+//! function signatures and return schemas.
+//!
+//! A live web analyzer built on these bindings is available at
+//! <https://ringo380.github.io/idb-utils/>.
 
 #[cfg(feature = "cli")]
 pub mod cli;

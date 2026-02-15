@@ -42,6 +42,24 @@ const TRX_UNDO_NEXT_LOG: usize = 30; // 2 bytes
 const TRX_UNDO_PREV_LOG: usize = 32; // 2 bytes
 
 /// Undo page types.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::undo::UndoPageType;
+///
+/// let insert = UndoPageType::from_u16(1);
+/// assert_eq!(insert, UndoPageType::Insert);
+/// assert_eq!(insert.name(), "INSERT");
+///
+/// let update = UndoPageType::from_u16(2);
+/// assert_eq!(update, UndoPageType::Update);
+/// assert_eq!(update.name(), "UPDATE");
+///
+/// let unknown = UndoPageType::from_u16(99);
+/// assert_eq!(unknown, UndoPageType::Unknown(99));
+/// assert_eq!(unknown.name(), "UNKNOWN");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UndoPageType {
     /// Insert undo log (INSERT operations only)
@@ -73,6 +91,25 @@ impl UndoPageType {
 }
 
 /// Undo segment states.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::undo::UndoState;
+///
+/// assert_eq!(UndoState::from_u16(1), UndoState::Active);
+/// assert_eq!(UndoState::from_u16(2), UndoState::Cached);
+/// assert_eq!(UndoState::from_u16(3), UndoState::ToFree);
+/// assert_eq!(UndoState::from_u16(4), UndoState::ToPurge);
+/// assert_eq!(UndoState::from_u16(5), UndoState::Prepared);
+///
+/// assert_eq!(UndoState::Active.name(), "ACTIVE");
+/// assert_eq!(UndoState::ToPurge.name(), "TO_PURGE");
+///
+/// let unknown = UndoState::from_u16(0);
+/// assert_eq!(unknown, UndoState::Unknown(0));
+/// assert_eq!(unknown.name(), "UNKNOWN");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UndoState {
     /// Active transaction is using this segment
@@ -139,6 +176,29 @@ impl UndoPageHeader {
     /// Parse an undo page header from a full page buffer.
     ///
     /// The undo page header starts at FIL_PAGE_DATA (byte 38).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::undo::{UndoPageHeader, UndoPageType};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Build a minimal page buffer (at least 38 + 18 = 56 bytes).
+    /// let mut page = vec![0u8; 64];
+    /// let base = 38; // FIL_PAGE_DATA
+    ///
+    /// // Undo page type = UPDATE (2) at offset base+0
+    /// BigEndian::write_u16(&mut page[base..], 2);
+    /// // Start offset at base+2
+    /// BigEndian::write_u16(&mut page[base + 2..], 80);
+    /// // Free offset at base+4
+    /// BigEndian::write_u16(&mut page[base + 4..], 160);
+    ///
+    /// let hdr = UndoPageHeader::parse(&page).unwrap();
+    /// assert_eq!(hdr.page_type, UndoPageType::Update);
+    /// assert_eq!(hdr.start, 80);
+    /// assert_eq!(hdr.free, 160);
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA;
         if page_data.len() < base + TRX_UNDO_PAGE_HDR_SIZE {
@@ -158,6 +218,26 @@ impl UndoSegmentHeader {
     /// Parse an undo segment header from a full page buffer.
     ///
     /// The segment header follows the page header at FIL_PAGE_DATA + TRX_UNDO_PAGE_HDR_SIZE.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::undo::{UndoSegmentHeader, UndoState};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Need at least 38 (FIL header) + 18 (page header) + 30 (seg header) = 86 bytes.
+    /// let mut page = vec![0u8; 96];
+    /// let base = 38 + 18; // FIL_PAGE_DATA + TRX_UNDO_PAGE_HDR_SIZE
+    ///
+    /// // State = CACHED (2) at base+0
+    /// BigEndian::write_u16(&mut page[base..], 2);
+    /// // Last log offset at base+2
+    /// BigEndian::write_u16(&mut page[base + 2..], 200);
+    ///
+    /// let hdr = UndoSegmentHeader::parse(&page).unwrap();
+    /// assert_eq!(hdr.state, UndoState::Cached);
+    /// assert_eq!(hdr.last_log, 200);
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA + TRX_UNDO_PAGE_HDR_SIZE;
         if page_data.len() < base + TRX_UNDO_SEG_HDR_SIZE {
@@ -200,6 +280,47 @@ impl UndoLogHeader {
     ///
     /// The `log_offset` is typically obtained from UndoSegmentHeader::last_log
     /// or UndoPageHeader::start.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::undo::UndoLogHeader;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // The undo log header is 34 bytes starting at log_offset.
+    /// let log_offset = 100;
+    /// let mut page = vec![0u8; log_offset + 34];
+    ///
+    /// // trx_id (8 bytes) at offset 0
+    /// BigEndian::write_u64(&mut page[log_offset..], 1001);
+    /// // trx_no (8 bytes) at offset 8
+    /// BigEndian::write_u64(&mut page[log_offset + 8..], 500);
+    /// // del_marks (2 bytes) at offset 16
+    /// BigEndian::write_u16(&mut page[log_offset + 16..], 1);
+    /// // log_start (2 bytes) at offset 18
+    /// BigEndian::write_u16(&mut page[log_offset + 18..], 120);
+    /// // xid_exists (1 byte) at offset 20
+    /// page[log_offset + 20] = 1;
+    /// // dict_trans (1 byte) at offset 21
+    /// page[log_offset + 21] = 0;
+    /// // table_id (8 bytes) at offset 22
+    /// BigEndian::write_u64(&mut page[log_offset + 22..], 42);
+    /// // next_log (2 bytes) at offset 30
+    /// BigEndian::write_u16(&mut page[log_offset + 30..], 0);
+    /// // prev_log (2 bytes) at offset 32
+    /// BigEndian::write_u16(&mut page[log_offset + 32..], 0);
+    ///
+    /// let hdr = UndoLogHeader::parse(&page, log_offset).unwrap();
+    /// assert_eq!(hdr.trx_id, 1001);
+    /// assert_eq!(hdr.trx_no, 500);
+    /// assert!(hdr.del_marks);
+    /// assert_eq!(hdr.log_start, 120);
+    /// assert!(hdr.xid_exists);
+    /// assert!(!hdr.dict_trans);
+    /// assert_eq!(hdr.table_id, 42);
+    /// assert_eq!(hdr.next_log, 0);
+    /// assert_eq!(hdr.prev_log, 0);
+    /// ```
     pub fn parse(page_data: &[u8], log_offset: usize) -> Option<Self> {
         if page_data.len() < log_offset + 34 {
             return None;

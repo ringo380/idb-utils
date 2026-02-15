@@ -25,6 +25,23 @@ pub enum EncryptionAlgorithm {
 /// When `vendor_info` indicates MariaDB, returns `None` because MariaDB
 /// does not use a tablespace-level encryption flag. For MySQL/Percona,
 /// checks bit 13 of FSP flags.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::{detect_encryption, EncryptionAlgorithm};
+/// use idb::innodb::vendor::{VendorInfo, MariaDbFormat};
+///
+/// // No encryption flag set → None
+/// assert_eq!(detect_encryption(0, None), EncryptionAlgorithm::None);
+///
+/// // Bit 13 set → AES encryption detected
+/// assert_eq!(detect_encryption(1 << 13, None), EncryptionAlgorithm::Aes);
+///
+/// // MariaDB always returns None (encryption is per-page, not tablespace-level)
+/// let maria = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+/// assert_eq!(detect_encryption(1 << 13, Some(&maria)), EncryptionAlgorithm::None);
+/// ```
 pub fn detect_encryption(fsp_flags: u32, vendor_info: Option<&VendorInfo>) -> EncryptionAlgorithm {
     // MariaDB: no tablespace-level encryption flag
     if vendor_info.is_some_and(|v| v.vendor == crate::innodb::vendor::InnoDbVendor::MariaDB) {
@@ -39,11 +56,45 @@ pub fn detect_encryption(fsp_flags: u32, vendor_info: Option<&VendorInfo>) -> En
 }
 
 /// Check if a tablespace is encrypted based on its FSP flags.
+///
+/// This is a convenience wrapper around [`detect_encryption`] without
+/// vendor-specific handling. It checks whether bit 13 of the FSP flags
+/// is set (MySQL/Percona AES encryption).
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::is_encrypted;
+///
+/// // No encryption
+/// assert!(!is_encrypted(0));
+///
+/// // Bit 13 set → encrypted
+/// assert!(is_encrypted(1 << 13));
+///
+/// // Other bits do not indicate encryption
+/// assert!(!is_encrypted(0xFF));
+/// ```
 pub fn is_encrypted(fsp_flags: u32) -> bool {
     detect_encryption(fsp_flags, None) != EncryptionAlgorithm::None
 }
 
 /// Check if a page type indicates MariaDB page-level encryption.
+///
+/// MariaDB uses page type 37401 (`FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED`)
+/// for pages that are both compressed and encrypted at the page level.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::is_mariadb_encrypted_page;
+///
+/// // MariaDB compressed+encrypted page type
+/// assert!(is_mariadb_encrypted_page(37401));
+///
+/// // Standard INDEX page type
+/// assert!(!is_mariadb_encrypted_page(17855));
+/// ```
 pub fn is_mariadb_encrypted_page(page_type: u16) -> bool {
     page_type == crate::innodb::constants::FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED
 }
@@ -52,6 +103,24 @@ pub fn is_mariadb_encrypted_page(page_type: u16) -> bool {
 ///
 /// For page type 37401 (PAGE_COMPRESSED_ENCRYPTED), the key version
 /// is stored as a u32 at byte offset 26.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::mariadb_encryption_key_version;
+///
+/// // Build a minimal page with a key version at offset 26 (big-endian)
+/// let mut page = vec![0u8; 38];
+/// page[26] = 0x00;
+/// page[27] = 0x00;
+/// page[28] = 0x00;
+/// page[29] = 0x05;
+/// assert_eq!(mariadb_encryption_key_version(&page), Some(5));
+///
+/// // Too-short data returns None
+/// let short = vec![0u8; 10];
+/// assert_eq!(mariadb_encryption_key_version(&short), None);
+/// ```
 pub fn mariadb_encryption_key_version(page_data: &[u8]) -> Option<u32> {
     if page_data.len() < 30 {
         return None;
@@ -96,6 +165,18 @@ fn xdes_arr_size(page_size: u32) -> u32 {
 /// Compute the byte offset of the encryption info on page 0.
 ///
 /// Layout: FIL_PAGE_DATA(38) + FSP_HEADER(112) + XDES_ARRAY(entries * 40)
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::encryption_info_offset;
+///
+/// // For 16K pages: 38 + 112 + (256 * 40) = 10390
+/// assert_eq!(encryption_info_offset(16384), 10390);
+///
+/// // For 4K pages: 38 + 112 + (16 * 40) = 790
+/// assert_eq!(encryption_info_offset(4096), 790);
+/// ```
 pub fn encryption_info_offset(page_size: u32) -> usize {
     let xdes_arr_offset = FIL_PAGE_DATA + FSP_HEADER_SIZE;
     let xdes_entries = xdes_arr_size(page_size) as usize;
@@ -106,6 +187,34 @@ pub fn encryption_info_offset(page_size: u32) -> usize {
 ///
 /// Returns `None` if the page does not contain valid encryption info
 /// (no magic marker found at the expected offset).
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::encryption::{parse_encryption_info, encryption_info_offset};
+///
+/// // Build a synthetic 16K page with encryption info V3 (magic "lCC")
+/// let page_size = 16384u32;
+/// let mut page = vec![0u8; page_size as usize];
+/// let offset = encryption_info_offset(page_size);
+///
+/// // Write magic V3 marker
+/// page[offset..offset + 3].copy_from_slice(b"lCC");
+/// // Master key ID = 1 (big-endian u32 at offset+3)
+/// page[offset + 6] = 1;
+/// // Server UUID (36 ASCII bytes at offset+7)
+/// let uuid = b"01234567-89ab-cdef-0123-456789abcdef";
+/// page[offset + 7..offset + 7 + 36].copy_from_slice(uuid);
+///
+/// let info = parse_encryption_info(&page, page_size).unwrap();
+/// assert_eq!(info.magic_version, 3);
+/// assert_eq!(info.master_key_id, 1);
+/// assert_eq!(info.server_uuid, "01234567-89ab-cdef-0123-456789abcdef");
+///
+/// // No magic marker → returns None
+/// let empty_page = vec![0u8; page_size as usize];
+/// assert!(parse_encryption_info(&empty_page, page_size).is_none());
+/// ```
 pub fn parse_encryption_info(page0: &[u8], page_size: u32) -> Option<EncryptionInfo> {
     let offset = encryption_info_offset(page_size);
 

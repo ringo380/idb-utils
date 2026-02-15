@@ -42,6 +42,37 @@ impl FilHeader {
     /// Parse a FIL header from a byte slice.
     ///
     /// The slice must be at least SIZE_FIL_HEAD (38) bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page::FilHeader;
+    /// use idb::innodb::page_types::PageType;
+    /// use byteorder::{BigEndian, WriteBytesExt};
+    /// use std::io::{Cursor, Write};
+    ///
+    /// // Build a 38-byte FIL header with known values
+    /// let mut buf = vec![0u8; 38];
+    /// let mut c = Cursor::new(&mut buf);
+    /// c.write_u32::<BigEndian>(0xDEADBEEF).unwrap(); // checksum
+    /// c.write_u32::<BigEndian>(3).unwrap();           // page number
+    /// c.write_u32::<BigEndian>(2).unwrap();           // prev page
+    /// c.write_u32::<BigEndian>(4).unwrap();           // next page
+    /// c.write_u64::<BigEndian>(5000).unwrap();        // LSN
+    /// c.write_u16::<BigEndian>(17855).unwrap();       // page type (INDEX)
+    /// c.write_u64::<BigEndian>(4000).unwrap();        // flush LSN
+    /// c.write_u32::<BigEndian>(1).unwrap();           // space ID
+    ///
+    /// let header = FilHeader::parse(&buf).unwrap();
+    /// assert_eq!(header.checksum, 0xDEADBEEF);
+    /// assert_eq!(header.page_number, 3);
+    /// assert_eq!(header.prev_page, 2);
+    /// assert_eq!(header.next_page, 4);
+    /// assert_eq!(header.lsn, 5000);
+    /// assert_eq!(header.page_type, PageType::Index);
+    /// assert_eq!(header.flush_lsn, 4000);
+    /// assert_eq!(header.space_id, 1);
+    /// ```
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.len() < SIZE_FIL_HEAD {
             return None;
@@ -84,6 +115,24 @@ impl FilTrailer {
     ///
     /// The slice should be the last 8 bytes of the page, or at least 8 bytes
     /// starting from the trailer position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page::FilTrailer;
+    /// use byteorder::{BigEndian, WriteBytesExt};
+    /// use std::io::Cursor;
+    ///
+    /// // Build an 8-byte FIL trailer
+    /// let mut buf = vec![0u8; 8];
+    /// let mut c = Cursor::new(&mut buf);
+    /// c.write_u32::<BigEndian>(0xAABBCCDD).unwrap(); // old-style checksum
+    /// c.write_u32::<BigEndian>(0x11223344).unwrap(); // LSN low 32 bits
+    ///
+    /// let trailer = FilTrailer::parse(&buf).unwrap();
+    /// assert_eq!(trailer.checksum, 0xAABBCCDD);
+    /// assert_eq!(trailer.lsn_low32, 0x11223344);
+    /// ```
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.len() < SIZE_FIL_TRAILER {
             return None;
@@ -115,6 +164,31 @@ impl FspHeader {
     /// Parse the FSP header from page 0's data area.
     ///
     /// `data` should be the full page buffer. FSP header starts at FIL_PAGE_DATA (byte 38).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::page::FspHeader;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Build a buffer large enough for the FIL header (38 bytes) + FSP header (112 bytes)
+    /// let mut buf = vec![0u8; 150];
+    /// let fsp_offset = 38; // FSP header starts at FIL_PAGE_DATA
+    ///
+    /// // Write FSP header fields at their offsets within the FSP region
+    /// BigEndian::write_u32(&mut buf[fsp_offset..], 42);       // space_id (offset 0)
+    /// BigEndian::write_u32(&mut buf[fsp_offset + 8..], 1000); // size in pages (offset 8)
+    /// BigEndian::write_u32(&mut buf[fsp_offset + 12..], 64);  // free_limit (offset 12)
+    /// BigEndian::write_u32(&mut buf[fsp_offset + 16..], 0);   // flags (offset 16)
+    /// BigEndian::write_u32(&mut buf[fsp_offset + 20..], 10);  // frag_n_used (offset 20)
+    ///
+    /// let fsp = FspHeader::parse(&buf).unwrap();
+    /// assert_eq!(fsp.space_id, 42);
+    /// assert_eq!(fsp.size, 1000);
+    /// assert_eq!(fsp.free_limit, 64);
+    /// assert_eq!(fsp.flags, 0);
+    /// assert_eq!(fsp.frag_n_used, 10);
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let offset = FIL_PAGE_DATA;
         if page_data.len() < offset + FSP_HEADER_SIZE {

@@ -13,6 +13,21 @@ use serde::Serialize;
 use std::fmt;
 
 /// InnoDB implementation vendor.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::vendor::InnoDbVendor;
+///
+/// let vendor = InnoDbVendor::MySQL;
+/// assert_eq!(format!("{vendor}"), "MySQL");
+///
+/// let vendor = InnoDbVendor::MariaDB;
+/// assert_eq!(format!("{vendor}"), "MariaDB");
+///
+/// let vendor = InnoDbVendor::Percona;
+/// assert_eq!(format!("{vendor}"), "Percona XtraDB");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum InnoDbVendor {
     /// Oracle MySQL (and binary-compatible forks like AWS Aurora).
@@ -59,6 +74,25 @@ impl fmt::Display for MariaDbFormat {
 }
 
 /// Vendor and format information for a tablespace or redo log.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::vendor::{VendorInfo, InnoDbVendor, MariaDbFormat};
+///
+/// // Create VendorInfo for each vendor
+/// let mysql = VendorInfo::mysql();
+/// assert_eq!(mysql.vendor, InnoDbVendor::MySQL);
+/// assert!(!mysql.is_full_crc32());
+///
+/// let percona = VendorInfo::percona();
+/// assert_eq!(percona.vendor, InnoDbVendor::Percona);
+///
+/// let maria = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+/// assert_eq!(maria.vendor, InnoDbVendor::MariaDB);
+/// assert!(maria.is_full_crc32());
+/// assert_eq!(format!("{maria}"), "MariaDB (full_crc32)");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VendorInfo {
     /// The InnoDB implementation vendor.
@@ -70,6 +104,16 @@ pub struct VendorInfo {
 
 impl VendorInfo {
     /// Create a VendorInfo for MySQL (the default).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::vendor::{VendorInfo, InnoDbVendor};
+    ///
+    /// let info = VendorInfo::mysql();
+    /// assert_eq!(info.vendor, InnoDbVendor::MySQL);
+    /// assert_eq!(info.mariadb_format, None);
+    /// ```
     pub fn mysql() -> Self {
         VendorInfo {
             vendor: InnoDbVendor::MySQL,
@@ -78,6 +122,16 @@ impl VendorInfo {
     }
 
     /// Create a VendorInfo for Percona.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::vendor::{VendorInfo, InnoDbVendor};
+    ///
+    /// let info = VendorInfo::percona();
+    /// assert_eq!(info.vendor, InnoDbVendor::Percona);
+    /// assert_eq!(info.mariadb_format, None);
+    /// ```
     pub fn percona() -> Self {
         VendorInfo {
             vendor: InnoDbVendor::Percona,
@@ -86,6 +140,17 @@ impl VendorInfo {
     }
 
     /// Create a VendorInfo for MariaDB with a specific format.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::vendor::{VendorInfo, InnoDbVendor, MariaDbFormat};
+    ///
+    /// let info = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+    /// assert_eq!(info.vendor, InnoDbVendor::MariaDB);
+    /// assert_eq!(info.mariadb_format, Some(MariaDbFormat::FullCrc32));
+    /// assert!(info.is_full_crc32());
+    /// ```
     pub fn mariadb(format: MariaDbFormat) -> Self {
         VendorInfo {
             vendor: InnoDbVendor::MariaDB,
@@ -94,6 +159,16 @@ impl VendorInfo {
     }
 
     /// Returns true if this is a MariaDB full_crc32 tablespace.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::vendor::{VendorInfo, MariaDbFormat};
+    ///
+    /// assert!(VendorInfo::mariadb(MariaDbFormat::FullCrc32).is_full_crc32());
+    /// assert!(!VendorInfo::mariadb(MariaDbFormat::Original).is_full_crc32());
+    /// assert!(!VendorInfo::mysql().is_full_crc32());
+    /// ```
     pub fn is_full_crc32(&self) -> bool {
         self.mariadb_format == Some(MariaDbFormat::FullCrc32)
     }
@@ -116,6 +191,26 @@ impl fmt::Display for VendorInfo {
 ///   (PAGE_COMPRESSION flag in a position MySQL doesn't use)
 /// - Otherwise → MySQL (Percona is binary-compatible, indistinguishable from
 ///   flags alone)
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::vendor::{detect_vendor_from_flags, InnoDbVendor, MariaDbFormat};
+///
+/// // Zero flags → MySQL (the default)
+/// let info = detect_vendor_from_flags(0);
+/// assert_eq!(info.vendor, InnoDbVendor::MySQL);
+///
+/// // Bit 4 set → MariaDB full_crc32
+/// let info = detect_vendor_from_flags(0x10);
+/// assert_eq!(info.vendor, InnoDbVendor::MariaDB);
+/// assert_eq!(info.mariadb_format, Some(MariaDbFormat::FullCrc32));
+///
+/// // Bit 16 set (PAGE_COMPRESSION) with MySQL compression bits zero → MariaDB original
+/// let info = detect_vendor_from_flags(1 << 16);
+/// assert_eq!(info.vendor, InnoDbVendor::MariaDB);
+/// assert_eq!(info.mariadb_format, Some(MariaDbFormat::Original));
+/// ```
 pub fn detect_vendor_from_flags(fsp_flags: u32) -> VendorInfo {
     use crate::innodb::constants::*;
 
@@ -141,6 +236,19 @@ pub fn detect_vendor_from_flags(fsp_flags: u32) -> VendorInfo {
 ///
 /// Redo log block 0 contains a creator string (e.g., "MySQL 8.0.32",
 /// "MariaDB 10.11.4", "Percona Server 8.0.32-24").
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::vendor::{detect_vendor_from_created_by, InnoDbVendor};
+///
+/// assert_eq!(detect_vendor_from_created_by("MySQL 8.0.32"), InnoDbVendor::MySQL);
+/// assert_eq!(detect_vendor_from_created_by("MariaDB 10.11.4"), InnoDbVendor::MariaDB);
+/// assert_eq!(detect_vendor_from_created_by("Percona Server 8.0.32-24"), InnoDbVendor::Percona);
+///
+/// // Unknown or empty strings default to MySQL
+/// assert_eq!(detect_vendor_from_created_by(""), InnoDbVendor::MySQL);
+/// ```
 pub fn detect_vendor_from_created_by(created_by: &str) -> InnoDbVendor {
     let lower = created_by.to_lowercase();
     if lower.contains("mariadb") {

@@ -1,0 +1,10 @@
+[book]
+title = "IDB Utils Documentation"
+authors = ["Ryan Robson"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/idb-utils/book/"
+git-repository-url = "https://github.com/ringo380/idb-utils"
+edit-url-template = "https://github.com/ringo380/idb-utils/edit/master/docs/{path}"

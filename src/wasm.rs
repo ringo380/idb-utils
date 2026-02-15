@@ -49,7 +49,17 @@ struct TablespaceInfo {
     fsp_flags: Option<u32>,
 }
 
-/// Return basic tablespace metadata (page size, page count, space ID, vendor, encryption).
+/// Returns basic tablespace metadata as JSON.
+///
+/// Takes raw `.ibd` file bytes and returns a JSON string containing a single
+/// object with fields: `page_size` (u32), `page_count` (u64), `file_size`
+/// (u64), `space_id` (u32 or null), `vendor` (string, e.g. "MySQL",
+/// "Percona XtraDB", or "MariaDB"), `is_encrypted` (bool), and `fsp_flags`
+/// (u32 or null). This is the lightest-weight analysis function, suitable
+/// for populating file summary panels without scanning every page.
+///
+/// Returns an error string if the input cannot be parsed as a valid InnoDB
+/// tablespace (e.g. the byte array is too short to contain a page 0 header).
 #[wasm_bindgen]
 pub fn get_tablespace_info(data: &[u8]) -> Result<String, JsValue> {
     let ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -97,7 +107,21 @@ struct TypeCount {
     count: u64,
 }
 
-/// Parse all pages and return a summary with page headers and type counts.
+/// Parses all pages in a tablespace and returns page headers with a type summary as JSON.
+///
+/// Takes raw `.ibd` file bytes and iterates over every page, extracting the
+/// 38-byte FIL header from each. Returns a JSON string containing an object
+/// with fields: `page_size` (u32), `page_count` (u64), `file_size` (u64),
+/// `vendor` (string), `pages` (array of page header objects), and
+/// `type_summary` (array of `{page_type, count}` objects sorted by frequency).
+///
+/// Each element in the `pages` array contains: `page_number` (u64),
+/// `checksum` (u32), `page_type` (u16 raw code), `page_type_name` (string),
+/// `lsn` (u64), `space_id` (u32), `prev_page` (u32 or null), and
+/// `next_page` (u32 or null). Sentinel values (`0xFFFFFFFF`) for prev/next
+/// page pointers are converted to null.
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
 #[wasm_bindgen]
 pub fn parse_tablespace(data: &[u8]) -> Result<String, JsValue> {
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -197,9 +221,24 @@ fn header_to_json(h: &FilHeader) -> PageHeaderJson {
     }
 }
 
-/// Analyze one or all pages with deep structure decoding.
-/// If `page_num` is >= 0, analyze only that page.
-/// If `page_num` is -1, analyze all pages.
+/// Performs deep structural analysis on one or all pages, decoding type-specific headers.
+///
+/// Takes raw `.ibd` file bytes and a page selector. If `page_num` is >= 0,
+/// only that single page is analyzed; if `page_num` is -1, all pages in the
+/// tablespace are analyzed. Returns a JSON array of page analysis objects.
+///
+/// Each page analysis object contains: `page_number` (u64), `header`
+/// (object with `checksum`, `page_number`, `prev_page`, `next_page`, `lsn`,
+/// `page_type`, `flush_lsn`, `space_id`), `page_type_name` (string), and
+/// `page_type_description` (human-readable string). Depending on the page
+/// type, the following optional sub-objects are included when applicable:
+/// `fsp_header` (page 0 FSP header with tablespace flags and extent info),
+/// `index_header` (B+Tree index page internals), `undo_page_header` and
+/// `undo_segment_header` (undo log page structures), `blob_header` (BLOB
+/// page metadata), and `lob_header` (LOB first-page metadata).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace or
+/// the requested page number is out of range.
 #[wasm_bindgen]
 pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -294,7 +333,23 @@ struct PageChecksum {
     lsn_valid: bool,
 }
 
-/// Validate all page checksums and return per-page results.
+/// Validates checksums for every page in a tablespace and returns a detailed report as JSON.
+///
+/// Takes raw `.ibd` file bytes, auto-detects the checksum algorithm
+/// (CRC-32C, legacy InnoDB, or MariaDB full_crc32), and validates each
+/// non-empty page. Also checks that the LSN in the FIL header matches the
+/// LSN low-32 bits stored in the FIL trailer.
+///
+/// Returns a JSON string containing an object with fields: `page_size`
+/// (u32), `total_pages` (u64), `empty_pages` (u64, all-zero pages skipped),
+/// `valid_pages` (u64), `invalid_pages` (u64), `lsn_mismatches` (u64), and
+/// `pages` (array of per-page results). Each element in `pages` contains:
+/// `page_number` (u64), `status` ("valid" or "invalid"), `algorithm`
+/// ("crc32c", "innodb", "mariadb_full_crc32", or "none"),
+/// `stored_checksum` (u32), `calculated_checksum` (u32), and `lsn_valid`
+/// (bool).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
 #[wasm_bindgen]
 pub fn validate_checksums(data: &[u8]) -> Result<String, JsValue> {
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -359,8 +414,22 @@ pub fn validate_checksums(data: &[u8]) -> Result<String, JsValue> {
 // extract_sdi — mirrors `inno sdi`
 // ---------------------------------------------------------------------------
 
-/// Extract SDI metadata records from a MySQL 8.0+ tablespace.
-/// Returns the raw SDI JSON records as a JSON array.
+/// Extracts Serialized Dictionary Information (SDI) metadata from a MySQL 8.0+ tablespace.
+///
+/// Takes raw `.ibd` file bytes, locates all SDI pages (page type 17853),
+/// reassembles multi-page zlib-compressed SDI records by following the page
+/// chain, decompresses them, and returns the parsed JSON metadata. SDI
+/// records contain the full MySQL data dictionary definition for the table
+/// stored in the tablespace, including column definitions, indexes, and
+/// table options.
+///
+/// Returns a JSON array of SDI record objects. Each object is the native
+/// MySQL SDI JSON structure (typically containing `dd_object` with table
+/// and column metadata). Returns an empty array (`[]`) if no SDI pages are
+/// found (e.g. pre-8.0 tablespaces or system tablespace files).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace or
+/// if SDI decompression fails.
 #[wasm_bindgen]
 pub fn extract_sdi(data: &[u8]) -> Result<String, JsValue> {
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -401,7 +470,24 @@ struct ModifiedPage {
     bytes_changed: usize,
 }
 
-/// Compare two tablespace files page-by-page and return differences.
+/// Compares two tablespace files page-by-page and returns a detailed diff report as JSON.
+///
+/// Takes two raw `.ibd` file byte arrays and compares them page-by-page.
+/// Both files must have the same page size or an error is returned. Pages
+/// are compared byte-for-byte; when differences exist, the FIL headers
+/// from both files are included along with a count of differing bytes.
+///
+/// Returns a JSON string containing an object with fields: `page_size_1`
+/// and `page_size_2` (u32), `page_count_1` and `page_count_2` (u64),
+/// `identical` (u64, number of byte-identical pages), `modified` (u64),
+/// `only_in_first` (u64, pages beyond the second file's range),
+/// `only_in_second` (u64), and `modified_pages` (array of diff details).
+/// Each element in `modified_pages` contains: `page_number` (u64),
+/// `header_1` and `header_2` (FIL header objects from each file), and
+/// `bytes_changed` (usize, total number of differing bytes in the page).
+///
+/// Returns an error string if either input is not a valid InnoDB tablespace
+/// or if the two files have different page sizes.
 #[wasm_bindgen]
 pub fn diff_tablespaces(data1: &[u8], data2: &[u8]) -> Result<String, JsValue> {
     let mut ts1 = Tablespace::from_bytes(data1.to_vec()).map_err(to_js_err)?;
@@ -477,8 +563,19 @@ pub fn diff_tablespaces(data1: &[u8], data2: &[u8]) -> Result<String, JsValue> {
 // hex_dump_page — mirrors `inno dump`
 // ---------------------------------------------------------------------------
 
-/// Return a hex dump of the specified page (or page 0 if page_num is -1).
-/// The `offset` and `length` parameters allow partial dumps within the page.
+/// Returns a formatted hex dump of a single page's raw bytes as a plain-text string.
+///
+/// Takes raw `.ibd` file bytes, a page selector, and optional byte range
+/// parameters. If `page_num` is negative, page 0 is used. The `offset`
+/// parameter specifies the starting byte within the page (0-based), and
+/// `length` specifies how many bytes to dump (0 means dump to end of page).
+///
+/// Returns a plain-text string (not JSON) formatted as a traditional hex
+/// dump with file offsets, hex byte values, and ASCII representation.
+/// Each line shows 16 bytes in the standard `xxd`-style layout.
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace,
+/// the page number is out of range, or the offset exceeds the page boundary.
 #[wasm_bindgen]
 pub fn hex_dump_page(
     data: &[u8],
@@ -537,7 +634,25 @@ struct PageRecovery {
     record_count: Option<usize>,
 }
 
-/// Assess page-level recoverability and count salvageable records.
+/// Assesses page-level recoverability and counts salvageable records as JSON.
+///
+/// Takes raw `.ibd` file bytes and evaluates every page for data recovery
+/// potential. Each page is classified as "intact" (valid checksum and LSN
+/// match), "corrupt" (checksum or LSN mismatch), or "empty" (all-zero
+/// bytes). For INDEX pages (B+Tree leaf and internal nodes), the function
+/// walks the compact record list to count individual data records that
+/// could be recovered.
+///
+/// Returns a JSON string containing an object with fields: `page_size`
+/// (u32), `page_count` (u64), `summary` (object with `intact`, `corrupt`,
+/// and `empty` counts as u64), `recoverable_records` (u64, total records
+/// found in intact INDEX pages), and `pages` (array of per-page results).
+/// Each element in `pages` contains: `page_number` (u64), `status`
+/// ("intact", "corrupt", or "empty"), `page_type` (string name),
+/// `checksum_valid` (bool), `lsn_valid` (bool), `lsn` (u64), and
+/// `record_count` (usize or null, present only for INDEX pages).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
 #[wasm_bindgen]
 pub fn assess_recovery(data: &[u8]) -> Result<String, JsValue> {
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
@@ -649,7 +764,26 @@ struct RedoBlock {
     record_types: Vec<String>,
 }
 
-/// Parse an InnoDB redo log file and return header, checkpoints, and block details.
+/// Parses an InnoDB redo log file and returns header, checkpoint, and block details as JSON.
+///
+/// Takes raw redo log file bytes (typically `ib_logfile0` or `#ib_redo*`
+/// files) and parses the file header, both checkpoint slots, and every
+/// 512-byte log block. For each block that contains data, the first
+/// mini-transaction record type is identified and included.
+///
+/// Returns a JSON string containing an object with fields: `file_size`
+/// (u64), `total_blocks` (u64, including header blocks), `data_blocks`
+/// (u64, excluding the file header blocks), `header` (log file header
+/// object or null), `checkpoint_1` and `checkpoint_2` (checkpoint objects
+/// or null, each containing `checkpoint_no`, `checkpoint_lsn`,
+/// `checkpoint_offset`, etc.), and `blocks` (array of block details).
+/// Each block element contains: `block_index` (u64), `block_no` (u32),
+/// `flush_flag` (bool), `data_len` (u16), `first_rec_group` (u16),
+/// `checkpoint_no` (u32), `checksum_valid` (bool), `has_data` (bool),
+/// and `record_types` (array of mlog record type name strings).
+///
+/// Returns an error string if the input is not a valid InnoDB redo log
+/// file (e.g. missing the log file header magic or too short).
 #[wasm_bindgen]
 pub fn parse_redo_log(data: &[u8]) -> Result<String, JsValue> {
     let mut log = LogFile::from_bytes(data.to_vec()).map_err(to_js_err)?;
