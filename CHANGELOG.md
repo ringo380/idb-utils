@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-02-14
+
+### Added
+
+- **WebAssembly build target** — The entire InnoDB analysis library now compiles to WASM via `wasm-bindgen`. Nine analysis functions are exported: `get_tablespace_info`, `parse_tablespace`, `analyze_pages`, `validate_checksums`, `extract_sdi`, `diff_tablespaces`, `hex_dump_page`, `assess_recovery`, and `parse_redo_log`. All accept raw file bytes and return JSON strings. (Closes #14)
+- **Web-based InnoDB Analyzer** — Single-page app in `web/` built with Vite and Tailwind CSS v4. Drag-and-drop .ibd file input (500 MB limit) with seven tabbed analysis views: Overview, Pages, Checksums, SDI, Hex Dump, Recovery, and Diff (two-file comparison). Dark/light theme toggle, keyboard navigation, and responsive layout.
+- GitHub Pages deployment workflow (`.github/workflows/pages.yml`) for automatic web UI publishing
+- WASM compilation check added to CI pipeline
+- `[profile.release]` optimized for WASM size (opt-level z, LTO, single codegen unit, strip)
+- SVG favicon and SEO/Open Graph meta tags for the web UI
+- Shared `esc()` HTML-escaping utility in `web/src/utils/html.js`
+- 6 new edge-case unit tests for `from_bytes()` constructors (empty and too-small input for `Tablespace`, `LogFile`, and `Keyring`)
+
+### Changed
+
+- **Library refactored for dual-target support** — `Tablespace`, `LogFile`, and `Keyring` now use a `Box<dyn ReadSeek>` abstraction instead of `std::fs::File` directly. New `from_bytes()` constructors accept in-memory buffers for WASM use. File-based `open()` and `load()` methods are conditionally compiled with `#[cfg(not(target_arch = "wasm32"))]`.
+- CLI dependencies (`clap`, `colored`, `indicatif`, `ctrlc`, `chrono`, `rand`) moved behind a `cli` feature gate. The `default` feature enables CLI; `--no-default-features` builds the pure library for WASM.
+- Library crate type changed to `["cdylib", "rlib"]` to support both WASM and native linking
+- Applied `cargo fmt` formatting across codebase
+
+### Fixed
+
+- `assess_recovery()` WASM binding now checks both checksum validity and LSN consistency when classifying pages as intact, matching the CLI `recover` behavior. Previously only checked checksums, which could misclassify torn-write pages.
+- Page size mismatch in `diff_tablespaces()` WASM binding now returns a descriptive error instead of silently comparing pages of different sizes.
+
 ## [1.4.0] - 2026-02-13
 
 ### Added
