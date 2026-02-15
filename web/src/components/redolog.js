@@ -67,7 +67,7 @@ export function createRedoLog(container, fileData) {
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-gray-500 border-b border-gray-800">
-                <th class="py-2 pr-4">Record Type</th>
+                <th scope="col" class="py-2 pr-4">Record Type</th>
                 <th class="py-2 pr-4 text-right">Count</th>
               </tr>
             </thead>
@@ -117,13 +117,13 @@ function renderBlockTable(blocks, nonEmptyOnly) {
     <table class="w-full text-xs font-mono">
       <thead class="sticky top-0 bg-gray-950">
         <tr class="text-left text-gray-500 border-b border-gray-800">
-          <th class="py-1 pr-3">Index</th>
-          <th class="py-1 pr-3">Block No</th>
-          <th class="py-1 pr-3">Flush</th>
-          <th class="py-1 pr-3">Data Len</th>
-          <th class="py-1 pr-3">1st Rec Group</th>
-          <th class="py-1 pr-3">Checksum</th>
-          <th class="py-1 pr-3">Record Types</th>
+          <th scope="col" class="py-1 pr-3">Index</th>
+          <th scope="col" class="py-1 pr-3">Block No</th>
+          <th scope="col" class="py-1 pr-3">Flush</th>
+          <th scope="col" class="py-1 pr-3">Data Len</th>
+          <th scope="col" class="py-1 pr-3">1st Rec Group</th>
+          <th scope="col" class="py-1 pr-3">Checksum</th>
+          <th scope="col" class="py-1 pr-3">Record Types</th>
         </tr>
       </thead>
       <tbody>

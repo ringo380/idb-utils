@@ -79,12 +79,12 @@ function renderTable(pages, invalidOnly) {
     <table class="w-full text-xs font-mono">
       <thead class="sticky top-0 bg-gray-950">
         <tr class="text-left text-gray-500 border-b border-gray-800">
-          <th class="py-1 pr-3">#</th>
-          <th class="py-1 pr-3">Status</th>
-          <th class="py-1 pr-3">Algorithm</th>
-          <th class="py-1 pr-3">Stored</th>
-          <th class="py-1 pr-3">Calculated</th>
-          <th class="py-1 pr-3">LSN</th>
+          <th scope="col" class="py-1 pr-3">#</th>
+          <th scope="col" class="py-1 pr-3">Status</th>
+          <th scope="col" class="py-1 pr-3">Algorithm</th>
+          <th scope="col" class="py-1 pr-3">Stored</th>
+          <th scope="col" class="py-1 pr-3">Calculated</th>
+          <th scope="col" class="py-1 pr-3">LSN</th>
         </tr>
       </thead>
       <tbody>

@@ -33,13 +33,13 @@ export function createPages(container, fileData) {
         <table class="w-full text-xs font-mono">
           <thead class="sticky top-0 bg-gray-950">
             <tr class="text-left text-gray-500 border-b border-gray-800">
-              <th class="py-1 pr-3">#</th>
-              <th class="py-1 pr-3">Type</th>
-              <th class="py-1 pr-3">LSN</th>
-              <th class="py-1 pr-3">Checksum</th>
-              <th class="py-1 pr-3">Prev</th>
-              <th class="py-1 pr-3">Next</th>
-              <th class="py-1 pr-3">Extra</th>
+              <th scope="col" class="py-1 pr-3">#</th>
+              <th scope="col" class="py-1 pr-3">Type</th>
+              <th scope="col" class="py-1 pr-3">LSN</th>
+              <th scope="col" class="py-1 pr-3">Checksum</th>
+              <th scope="col" class="py-1 pr-3">Prev</th>
+              <th scope="col" class="py-1 pr-3">Next</th>
+              <th scope="col" class="py-1 pr-3">Extra</th>
             </tr>
           </thead>
           <tbody>
@@ -197,14 +197,14 @@ function renderRecords(report) {
       <table class="w-full text-xs font-mono">
         <thead class="sticky top-0 bg-gray-950">
           <tr class="text-left text-gray-500 border-b border-gray-800">
-            <th class="py-1 pr-2">#</th>
-            <th class="py-1 pr-2">Type</th>
-            <th class="py-1 pr-2">Heap#</th>
-            <th class="py-1 pr-2">Owned</th>
-            <th class="py-1 pr-2">Del</th>
-            <th class="py-1 pr-2">MinRec</th>
-            <th class="py-1 pr-2">Next</th>
-            <th class="py-1 pr-2">Raw Bytes</th>
+            <th scope="col" class="py-1 pr-2">#</th>
+            <th scope="col" class="py-1 pr-2">Type</th>
+            <th scope="col" class="py-1 pr-2">Heap#</th>
+            <th scope="col" class="py-1 pr-2">Owned</th>
+            <th scope="col" class="py-1 pr-2">Del</th>
+            <th scope="col" class="py-1 pr-2">MinRec</th>
+            <th scope="col" class="py-1 pr-2">Next</th>
+            <th scope="col" class="py-1 pr-2">Raw Bytes</th>
           </tr>
         </thead>
         <tbody>

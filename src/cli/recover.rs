@@ -296,8 +296,8 @@ fn extract_records(
 
             RecoveredRecord {
                 offset: rec.offset,
-                heap_no: rec.header.heap_no,
-                delete_mark: rec.header.delete_mark,
+                heap_no: rec.header.heap_no(),
+                delete_mark: rec.header.delete_mark(),
                 data_hex: to_hex(data),
             }
         })

@@ -57,13 +57,13 @@ export function createOverview(container, fileData) {
         <table class="w-full text-xs font-mono">
           <thead class="sticky top-0 bg-gray-950">
             <tr class="text-left text-gray-500 border-b border-gray-800">
-              <th class="py-1 pr-3">#</th>
-              <th class="py-1 pr-3">Type</th>
-              <th class="py-1 pr-3">LSN</th>
-              <th class="py-1 pr-3">Space ID</th>
-              <th class="py-1 pr-3">Checksum</th>
-              <th class="py-1 pr-3">Prev</th>
-              <th class="py-1 pr-3">Next</th>
+              <th scope="col" class="py-1 pr-3">#</th>
+              <th scope="col" class="py-1 pr-3">Type</th>
+              <th scope="col" class="py-1 pr-3">LSN</th>
+              <th scope="col" class="py-1 pr-3">Space ID</th>
+              <th scope="col" class="py-1 pr-3">Checksum</th>
+              <th scope="col" class="py-1 pr-3">Prev</th>
+              <th scope="col" class="py-1 pr-3">Next</th>
             </tr>
           </thead>
           <tbody>

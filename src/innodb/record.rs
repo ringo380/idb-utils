@@ -1,10 +1,12 @@
-//! Row-level record parsing for InnoDB compact format.
+//! Row-level record parsing for InnoDB compact and redundant formats.
 //!
-//! InnoDB stores rows in compact record format (MySQL 5.0+), where each record
-//! has a 5-byte header containing the info bits, record type, heap number, and
-//! next-record pointer. This module provides [`RecordType`] classification and
-//! [`walk_compact_records`] to traverse the singly-linked record chain within
-//! an INDEX page, starting from the infimum record.
+//! InnoDB stores rows in either compact (MySQL 5.0+) or redundant (pre-5.0)
+//! record format. Each record has a header containing info bits, record type,
+//! heap number, and next-record pointer.
+//!
+//! This module provides [`RecordType`] classification, [`walk_compact_records`]
+//! and [`walk_redundant_records`] to traverse the singly-linked record chain
+//! within an INDEX page, starting from the infimum record.
 
 use byteorder::{BigEndian, ByteOrder};
 
@@ -144,13 +146,168 @@ impl CompactRecordHeader {
     }
 }
 
+/// Parsed redundant (old-style) record header.
+///
+/// In redundant format, 6 bytes precede each record:
+/// - Byte 0: info bits (delete mark, min_rec flag) + n_owned
+/// - Bytes 1-2: heap_no (13 bits) + rec_type (3 bits)
+/// - Bytes 2-3: n_fields (10 bits) + one_byte_offs flag (1 bit) (overlaps byte 2)
+/// - Bytes 4-5: next record offset (unsigned, absolute within page)
+#[derive(Debug, Clone)]
+pub struct RedundantRecordHeader {
+    /// Number of records owned by this record in the page directory.
+    pub n_owned: u8,
+    /// Delete mark flag.
+    pub delete_mark: bool,
+    /// Min-rec flag (leftmost record on a non-leaf level).
+    pub min_rec: bool,
+    /// Record's position in the heap.
+    pub heap_no: u16,
+    /// Record type.
+    pub rec_type: RecordType,
+    /// Absolute offset to the next record within the page (unsigned).
+    pub next_offset: u16,
+    /// Number of fields in this record.
+    pub n_fields: u16,
+    /// Whether field end offsets use 1 byte (true) or 2 bytes (false).
+    pub one_byte_offs: bool,
+}
+
+impl RedundantRecordHeader {
+    /// Parse a redundant record header from the 6 bytes preceding the record origin.
+    ///
+    /// `data` should point to the start of the 6-byte extra header.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::record::{RedundantRecordHeader, RecordType};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut data = vec![0u8; 6];
+    /// // byte 0: info_bits(4) | n_owned(4) — n_owned=1, no flags
+    /// data[0] = 0x01;
+    /// // bytes 1-2: heap_no=5, rec_type=Ordinary(0) => (5 << 3) | 0 = 40
+    /// BigEndian::write_u16(&mut data[1..3], 5 << 3);
+    /// // bytes 2-3: n_fields=3, one_byte_offs=true => (3 << 6) | 0x20 = 0x00E0
+    /// // But byte 2 is shared — we set bytes 2-3 after bytes 1-2
+    /// // For this test, set byte 3 separately to encode n_fields in lower byte
+    /// data[3] = (3 << 6) as u8; // n_fields low bits + one_byte_offs=0
+    /// // bytes 4-5: next_offset = 200 (absolute)
+    /// BigEndian::write_u16(&mut data[4..6], 200);
+    ///
+    /// let hdr = RedundantRecordHeader::parse(&data).unwrap();
+    /// assert_eq!(hdr.n_owned, 1);
+    /// assert!(!hdr.delete_mark);
+    /// assert_eq!(hdr.heap_no, 5);
+    /// assert_eq!(hdr.rec_type, RecordType::Ordinary);
+    /// assert_eq!(hdr.next_offset, 200);
+    /// ```
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < REC_N_OLD_EXTRA_BYTES {
+            return None;
+        }
+
+        // Byte 0: info_bits(4) | n_owned(4) — same layout as compact
+        let byte0 = data[0];
+        let n_owned = byte0 & 0x0F;
+        let delete_mark = (byte0 & 0x20) != 0;
+        let min_rec = (byte0 & 0x10) != 0;
+
+        // Bytes 1-2: heap_no (13 bits) + rec_type (3 bits) — same as compact
+        let heap_status = BigEndian::read_u16(&data[1..3]);
+        let rec_type = RecordType::from_u8((heap_status & 0x07) as u8);
+        let heap_no = (heap_status >> 3) & 0x1FFF;
+
+        // Bytes 2-3: n_fields (10 bits) + one_byte_offs_flag (1 bit) + unused (5 bits)
+        // Byte 2 is shared with the heap_no/rec_type word above.
+        let nf_word = BigEndian::read_u16(&data[2..4]);
+        let n_fields = (nf_word >> 6) & 0x03FF;
+        let one_byte_offs = (nf_word & 0x20) != 0;
+
+        // Bytes 4-5: next record offset (absolute, unsigned)
+        let next_offset = BigEndian::read_u16(&data[4..6]);
+
+        Some(RedundantRecordHeader {
+            n_owned,
+            delete_mark,
+            min_rec,
+            heap_no,
+            rec_type,
+            next_offset,
+            n_fields,
+            one_byte_offs,
+        })
+    }
+}
+
+/// Unified record header for both compact and redundant formats.
+#[derive(Debug, Clone)]
+pub enum RecordHeader {
+    /// Compact (new-style, MySQL 5.0+) record header.
+    Compact(CompactRecordHeader),
+    /// Redundant (old-style, pre-MySQL 5.0) record header.
+    Redundant(RedundantRecordHeader),
+}
+
+impl RecordHeader {
+    /// Number of records owned by this record in the page directory.
+    pub fn n_owned(&self) -> u8 {
+        match self {
+            Self::Compact(h) => h.n_owned,
+            Self::Redundant(h) => h.n_owned,
+        }
+    }
+
+    /// Delete mark flag.
+    pub fn delete_mark(&self) -> bool {
+        match self {
+            Self::Compact(h) => h.delete_mark,
+            Self::Redundant(h) => h.delete_mark,
+        }
+    }
+
+    /// Min-rec flag.
+    pub fn min_rec(&self) -> bool {
+        match self {
+            Self::Compact(h) => h.min_rec,
+            Self::Redundant(h) => h.min_rec,
+        }
+    }
+
+    /// Heap number.
+    pub fn heap_no(&self) -> u16 {
+        match self {
+            Self::Compact(h) => h.heap_no,
+            Self::Redundant(h) => h.heap_no,
+        }
+    }
+
+    /// Record type.
+    pub fn rec_type(&self) -> RecordType {
+        match self {
+            Self::Compact(h) => h.rec_type,
+            Self::Redundant(h) => h.rec_type,
+        }
+    }
+
+    /// Raw next-offset value as stored in the header (i16 for display).
+    /// For compact format this is relative; for redundant it is absolute.
+    pub fn next_offset_raw(&self) -> i16 {
+        match self {
+            Self::Compact(h) => h.next_offset,
+            Self::Redundant(h) => h.next_offset as i16,
+        }
+    }
+}
+
 /// A record position on a page, with its parsed header.
 #[derive(Debug, Clone)]
 pub struct RecordInfo {
     /// Absolute offset of the record origin within the page.
     pub offset: usize,
     /// Parsed record header.
-    pub header: CompactRecordHeader,
+    pub header: RecordHeader,
 }
 
 /// Walk all user records on a compact-format INDEX page.
@@ -168,7 +325,7 @@ pub struct RecordInfo {
 /// let page = ts.read_page(3).unwrap();
 /// let records = walk_compact_records(&page);
 /// for rec in &records {
-///     println!("Record at offset {}, type: {}", rec.offset, rec.header.rec_type.name());
+///     println!("Record at offset {}, type: {}", rec.offset, rec.header.rec_type().name());
 /// }
 /// ```
 pub fn walk_compact_records(page_data: &[u8]) -> Vec<RecordInfo> {
@@ -230,7 +387,7 @@ pub fn walk_compact_records(page_data: &[u8]) -> Vec<RecordInfo> {
         next_rel = hdr.next_offset;
         records.push(RecordInfo {
             offset: next_abs,
-            header: hdr,
+            header: RecordHeader::Compact(hdr),
         });
         current_offset = next_abs;
 
@@ -238,6 +395,76 @@ pub fn walk_compact_records(page_data: &[u8]) -> Vec<RecordInfo> {
         if next_rel == 0 {
             break;
         }
+    }
+
+    records
+}
+
+/// Walk all user records on a redundant-format INDEX page.
+///
+/// Starts from the old-style infimum and follows absolute next-record offsets
+/// until reaching supremum. Returns a list of record positions (excluding
+/// infimum/supremum).
+pub fn walk_redundant_records(page_data: &[u8]) -> Vec<RecordInfo> {
+    let mut records = Vec::new();
+
+    let infimum_origin = PAGE_OLD_INFIMUM;
+    if page_data.len() < infimum_origin + 2 {
+        return records;
+    }
+
+    let infimum_extra_start = infimum_origin - REC_N_OLD_EXTRA_BYTES;
+    if page_data.len() < infimum_extra_start + REC_N_OLD_EXTRA_BYTES {
+        return records;
+    }
+
+    let infimum_hdr = match RedundantRecordHeader::parse(&page_data[infimum_extra_start..]) {
+        Some(h) => h,
+        None => return records,
+    };
+
+    // In redundant format, next_offset is absolute within the page
+    let mut next_abs = infimum_hdr.next_offset as usize;
+
+    // Safety: limit iterations to prevent infinite loops
+    let max_iter = page_data.len();
+    let mut iterations = 0;
+
+    loop {
+        if iterations > max_iter {
+            break;
+        }
+        iterations += 1;
+
+        if next_abs < REC_N_OLD_EXTRA_BYTES || next_abs >= page_data.len() {
+            break;
+        }
+
+        let extra_start = next_abs - REC_N_OLD_EXTRA_BYTES;
+        if extra_start + REC_N_OLD_EXTRA_BYTES > page_data.len() {
+            break;
+        }
+
+        let hdr = match RedundantRecordHeader::parse(&page_data[extra_start..]) {
+            Some(h) => h,
+            None => break,
+        };
+
+        // Supremum or offset 0 means end
+        if hdr.rec_type == RecordType::Supremum {
+            break;
+        }
+
+        let current_next = hdr.next_offset as usize;
+        records.push(RecordInfo {
+            offset: next_abs,
+            header: RecordHeader::Redundant(hdr),
+        });
+
+        if current_next == 0 {
+            break;
+        }
+        next_abs = current_next;
     }
 
     records
@@ -366,5 +593,59 @@ mod tests {
         assert_eq!(hdr.heap_no, 10);
         assert_eq!(hdr.rec_type, RecordType::NodePtr);
         assert_eq!(hdr.next_offset, -50);
+    }
+
+    #[test]
+    fn test_redundant_record_header_parse() {
+        let mut data = vec![0u8; 6];
+        // byte 0: n_owned=2, delete_mark=1 => 0x22
+        data[0] = 0x22;
+        // bytes 1-2: heap_no=8, rec_type=Ordinary(0) => (8 << 3) = 64
+        BigEndian::write_u16(&mut data[1..3], 8 << 3);
+        // bytes 2-3 overlap — byte 2 is shared; set byte 3 for n_fields encoding
+        // n_fields=5, one_byte_offs=false: (5 << 6) = 320 = 0x0140
+        // But byte 2 is already set from the heap_no write, so we only set byte 3
+        data[3] = 0x40; // lower byte: n_fields bits 1-0 shifted + one_byte_offs=0
+        // bytes 4-5: next_offset = 300 (absolute)
+        BigEndian::write_u16(&mut data[4..6], 300);
+
+        let hdr = RedundantRecordHeader::parse(&data).unwrap();
+        assert_eq!(hdr.n_owned, 2);
+        assert!(hdr.delete_mark);
+        assert_eq!(hdr.heap_no, 8);
+        assert_eq!(hdr.rec_type, RecordType::Ordinary);
+        assert_eq!(hdr.next_offset, 300);
+    }
+
+    #[test]
+    fn test_redundant_record_header_no_flags() {
+        let mut data = vec![0u8; 6];
+        data[0] = 0x01; // n_owned=1, no flags
+        BigEndian::write_u16(&mut data[1..3], 3 << 3); // heap_no=3, Ordinary
+        BigEndian::write_u16(&mut data[4..6], 150);
+
+        let hdr = RedundantRecordHeader::parse(&data).unwrap();
+        assert_eq!(hdr.n_owned, 1);
+        assert!(!hdr.delete_mark);
+        assert!(!hdr.min_rec);
+        assert_eq!(hdr.heap_no, 3);
+        assert_eq!(hdr.rec_type, RecordType::Ordinary);
+        assert_eq!(hdr.next_offset, 150);
+    }
+
+    #[test]
+    fn test_record_header_enum_accessors() {
+        let mut data = vec![0u8; 5];
+        data[0] = 0x22; // delete_mark, n_owned=2
+        BigEndian::write_u16(&mut data[1..3], 5 << 3);
+        BigEndian::write_i16(&mut data[3..5], 42);
+
+        let compact = CompactRecordHeader::parse(&data).unwrap();
+        let header = RecordHeader::Compact(compact);
+        assert_eq!(header.n_owned(), 2);
+        assert!(header.delete_mark());
+        assert_eq!(header.heap_no(), 5);
+        assert_eq!(header.rec_type(), RecordType::Ordinary);
+        assert_eq!(header.next_offset_raw(), 42);
     }
 }
