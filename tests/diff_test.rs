@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for `inno diff` subcommand.
 
 use byteorder::{BigEndian, ByteOrder};
@@ -94,10 +95,7 @@ fn test_diff_identical_files() {
     let tmp1 = write_tablespace(&pages);
     let tmp2 = write_tablespace(&pages);
 
-    let opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     let output = run_diff(&opts);
 
     assert!(output.contains("Identical pages:  4"));
@@ -108,10 +106,7 @@ fn test_diff_identical_files() {
 
 #[test]
 fn test_diff_different_lsn() {
-    let pages1 = vec![
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ];
+    let pages1 = vec![build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)];
     let pages2 = vec![
         build_fsp_hdr_page(1, 2),
         build_index_page(1, 1, 5000), // different LSN
@@ -119,10 +114,7 @@ fn test_diff_different_lsn() {
     let tmp1 = write_tablespace(&pages1);
     let tmp2 = write_tablespace(&pages2);
 
-    let mut opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let mut opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     opts.verbose = true;
     let output = run_diff(&opts);
 
@@ -153,10 +145,7 @@ fn test_diff_different_page_types() {
     let tmp1 = write_tablespace(&pages1);
     let tmp2 = write_tablespace(&pages2);
 
-    let mut opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let mut opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     opts.verbose = true;
     let output = run_diff(&opts);
 
@@ -182,10 +171,7 @@ fn test_diff_different_page_counts() {
     let tmp1 = write_tablespace(&pages1);
     let tmp2 = write_tablespace(&pages2);
 
-    let opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     let output = run_diff(&opts);
 
     // page 0 differs (different FSP size field), pages 1-3 identical
@@ -210,10 +196,7 @@ fn test_diff_single_page_mode() {
     let tmp2 = write_tablespace(&pages2);
 
     // Only compare page 1
-    let mut opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let mut opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     opts.page = Some(1);
     opts.verbose = true;
     let output = run_diff(&opts);
@@ -249,10 +232,7 @@ fn test_diff_byte_ranges() {
     let tmp1 = write_tablespace(&pages1);
     let tmp2 = write_tablespace(&pages2);
 
-    let mut opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let mut opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     opts.verbose = true;
     opts.byte_ranges = true;
     let output = run_diff(&opts);
@@ -264,10 +244,7 @@ fn test_diff_byte_ranges() {
 
 #[test]
 fn test_diff_json_output() {
-    let pages1 = vec![
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ];
+    let pages1 = vec![build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)];
     let pages2 = vec![
         build_fsp_hdr_page(1, 2),
         build_index_page(1, 1, 5000), // different LSN
@@ -275,10 +252,7 @@ fn test_diff_json_output() {
     let tmp1 = write_tablespace(&pages1);
     let tmp2 = write_tablespace(&pages2);
 
-    let mut opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let mut opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     opts.json = true;
     let output = run_diff(&opts);
 
@@ -297,10 +271,7 @@ fn test_diff_json_output() {
 #[test]
 fn test_diff_page_size_mismatch() {
     // Create file1 with 16K pages (auto-detected)
-    let pages1 = vec![
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ];
+    let pages1 = vec![build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)];
     let tmp1 = write_tablespace(&pages1);
 
     // Create file2 as 8K pages using page_size override
@@ -316,7 +287,10 @@ fn test_diff_page_size_mismatch() {
     BigEndian::write_u32(&mut page0[fsp + FSP_SPACE_ID..], 1);
     BigEndian::write_u32(&mut page0[fsp + FSP_SIZE..], 2);
     // Set ssize=4 => 8192 byte pages
-    BigEndian::write_u32(&mut page0[fsp + FSP_SPACE_FLAGS..], 4 << FSP_FLAGS_POS_PAGE_SSIZE);
+    BigEndian::write_u32(
+        &mut page0[fsp + FSP_SPACE_FLAGS..],
+        4 << FSP_FLAGS_POS_PAGE_SSIZE,
+    );
     let trailer = small_ps - SIZE_FIL_TRAILER;
     BigEndian::write_u32(&mut page0[trailer + 4..], 1000u32);
     // CRC for 8K page
@@ -344,10 +318,7 @@ fn test_diff_page_size_mismatch() {
     tmp2.write_all(&page1).unwrap();
     tmp2.flush().unwrap();
 
-    let opts = default_opts(
-        tmp1.path().to_str().unwrap(),
-        tmp2.path().to_str().unwrap(),
-    );
+    let opts = default_opts(tmp1.path().to_str().unwrap(), tmp2.path().to_str().unwrap());
     let output = run_diff(&opts);
 
     assert!(output.contains("WARNING: Page size mismatch"));

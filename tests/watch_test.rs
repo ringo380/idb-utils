@@ -1,3 +1,4 @@
+#![cfg(feature = "cli")]
 //! Integration tests for `inno watch` subcommand.
 //!
 //! Since watch is a polling loop, these tests exercise the snapshot and
@@ -86,10 +87,7 @@ fn default_opts(file: &str) -> WatchOptions {
 fn test_watch_file_deleted_stops_gracefully() {
     // Create a tablespace, then delete it so the poll loop discovers
     // the file is gone and exits.
-    let tmp = write_tablespace(&[
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ]);
+    let tmp = write_tablespace(&[build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)]);
     let path = tmp.path().to_str().unwrap().to_string();
 
     // Delete the file before running watch so it detects deletion on first poll
@@ -116,10 +114,7 @@ fn test_watch_file_deleted_during_poll_text() {
     let file_path = dir.path().join("test.ibd");
 
     // Write tablespace to the persistent path
-    let pages = vec![
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ];
+    let pages = vec![build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)];
     {
         let mut f = fs::File::create(&file_path).expect("create file");
         for page in &pages {
@@ -160,10 +155,7 @@ fn test_watch_file_deleted_during_poll_text() {
 
 #[test]
 fn test_watch_json_opts_construction() {
-    let tmp = write_tablespace(&[
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ]);
+    let tmp = write_tablespace(&[build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)]);
     let opts = WatchOptions {
         file: tmp.path().to_str().unwrap().to_string(),
         interval: 500,
@@ -188,10 +180,7 @@ fn test_watch_nonexistent_file() {
 
 #[test]
 fn test_watch_page_size_override() {
-    let tmp = write_tablespace(&[
-        build_fsp_hdr_page(1, 2),
-        build_index_page(1, 1, 2000),
-    ]);
+    let tmp = write_tablespace(&[build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)]);
     let opts = WatchOptions {
         file: tmp.path().to_str().unwrap().to_string(),
         interval: 100,

@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-innodb-blue: #3b82f6;
+  --color-innodb-cyan: #22d3ee;
+  --color-innodb-green: #10b981;
+  --color-innodb-red: #ef4444;
+  --color-innodb-amber: #f59e0b;
+  --color-surface-1: #0f172a;
+  --color-surface-2: #1e293b;
+  --color-surface-3: #334155;
+}
+
+/* Hex dump styling */
+.hex-offset { color: var(--color-innodb-cyan); }
+.hex-byte { color: var(--color-innodb-green); }
+.hex-ascii { color: var(--color-innodb-amber); }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-surface-1); }
+::-webkit-scrollbar-thumb { background: var(--color-surface-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Page status badges */
+.badge-valid { background: #065f46; color: #6ee7b7; }
+.badge-invalid { background: #7f1d1d; color: #fca5a5; }
+.badge-empty { background: #1e293b; color: #94a3b8; }
+
+/* Tab active state */
+.tab-active {
+  border-bottom: 2px solid var(--color-innodb-cyan);
+  color: var(--color-innodb-cyan);
+}
+
+/* Drop zone animation */
+.dropzone-active {
+  border-color: var(--color-innodb-cyan);
+  background: rgba(34, 211, 238, 0.05);
+}

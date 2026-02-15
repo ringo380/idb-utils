@@ -158,10 +158,7 @@ mod tests {
             detect_compression(1 << 11, None),
             CompressionAlgorithm::Zlib
         );
-        assert_eq!(
-            detect_compression(2 << 11, None),
-            CompressionAlgorithm::Lz4
-        );
+        assert_eq!(detect_compression(2 << 11, None), CompressionAlgorithm::Lz4);
         assert_eq!(
             detect_compression(3 << 11, None),
             CompressionAlgorithm::None

@@ -292,10 +292,7 @@ mod tests {
         assert_eq!(fsp_4k.page_size_from_flags_with_vendor(&vendor), 4096);
 
         // ssize=0 (default 16K)
-        let fsp_default = FspHeader {
-            flags: 0x10,
-            ..fsp
-        };
+        let fsp_default = FspHeader { flags: 0x10, ..fsp };
         assert_eq!(
             fsp_default.page_size_from_flags_with_vendor(&vendor),
             SIZE_PAGE_DEFAULT

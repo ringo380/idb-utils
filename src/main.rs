@@ -1,3 +1,6 @@
+#[cfg(not(feature = "cli"))]
+compile_error!("The `inno` binary requires the `cli` feature. Build with `--features cli`.");
+
 use clap::Parser;
 use std::fs::File;
 use std::io::Write;

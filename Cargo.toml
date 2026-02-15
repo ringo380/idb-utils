@@ -14,28 +14,34 @@ exclude = [".env", ".DS_Store", "Dockerfile", "IdbHelpers/", "*.ibd"]
 [[bin]]
 name = "inno"
 path = "src/main.rs"
+required-features = ["cli"]
 
 [lib]
 name = "idb"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 byteorder = "1"
 crc32c = "0.6"
 thiserror = "2"
-colored = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-indicatif = "0.18"
 flate2 = "1"
 lz4_flex = "0.11"
-rand = "0.9"
 aes = "0.8"
 cbc = "0.1"
 ecb = "0.1"
 sha2 = "0.10"
-ctrlc = "3"
-chrono = "0.4"
+
+# CLI-only deps (gated behind `cli` feature)
+clap = { version = "4", features = ["derive"], optional = true }
+colored = { version = "2", optional = true }
+indicatif = { version = "0.18", optional = true }
+ctrlc = { version = "3", optional = true }
+chrono = { version = "0.4", optional = true }
+rand = { version = "0.9", optional = true }
+
+# MySQL query support (requires CLI)
 mysql_async = { version = "0.36", optional = true }
 tokio = { version = "1", features = ["rt", "macros"], optional = true }
 
@@ -46,9 +52,20 @@ clap_mangen = "0.2"
 [dev-dependencies]
 tempfile = "3"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
 [features]
-default = []
-mysql = ["dep:mysql_async", "dep:tokio"]
+default = ["cli"]
+cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand"]
+mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

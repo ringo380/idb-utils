@@ -796,6 +796,7 @@ dependencies = [
  "ecb",
  "flate2",
  "indicatif",
+ "js-sys",
  "lz4_flex",
  "mysql_async",
  "rand",
@@ -805,6 +806,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "wasm-bindgen",
 ]
 
 [[package]]

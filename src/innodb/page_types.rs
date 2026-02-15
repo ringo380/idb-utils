@@ -371,9 +371,6 @@ mod tests {
     fn test_page_type_display() {
         assert_eq!(format!("{}", PageType::Index), "INDEX");
         assert_eq!(format!("{}", PageType::FspHdr), "FSP_HDR");
-        assert_eq!(
-            format!("{}", PageType::PageCompressed),
-            "PAGE_COMPRESSED"
-        );
+        assert_eq!(format!("{}", PageType::PageCompressed), "PAGE_COMPRESSED");
     }
 }

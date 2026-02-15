@@ -239,12 +239,16 @@ pub fn execute(opts: &DiffOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     wprintln!(
         writer,
         "  File 1: {} ({} pages, {} bytes/page)",
-        opts.file1, pc1, ps1
+        opts.file1,
+        pc1,
+        ps1
     )?;
     wprintln!(
         writer,
         "  File 2: {} ({} pages, {} bytes/page)",
-        opts.file2, pc2, ps2
+        opts.file2,
+        pc2,
+        ps2
     )?;
     wprintln!(writer)?;
 
@@ -390,9 +394,7 @@ fn print_page_diff(
             }
 
             // Report unchanged page type for context
-            if h1.page_type == h2.page_type
-                && !changes.iter().any(|c| c.field == "Page Type")
-            {
+            if h1.page_type == h2.page_type && !changes.iter().any(|c| c.field == "Page Type") {
                 wprintln!(writer, "  Page Type: {} (unchanged)", h1.page_type.name())?;
             }
         }
@@ -499,14 +501,13 @@ fn execute_json(
                 ),
             };
 
-            let (byte_ranges, total_bytes_changed) =
-                if opts.byte_ranges && !page_size_mismatch {
-                    let ranges = find_diff_ranges(&data1, &data2);
-                    let total: usize = ranges.iter().map(|r| r.length).sum();
-                    (ranges, Some(total))
-                } else {
-                    (Vec::new(), None)
-                };
+            let (byte_ranges, total_bytes_changed) = if opts.byte_ranges && !page_size_mismatch {
+                let ranges = find_diff_ranges(&data1, &data2);
+                let total: usize = ranges.iter().map(|r| r.length).sum();
+                (ranges, Some(total))
+            } else {
+                (Vec::new(), None)
+            };
 
             modified_pages.push(PageDiff {
                 page_number: page_num,

@@ -10,7 +10,7 @@ use chrono::Local;
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::cli::{wprintln, setup_decryption};
+use crate::cli::{setup_decryption, wprintln};
 use crate::innodb::checksum::validate_checksum;
 use crate::innodb::page::FilHeader;
 use crate::innodb::tablespace::Tablespace;
@@ -267,13 +267,7 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                         },
                     )?;
                 } else {
-                    wprintln!(
-                        writer,
-                        "{}  {} {}",
-                        now_time_short(),
-                        "Error:".red(),
-                        e
-                    )?;
+                    wprintln!(writer, "{}  {} {}", now_time_short(), "Error:".red(), e)?;
                 }
                 continue;
             }
@@ -297,9 +291,7 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                         // Validate checksum for changed pages
                         let checksum_valid = open_tablespace(opts)
                             .and_then(|mut ts2| ts2.read_page(page_num))
-                            .map(|data| {
-                                validate_checksum(&data, page_size, None).valid
-                            })
+                            .map(|data| validate_checksum(&data, page_size, None).valid)
                             .unwrap_or(false);
 
                         let lsn_delta = new_snap.lsn as i64 - old_snap.lsn as i64;

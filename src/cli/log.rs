@@ -107,8 +107,7 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
         wprintln!(
             writer,
             "  {}",
-            "Note: MLOG record types are not decoded for MariaDB redo logs"
-                .yellow()
+            "Note: MLOG record types are not decoded for MariaDB redo logs".yellow()
         )?;
     }
     wprintln!(writer)?;
