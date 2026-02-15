@@ -61,6 +61,9 @@ default = ["cli"]
 cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand"]
 mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [package.metadata.docs.rs]
 all-features = true
 
