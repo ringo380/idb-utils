@@ -68,6 +68,23 @@ impl Tablespace {
     }
 
     /// Create a tablespace from an in-memory byte buffer with auto-detected page size.
+    ///
+    /// The byte buffer must contain at least one valid page starting with
+    /// a FIL header and FSP header on page 0 so that the page size can be
+    /// auto-detected.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use idb::innodb::tablespace::Tablespace;
+    ///
+    /// // `data` must be a valid tablespace image (at least one 16 KiB page
+    /// // with a properly formatted FSP header on page 0).
+    /// let data: Vec<u8> = std::fs::read("table.ibd").unwrap();
+    /// let ts = Tablespace::from_bytes(data).unwrap();
+    /// assert!(ts.page_count() > 0);
+    /// println!("Page size: {} bytes", ts.page_size());
+    /// ```
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, IdbError> {
         let file_size = data.len() as u64;
         Self::init(Box::new(Cursor::new(data)), file_size, None)
@@ -188,6 +205,21 @@ impl Tablespace {
     ///
     /// If a decryption context has been set and the page has an encrypted
     /// page type, the page is decrypted before being returned.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use idb::innodb::tablespace::Tablespace;
+    /// use idb::innodb::page::FilHeader;
+    ///
+    /// let mut ts = Tablespace::open("table.ibd").unwrap();
+    ///
+    /// // Read page 0 (the FSP_HDR page)
+    /// let page_data = ts.read_page(0).unwrap();
+    /// let header = FilHeader::parse(&page_data).unwrap();
+    /// println!("Page 0 type: {}", header.page_type);
+    /// println!("Space ID: {}", header.space_id);
+    /// ```
     pub fn read_page(&mut self, page_num: u64) -> Result<Vec<u8>, IdbError> {
         if page_num >= self.page_count {
             return Err(IdbError::Parse(format!(
@@ -234,6 +266,22 @@ impl Tablespace {
     ///
     /// If a decryption context has been set, encrypted pages are decrypted
     /// before being passed to the callback.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use idb::innodb::tablespace::Tablespace;
+    /// use idb::innodb::page::FilHeader;
+    ///
+    /// let mut ts = Tablespace::open("table.ibd").unwrap();
+    /// ts.for_each_page(|page_num, page_data| {
+    ///     if let Some(header) = FilHeader::parse(page_data) {
+    ///         println!("Page {}: type={}, LSN={}",
+    ///             page_num, header.page_type, header.lsn);
+    ///     }
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
     pub fn for_each_page<F>(&mut self, mut callback: F) -> Result<(), IdbError>
     where
         F: FnMut(u64, &[u8]) -> Result<(), IdbError>,

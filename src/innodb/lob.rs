@@ -43,6 +43,32 @@ pub struct BlobPageHeader {
 
 impl BlobPageHeader {
     /// Parse an old-style BLOB page header from a full page buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::lob::BlobPageHeader;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Build a minimal page buffer (at least 38 + 8 = 46 bytes).
+    /// let mut page = vec![0u8; 48];
+    /// let base = 38; // FIL_PAGE_DATA
+    ///
+    /// // part_len (4 bytes) at base+0
+    /// BigEndian::write_u32(&mut page[base..], 16000);
+    /// // next_page_no (4 bytes) at base+4
+    /// BigEndian::write_u32(&mut page[base + 4..], 7);
+    ///
+    /// let hdr = BlobPageHeader::parse(&page).unwrap();
+    /// assert_eq!(hdr.part_len, 16000);
+    /// assert_eq!(hdr.next_page_no, 7);
+    /// assert!(hdr.has_next());
+    ///
+    /// // Last page in chain uses FIL_NULL (0xFFFFFFFF).
+    /// BigEndian::write_u32(&mut page[base + 4..], 0xFFFFFFFF);
+    /// let last = BlobPageHeader::parse(&page).unwrap();
+    /// assert!(!last.has_next());
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA;
         if page_data.len() < base + LOB_HDR_SIZE {
@@ -77,6 +103,33 @@ pub struct LobFirstPageHeader {
 
 impl LobFirstPageHeader {
     /// Parse a LOB first page header from a full page buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::lob::LobFirstPageHeader;
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// // Build a minimal page buffer (at least 38 + 12 = 50 bytes).
+    /// let mut page = vec![0u8; 52];
+    /// let base = 38; // FIL_PAGE_DATA
+    ///
+    /// // version (1 byte) at base+0
+    /// page[base] = 1;
+    /// // flags (1 byte) at base+1
+    /// page[base + 1] = 0;
+    /// // data_len (4 bytes) at base+2
+    /// BigEndian::write_u32(&mut page[base + 2..], 250_000);
+    /// // trx_id (6 bytes, big-endian) at base+6
+    /// let trx_bytes = 9999u64.to_be_bytes();
+    /// page[base + 6..base + 12].copy_from_slice(&trx_bytes[2..8]);
+    ///
+    /// let hdr = LobFirstPageHeader::parse(&page).unwrap();
+    /// assert_eq!(hdr.version, 1);
+    /// assert_eq!(hdr.flags, 0);
+    /// assert_eq!(hdr.data_len, 250_000);
+    /// assert_eq!(hdr.trx_id, 9999);
+    /// ```
     pub fn parse(page_data: &[u8]) -> Option<Self> {
         let base = FIL_PAGE_DATA;
         if page_data.len() < base + LOB_FIRST_HDR_SIZE {
@@ -107,6 +160,20 @@ impl LobFirstPageHeader {
 ///
 /// Returns the list of (page_number, part_len) for each page in the chain.
 /// Stops at FIL_NULL or when max_pages is reached.
+///
+/// # Examples
+///
+/// ```no_run
+/// use idb::innodb::tablespace::Tablespace;
+/// use idb::innodb::lob::walk_blob_chain;
+///
+/// let mut ts = Tablespace::open("table.ibd").unwrap();
+/// // Walk up to 100 BLOB pages starting from page 5.
+/// let chain = walk_blob_chain(&mut ts, 5, 100).unwrap();
+/// for (page_no, part_len) in &chain {
+///     println!("Page {}: {} bytes", page_no, part_len);
+/// }
+/// ```
 pub fn walk_blob_chain(
     ts: &mut crate::innodb::tablespace::Tablespace,
     start_page: u64,

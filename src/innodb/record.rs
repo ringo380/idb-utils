@@ -27,6 +27,22 @@ impl RecordType {
     /// Convert a 3-bit status value from the record header to a `RecordType`.
     ///
     /// Only the lowest 3 bits of `val` are used.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::record::RecordType;
+    ///
+    /// assert_eq!(RecordType::from_u8(0), RecordType::Ordinary);
+    /// assert_eq!(RecordType::from_u8(1), RecordType::NodePtr);
+    /// assert_eq!(RecordType::from_u8(2), RecordType::Infimum);
+    /// assert_eq!(RecordType::from_u8(3), RecordType::Supremum);
+    ///
+    /// // Only the lowest 3 bits are used, so 0x08 maps to Ordinary
+    /// assert_eq!(RecordType::from_u8(0x08), RecordType::Ordinary);
+    ///
+    /// assert_eq!(RecordType::from_u8(0).name(), "REC_STATUS_ORDINARY");
+    /// ```
     pub fn from_u8(val: u8) -> Self {
         match val & 0x07 {
             0 => RecordType::Ordinary,
@@ -74,6 +90,30 @@ impl CompactRecordHeader {
     /// Parse a compact record header from the 5 bytes preceding the record origin.
     ///
     /// `data` should point to the start of the 5-byte extra header.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::record::{CompactRecordHeader, RecordType};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut data = vec![0u8; 5];
+    /// // byte 0: info_bits(4) | n_owned(4)
+    /// //   delete_mark=1 (bit 5), n_owned=2 (bits 0-3) => 0x22
+    /// data[0] = 0x22;
+    /// // bytes 1-2: heap_no=7 (7<<3=56), rec_type=0 (Ordinary) => 56
+    /// BigEndian::write_u16(&mut data[1..3], 7 << 3);
+    /// // bytes 3-4: next_offset = 42
+    /// BigEndian::write_i16(&mut data[3..5], 42);
+    ///
+    /// let hdr = CompactRecordHeader::parse(&data).unwrap();
+    /// assert_eq!(hdr.n_owned, 2);
+    /// assert!(hdr.delete_mark);
+    /// assert!(!hdr.min_rec);
+    /// assert_eq!(hdr.heap_no, 7);
+    /// assert_eq!(hdr.rec_type, RecordType::Ordinary);
+    /// assert_eq!(hdr.next_offset, 42);
+    /// ```
     pub fn parse(data: &[u8]) -> Option<Self> {
         if data.len() < REC_N_NEW_EXTRA_BYTES {
             return None;
@@ -117,6 +157,20 @@ pub struct RecordInfo {
 ///
 /// Starts from infimum and follows next-record offsets until reaching supremum.
 /// Returns a list of record positions (excluding infimum/supremum).
+///
+/// # Examples
+///
+/// ```no_run
+/// use idb::innodb::record::walk_compact_records;
+/// use idb::innodb::tablespace::Tablespace;
+///
+/// let mut ts = Tablespace::open("table.ibd").unwrap();
+/// let page = ts.read_page(3).unwrap();
+/// let records = walk_compact_records(&page);
+/// for rec in &records {
+///     println!("Record at offset {}, type: {}", rec.offset, rec.header.rec_type.name());
+/// }
+/// ```
 pub fn walk_compact_records(page_data: &[u8]) -> Vec<RecordInfo> {
     let mut records = Vec::new();
 

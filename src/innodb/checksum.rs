@@ -20,6 +20,21 @@ use crate::innodb::vendor::VendorInfo;
 use byteorder::{BigEndian, ByteOrder};
 
 /// Checksum algorithms used by InnoDB.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::checksum::ChecksumAlgorithm;
+///
+/// let algo = ChecksumAlgorithm::Crc32c;
+/// assert_eq!(algo, ChecksumAlgorithm::Crc32c);
+///
+/// // All variants
+/// let _crc = ChecksumAlgorithm::Crc32c;
+/// let _legacy = ChecksumAlgorithm::InnoDB;
+/// let _maria = ChecksumAlgorithm::MariaDbFullCrc32;
+/// let _none = ChecksumAlgorithm::None;
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChecksumAlgorithm {
     /// CRC-32C (hardware accelerated, MySQL 5.7.7+ default)
@@ -37,6 +52,33 @@ pub enum ChecksumAlgorithm {
 /// When `vendor_info` is provided and indicates MariaDB full_crc32 format,
 /// the full_crc32 algorithm is tried first (checksum stored in the last 4
 /// bytes of the page). Otherwise, MySQL CRC-32C and legacy InnoDB are tried.
+///
+/// # Examples
+///
+/// An all-zeros page (freshly allocated) is always considered valid:
+///
+/// ```
+/// use idb::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
+///
+/// let page = vec![0u8; 16384];
+/// let result = validate_checksum(&page, 16384, None);
+/// assert!(result.valid);
+/// assert_eq!(result.algorithm, ChecksumAlgorithm::None);
+/// ```
+///
+/// A page with the `BUF_NO_CHECKSUM_MAGIC` value (`0xDEADBEEF`) in bytes
+/// 0-3 is treated as having checksums disabled:
+///
+/// ```
+/// use idb::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
+/// use byteorder::{BigEndian, ByteOrder};
+///
+/// let mut page = vec![0u8; 16384];
+/// BigEndian::write_u32(&mut page[0..], 0xDEADBEEF);
+/// let result = validate_checksum(&page, 16384, None);
+/// assert!(result.valid);
+/// assert_eq!(result.algorithm, ChecksumAlgorithm::None);
+/// ```
 pub fn validate_checksum(
     page_data: &[u8],
     page_size: u32,
@@ -131,6 +173,21 @@ pub fn validate_checksum(
 }
 
 /// Result of a checksum validation.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::checksum::{validate_checksum, ChecksumResult, ChecksumAlgorithm};
+///
+/// let page = vec![0u8; 16384];
+/// let result: ChecksumResult = validate_checksum(&page, 16384, None);
+///
+/// // Inspect individual fields
+/// println!("Algorithm: {:?}", result.algorithm);
+/// println!("Valid: {}", result.valid);
+/// println!("Stored:     0x{:08X}", result.stored_checksum);
+/// println!("Calculated: 0x{:08X}", result.calculated_checksum);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ChecksumResult {
     /// The checksum algorithm that was detected or attempted.
@@ -219,6 +276,30 @@ fn calculate_innodb_checksum(page_data: &[u8], page_size: usize) -> u32 {
 /// Validate the LSN consistency between header and trailer.
 ///
 /// The low 32 bits of the header LSN should match the trailer LSN field.
+///
+/// # Examples
+///
+/// Build a 16 KiB page with a matching LSN in the header (bytes 16-23)
+/// and trailer (last 4 bytes):
+///
+/// ```
+/// use idb::innodb::checksum::validate_lsn;
+/// use byteorder::{BigEndian, ByteOrder};
+///
+/// let mut page = vec![0u8; 16384];
+///
+/// // Write LSN 0x00000000_AABBCCDD into the FIL header at byte 16
+/// BigEndian::write_u64(&mut page[16..], 0xAABBCCDD);
+///
+/// // Write the low 32 bits into the trailer (last 4 bytes of the page)
+/// BigEndian::write_u32(&mut page[16380..], 0xAABBCCDD);
+///
+/// assert!(validate_lsn(&page, 16384));
+///
+/// // Corrupt the trailer — LSN no longer matches
+/// BigEndian::write_u32(&mut page[16380..], 0x00000000);
+/// assert!(!validate_lsn(&page, 16384));
+/// ```
 pub fn validate_lsn(page_data: &[u8], page_size: u32) -> bool {
     let ps = page_size as usize;
     if page_data.len() < ps {

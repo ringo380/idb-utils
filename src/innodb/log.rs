@@ -70,6 +70,28 @@ pub struct LogFileHeader {
 
 impl LogFileHeader {
     /// Parse a log file header from the first 512-byte block.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::log::{LogFileHeader, LOG_BLOCK_SIZE,
+    ///     LOG_HEADER_GROUP_ID, LOG_HEADER_START_LSN,
+    ///     LOG_HEADER_FILE_NO, LOG_HEADER_CREATED_BY};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut block = vec![0u8; LOG_BLOCK_SIZE];
+    /// BigEndian::write_u32(&mut block[LOG_HEADER_GROUP_ID..], 1);
+    /// BigEndian::write_u64(&mut block[LOG_HEADER_START_LSN..], 0x1000);
+    /// BigEndian::write_u32(&mut block[LOG_HEADER_FILE_NO..], 0);
+    /// block[LOG_HEADER_CREATED_BY..LOG_HEADER_CREATED_BY + 12]
+    ///     .copy_from_slice(b"MySQL 8.0.32");
+    ///
+    /// let hdr = LogFileHeader::parse(&block).unwrap();
+    /// assert_eq!(hdr.group_id, 1);
+    /// assert_eq!(hdr.start_lsn, 0x1000);
+    /// assert_eq!(hdr.file_no, 0);
+    /// assert_eq!(hdr.created_by, "MySQL 8.0.32");
+    /// ```
     pub fn parse(block: &[u8]) -> Option<Self> {
         if block.len() < LOG_BLOCK_SIZE {
             return None;
@@ -113,6 +135,29 @@ pub struct LogCheckpoint {
 
 impl LogCheckpoint {
     /// Parse a checkpoint from a 512-byte block.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::log::{LogCheckpoint, LOG_BLOCK_SIZE,
+    ///     LOG_CHECKPOINT_NO, LOG_CHECKPOINT_LSN, LOG_CHECKPOINT_OFFSET,
+    ///     LOG_CHECKPOINT_BUF_SIZE, LOG_CHECKPOINT_ARCHIVED_LSN};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut block = vec![0u8; LOG_BLOCK_SIZE];
+    /// BigEndian::write_u64(&mut block[LOG_CHECKPOINT_NO..], 42);
+    /// BigEndian::write_u64(&mut block[LOG_CHECKPOINT_LSN..], 0xDEADBEEF);
+    /// BigEndian::write_u32(&mut block[LOG_CHECKPOINT_OFFSET..], 2048);
+    /// BigEndian::write_u32(&mut block[LOG_CHECKPOINT_BUF_SIZE..], 65536);
+    /// BigEndian::write_u64(&mut block[LOG_CHECKPOINT_ARCHIVED_LSN..], 0xCAFEBABE);
+    ///
+    /// let cp = LogCheckpoint::parse(&block).unwrap();
+    /// assert_eq!(cp.number, 42);
+    /// assert_eq!(cp.lsn, 0xDEADBEEF);
+    /// assert_eq!(cp.offset, 2048);
+    /// assert_eq!(cp.buf_size, 65536);
+    /// assert_eq!(cp.archived_lsn, 0xCAFEBABE);
+    /// ```
     pub fn parse(block: &[u8]) -> Option<Self> {
         if block.len() < LOG_BLOCK_SIZE {
             return None;
@@ -151,6 +196,27 @@ pub struct LogBlockHeader {
 
 impl LogBlockHeader {
     /// Parse a log block header from a 512-byte block.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::log::{LogBlockHeader, LOG_BLOCK_HDR_SIZE};
+    /// use byteorder::{BigEndian, ByteOrder};
+    ///
+    /// let mut block = vec![0u8; LOG_BLOCK_HDR_SIZE];
+    /// BigEndian::write_u32(&mut block[0..], 0x80000005); // flush bit + block_no=5
+    /// BigEndian::write_u16(&mut block[4..], 200);        // data_len
+    /// BigEndian::write_u16(&mut block[6..], 14);         // first_rec_group
+    /// BigEndian::write_u32(&mut block[8..], 3);          // checkpoint_no
+    ///
+    /// let hdr = LogBlockHeader::parse(&block).unwrap();
+    /// assert_eq!(hdr.block_no, 5);
+    /// assert!(hdr.flush_flag);
+    /// assert_eq!(hdr.data_len, 200);
+    /// assert_eq!(hdr.first_rec_group, 14);
+    /// assert_eq!(hdr.checkpoint_no, 3);
+    /// assert!(hdr.has_data());
+    /// ```
     pub fn parse(block: &[u8]) -> Option<Self> {
         if block.len() < LOG_BLOCK_HDR_SIZE {
             return None;
@@ -263,6 +329,24 @@ pub enum MlogRecordType {
 
 impl MlogRecordType {
     /// Convert a u8 type code to MlogRecordType.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use idb::innodb::log::MlogRecordType;
+    ///
+    /// let rec_type = MlogRecordType::from_u8(1);
+    /// assert_eq!(rec_type, MlogRecordType::Mlog1Byte);
+    /// assert_eq!(rec_type.name(), "MLOG_1BYTE");
+    ///
+    /// let insert = MlogRecordType::from_u8(9);
+    /// assert_eq!(insert, MlogRecordType::MlogRecInsert);
+    ///
+    /// // Unknown type codes are preserved
+    /// let unknown = MlogRecordType::from_u8(255);
+    /// assert_eq!(unknown, MlogRecordType::Unknown(255));
+    /// assert_eq!(format!("{}", unknown), "UNKNOWN(255)");
+    /// ```
     pub fn from_u8(val: u8) -> Self {
         match val {
             1 => MlogRecordType::Mlog1Byte,
@@ -395,6 +479,21 @@ impl LogFile {
     }
 
     /// Create a log file reader from an in-memory byte buffer.
+    ///
+    /// The buffer must be at least 2048 bytes (4 blocks of 512 bytes each for
+    /// the header and checkpoint blocks).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use idb::innodb::log::LogFile;
+    ///
+    /// // Build a minimal valid redo log (4 header blocks + 1 data block)
+    /// let data = vec![0u8; 512 * 5];
+    /// let mut log = LogFile::from_bytes(data).unwrap();
+    /// let header = log.read_header().unwrap();
+    /// println!("Created by: {}", header.created_by);
+    /// ```
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, IdbError> {
         let file_size = data.len() as u64;
         Self::init(Box::new(Cursor::new(data)), file_size)
