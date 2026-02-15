@@ -38,3 +38,39 @@
   border-color: var(--color-innodb-cyan);
   background: rgba(34, 211, 238, 0.05);
 }
+
+/* Accessibility — focus outlines */
+:focus-visible {
+  outline: 2px solid var(--color-innodb-cyan);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .border-gray-800, .border-gray-800\/30, .border-gray-800\/50 {
+    border-color: #9ca3af;
+  }
+  .text-gray-500, .text-gray-600 { color: #d1d5db; }
+}
+
+/* Touch-friendly targets */
+@media (pointer: coarse) {
+  button, [role="tab"], label {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  nav { scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+}
+
+/* Mobile tab bar scroll snap */
+@media (max-width: 640px) {
+  nav { scroll-snap-type: x mandatory; }
+  nav button { scroll-snap-align: start; }
+}

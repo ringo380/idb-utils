@@ -737,6 +737,203 @@ pub fn assess_recovery(data: &[u8]) -> Result<String, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// get_encryption_info — inspect encryption metadata from page 0
+// ---------------------------------------------------------------------------
+
+/// Returns encryption info from page 0 of an encrypted tablespace as JSON.
+///
+/// Takes raw `.ibd` file bytes, reads the FSP header to determine encryption
+/// status, and if encrypted, parses the encryption info structure to extract
+/// the magic version, master key ID, server UUID, and CRC32 checksum.
+///
+/// Returns a JSON string containing an object with fields: `is_encrypted`
+/// (bool), `server_uuid` (string or null), `master_key_id` (u32 or null),
+/// and `magic_version` (u8 or null). Fields are null when the tablespace
+/// is not encrypted.
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn get_encryption_info(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page0 = ts.read_page(0).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+
+    #[derive(Serialize)]
+    struct EncInfo {
+        is_encrypted: bool,
+        server_uuid: Option<String>,
+        master_key_id: Option<u32>,
+        magic_version: Option<u8>,
+    }
+
+    if !ts.is_encrypted() {
+        return to_json(&EncInfo {
+            is_encrypted: false,
+            server_uuid: None,
+            master_key_id: None,
+            magic_version: None,
+        });
+    }
+
+    let info = crate::innodb::encryption::parse_encryption_info(&page0, page_size);
+    match info {
+        Some(ei) => to_json(&EncInfo {
+            is_encrypted: true,
+            server_uuid: Some(ei.server_uuid),
+            master_key_id: Some(ei.master_key_id),
+            magic_version: Some(ei.magic_version),
+        }),
+        None => to_json(&EncInfo {
+            is_encrypted: true,
+            server_uuid: None,
+            master_key_id: None,
+            magic_version: None,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// decrypt_tablespace — decrypt all pages with a keyring
+// ---------------------------------------------------------------------------
+
+/// Decrypts an encrypted tablespace using a keyring file, returning the decrypted bytes.
+///
+/// Takes raw `.ibd` file bytes and raw keyring file bytes. Parses the
+/// encryption info from page 0, looks up the master key in the keyring,
+/// derives the per-tablespace key and IV, then decrypts all encrypted pages.
+/// Returns the fully decrypted tablespace as a `Vec<u8>` (converted to
+/// `Uint8Array` by wasm-bindgen).
+///
+/// The caller can then pass the returned bytes to any other analysis function
+/// (e.g. `parse_tablespace`, `validate_checksums`) as if the tablespace were
+/// unencrypted.
+///
+/// Returns an error string if the input is not a valid encrypted tablespace,
+/// the keyring cannot be parsed, or the master key is not found.
+#[wasm_bindgen]
+pub fn decrypt_tablespace(data: &[u8], keyring_data: &[u8]) -> Result<Vec<u8>, JsValue> {
+    use crate::innodb::decryption::DecryptionContext;
+    use crate::innodb::encryption::parse_encryption_info;
+    use crate::innodb::keyring::Keyring;
+
+    let keyring = Keyring::from_bytes(keyring_data).map_err(to_js_err)?;
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+    let page0 = ts.read_page(0).map_err(to_js_err)?;
+
+    let enc_info = parse_encryption_info(&page0, page_size)
+        .ok_or_else(|| JsValue::from_str("No encryption info found on page 0"))?;
+
+    let ctx = DecryptionContext::from_encryption_info(&enc_info, &keyring).map_err(to_js_err)?;
+    ts.set_decryption_context(ctx);
+
+    // Read all pages back (now transparently decrypted) into a contiguous buffer
+    let page_count = ts.page_count();
+    let mut result = Vec::with_capacity(page_count as usize * page_size as usize);
+    for pn in 0..page_count {
+        let page_data = ts.read_page(pn).map_err(to_js_err)?;
+        result.extend_from_slice(&page_data);
+    }
+
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// inspect_index_records — record-level INDEX page inspection
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct RecordDetail {
+    offset: usize,
+    rec_type: String,
+    heap_no: u16,
+    n_owned: u8,
+    delete_mark: bool,
+    min_rec: bool,
+    next_offset: i16,
+    raw_hex: String,
+}
+
+#[derive(Serialize)]
+struct IndexRecordReport {
+    page_number: u64,
+    index_id: u64,
+    level: u16,
+    n_recs: u16,
+    is_compact: bool,
+    records: Vec<RecordDetail>,
+}
+
+/// Inspects records on an INDEX page, returning record headers and raw hex snippets.
+///
+/// Takes raw `.ibd` file bytes and a page number. The page must be an INDEX
+/// page (type 17855). Returns a JSON string containing the page's index metadata
+/// and an array of record details from walking the compact record chain.
+///
+/// Each record in the `records` array contains: `offset` (usize, absolute byte
+/// offset within the page), `rec_type` (string, e.g. "REC_STATUS_ORDINARY"),
+/// `heap_no` (u16), `n_owned` (u8), `delete_mark` (bool), `min_rec` (bool),
+/// `next_offset` (i16, relative), and `raw_hex` (string, hex encoding of the
+/// first 20 bytes at the record origin).
+///
+/// Returns an error string if the page is not an INDEX page or the input is
+/// not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn inspect_index_records(data: &[u8], page_num: u64) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_data = ts.read_page(page_num).map_err(to_js_err)?;
+
+    let hdr = FilHeader::parse(&page_data)
+        .ok_or_else(|| JsValue::from_str("Cannot parse FIL header"))?;
+
+    if hdr.page_type != PageType::Index {
+        return Err(JsValue::from_str(&format!(
+            "Page {} is not an INDEX page (type: {})",
+            page_num,
+            hdr.page_type.name()
+        )));
+    }
+
+    let idx_hdr = IndexHeader::parse(&page_data)
+        .ok_or_else(|| JsValue::from_str("Cannot parse INDEX header"))?;
+
+    let recs = walk_compact_records(&page_data);
+    let records: Vec<RecordDetail> = recs
+        .iter()
+        .map(|r| {
+            let end = std::cmp::min(r.offset + 20, page_data.len());
+            let raw_bytes = &page_data[r.offset..end];
+            let raw_hex = raw_bytes
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            RecordDetail {
+                offset: r.offset,
+                rec_type: r.header.rec_type.name().to_string(),
+                heap_no: r.header.heap_no,
+                n_owned: r.header.n_owned,
+                delete_mark: r.header.delete_mark,
+                min_rec: r.header.min_rec,
+                next_offset: r.header.next_offset,
+                raw_hex,
+            }
+        })
+        .collect();
+
+    let report = IndexRecordReport {
+        page_number: page_num,
+        index_id: idx_hdr.index_id,
+        level: idx_hdr.level,
+        n_recs: idx_hdr.n_recs,
+        is_compact: idx_hdr.is_compact(),
+        records,
+    };
+    to_json(&report)
+}
+
+// ---------------------------------------------------------------------------
 // parse_redo_log — mirrors `inno log`
 // ---------------------------------------------------------------------------
 

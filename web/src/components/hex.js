@@ -1,6 +1,7 @@
 // Hex dump viewer — mirrors `inno dump`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createHex(container, fileData, pageCount) {
   container.innerHTML = `
@@ -24,6 +25,7 @@ export function createHex(container, fileData, pageCount) {
           <span class="text-xs text-gray-600">0 = full page</span>
         </div>
         <button id="hex-go" class="px-3 py-1 bg-innodb-blue hover:bg-blue-600 text-white rounded text-sm">Dump</button>
+        <span id="hex-export"></span>
       </div>
       <div id="hex-output" class="bg-surface-1 rounded-lg p-4 font-mono text-xs overflow-auto max-h-[calc(100vh-16rem)]">
         <span class="text-gray-600">Select a page and click Dump to view hex data.</span>
@@ -37,6 +39,8 @@ export function createHex(container, fileData, pageCount) {
   const goBtn = container.querySelector('#hex-go');
   const output = container.querySelector('#hex-output');
 
+  let lastDumpRaw = '';
+
   function doDump() {
     const wasm = getWasm();
     const page = parseInt(pageInput.value) || 0;
@@ -45,8 +49,10 @@ export function createHex(container, fileData, pageCount) {
 
     try {
       const dump = wasm.hex_dump_page(fileData, page, offset, length);
+      lastDumpRaw = dump;
       output.innerHTML = formatHexDump(dump);
     } catch (e) {
+      lastDumpRaw = '';
       output.innerHTML = `<span class="text-red-400">${esc(String(e))}</span>`;
     }
   }
@@ -57,6 +63,11 @@ export function createHex(container, fileData, pageCount) {
       if (e.key === 'Enter') doDump();
     });
   });
+
+  const exportSlot = container.querySelector('#hex-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => lastDumpRaw, 'hex_dump', { text: true }));
+  }
 
   // Auto-dump page 0
   doDump();
