@@ -4,7 +4,7 @@ Hex dump of raw bytes from an InnoDB tablespace file.
 
 ## Synopsis
 
-```
+```text
 inno dump -f <file> [-p <page>] [--offset <byte>] [-l <length>] [--raw] [--page-size <size>] [--keyring <path>] [--decrypt]
 ```
 
@@ -73,7 +73,7 @@ inno dump -f actor.ibd -p 3 --raw -o page3.bin
 
 The formatted hex dump displays 16 bytes per line with file-relative offsets on the left, hexadecimal byte values in the center, and ASCII character representation on the right:
 
-```
+```text
 Hex dump of actor.ibd page 0 (16384 bytes):
 
 00000000  A3 B1 C5 D7 00 00 00 00  FF FF FF FF FF FF FF FF  |................|

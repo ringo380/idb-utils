@@ -4,7 +4,7 @@ Compare two InnoDB tablespace files page-by-page.
 
 ## Synopsis
 
-```
+```text
 inno diff <file1> <file2> [-v] [-b] [-p <page>] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -71,7 +71,7 @@ inno diff original.ibd modified.ibd --json | jq '.summary'
 
 ### Text Mode
 
-```
+```text
 Comparing:
   File 1: original.ibd (7 pages, 16384 bytes/page)
   File 2: modified.ibd (7 pages, 16384 bytes/page)
@@ -87,7 +87,7 @@ Modified pages: 3, 4
 
 With `-v`, modified pages show field-level changes:
 
-```
+```text
 Page 3: MODIFIED
   Checksum: 0xA3B1C5D7 -> 0x12345678
   LSN: 5539 -> 6012
@@ -96,7 +96,7 @@ Page 3: MODIFIED
 
 With `-v -b`, byte-range diffs are appended:
 
-```
+```text
   Byte diff ranges:
     0-4 (4 bytes)
     38-16376 (16338 bytes)

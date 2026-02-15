@@ -4,7 +4,7 @@ Parse an InnoDB tablespace file and display page headers with a type summary.
 
 ## Synopsis
 
-```
+```text
 inno parse -f <file> [-p <page>] [-v] [-e] [--json] [--page-size <size>] [--keyring <path>]
 ```
 

@@ -4,7 +4,7 @@ Assess page-level recoverability and count salvageable records in an InnoDB tabl
 
 ## Synopsis
 
-```
+```text
 inno recover -f <file> [-p <page>] [-v] [--json] [--force] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -81,7 +81,7 @@ inno recover -f damaged_table.ibd --page-size 16384
 
 ### Text Mode
 
-```
+```text
 Recovery Analysis: damaged_table.ibd
 File size: 114688 bytes (7 pages x 16384 bytes)
 Page size: 16384 (auto-detected)
@@ -102,7 +102,7 @@ Overall: 83.3% of pages intact
 
 With `--verbose`, per-page lines are displayed before the summary:
 
-```
+```text
 Page    0: FSP_HDR        intact       LSN=1000
 Page    1: IBUF_BITMAP    intact       LSN=1001
 Page    2: INODE          intact       LSN=1002

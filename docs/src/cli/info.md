@@ -4,7 +4,7 @@ Inspect InnoDB system files, compare LSNs, or query a live MySQL instance.
 
 ## Synopsis
 
-```
+```text
 inno info [--ibdata] [--lsn-check] [-d <datadir>] [-D <database> -t <table>] [--host <host>] [--port <port>] [--user <user>] [--password <pass>] [--defaults-file <path>] [--json] [--page-size <size>]
 ```
 
@@ -93,7 +93,7 @@ fi
 
 ### ibdata1 Inspection (Text Mode)
 
-```
+```text
 ibdata1 Page 0 Header
   File:       /var/lib/mysql/ibdata1
   Checksum:   2741936599
@@ -125,7 +125,7 @@ Redo Log Checkpoint 2 LSN: 19218000
 
 ### LSN Check (Text Mode)
 
-```
+```text
 LSN Sync Check
   ibdata1 LSN:          19218432
   Redo checkpoint LSN:  19218432
@@ -134,7 +134,7 @@ LSN Sync Check
 
 If out of sync:
 
-```
+```text
 LSN Sync Check
   ibdata1 LSN:          19218432
   Redo checkpoint LSN:  19217920
@@ -154,7 +154,7 @@ LSN Sync Check
 
 ### MySQL Query Mode
 
-```
+```text
 Table: sakila.actor
   Space ID:  42
   Table ID:  1234

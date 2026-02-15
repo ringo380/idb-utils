@@ -4,7 +4,7 @@ Search a MySQL data directory for pages matching a given page number.
 
 ## Synopsis
 
-```
+```text
 inno find -d <datadir> -p <page> [-c <checksum>] [-s <space_id>] [--first] [--json] [--page-size <size>]
 ```
 
@@ -69,7 +69,7 @@ inno find -d /var/lib/mysql -p 3 -c 2741936599
 
 ### Text Mode
 
-```
+```text
 Checking sakila/actor.ibd..
 Checking sakila/film.ibd..
 Found page 3 in sakila/actor.ibd (checksum: 2741936599, space_id: 42)
@@ -79,7 +79,7 @@ Found 1 match(es) in 2 file(s) searched.
 
 If no match is found:
 
-```
+```text
 Page 3 not found in any .ibd file.
 ```
 

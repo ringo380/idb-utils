@@ -23,7 +23,7 @@ Offset  Size  Field
 
 ### Parsing
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page::FilHeader;
 
 // page_data must be at least 38 bytes
@@ -57,7 +57,7 @@ match header {
 
 ### Page Chain Methods
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page::FilHeader;
 
 # let page_data = vec![0u8; 38];
@@ -79,7 +79,7 @@ The `FilTrailer` struct represents the 8-byte trailer at the end of every InnoDB
 
 ### Parsing
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page::FilTrailer;
 
 // The trailer is the last 8 bytes of the page
@@ -109,7 +109,7 @@ The `FspHeader` struct represents the FSP (File Space) header found on page 0 of
 
 ### Parsing
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 
 let mut ts = Tablespace::open("table.ibd").unwrap();
@@ -125,7 +125,7 @@ if let Some(fsp) = ts.fsp_header() {
 
 You can also parse the FSP header directly from a page buffer:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page::FspHeader;
 
 // page_data must be a full page 0 buffer
@@ -145,7 +145,7 @@ let fsp = FspHeader::parse(&page_data);
 
 ### Page Size Extraction
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page::FspHeader;
 use idb::innodb::vendor::VendorInfo;
 
@@ -166,7 +166,7 @@ The `PageType` enum (`idb::innodb::page_types::PageType`) maps the 2-byte page t
 
 ### Parsing
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page_types::PageType;
 use idb::innodb::vendor::VendorInfo;
 
@@ -188,7 +188,7 @@ assert_eq!(pt, PageType::SdiBlob);
 
 Each `PageType` variant provides metadata through three methods:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page_types::PageType;
 
 let pt = PageType::Index;
@@ -199,7 +199,7 @@ println!("Usage: {}", pt.usage());             // "Table and index data stored i
 
 ### Raw Value
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::page_types::PageType;
 
 let pt = PageType::Index;

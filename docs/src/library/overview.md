@@ -64,7 +64,7 @@ The library is organized under `idb::innodb`:
 
 ## Quick Example
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::page::FilHeader;
 use idb::innodb::checksum::validate_checksum;

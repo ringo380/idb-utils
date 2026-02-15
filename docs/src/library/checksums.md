@@ -4,7 +4,7 @@ The `idb::innodb::checksum` module implements the checksum algorithms used by My
 
 ## Validating a Page Checksum
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
 
@@ -62,7 +62,7 @@ If neither CRC-32C nor legacy InnoDB matches, the result reports failure with CR
 
 In addition to checksum validation, you can verify LSN consistency between the FIL header and FIL trailer:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::checksum::validate_lsn;
 
@@ -110,7 +110,7 @@ stored_checksum (at page_size-4) = CRC32C(bytes[0..page_size-4])
 
 For thorough page integrity checking, validate both:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::checksum::{validate_checksum, validate_lsn};
 

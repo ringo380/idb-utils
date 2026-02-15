@@ -59,7 +59,13 @@ jobs:
         run: mdbook build docs
 
       - name: Copy docs into web dist
-        run: cp -r docs/book/html web/dist/book
+        run: |
+          mkdir -p web/dist/book
+          if [ -d docs/book/html ]; then
+            cp -r docs/book/html/* web/dist/book/
+          else
+            cp -r docs/book/* web/dist/book/
+          fi
 
       - uses: actions/configure-pages@v5
 

@@ -9,7 +9,7 @@ The default algorithm since MySQL 5.7.7. It computes the XOR of two **independen
 - **Range 1**: bytes `[4..26)` -- covers page number, prev/next pointers, LSN, and page type
 - **Range 2**: bytes `[38..page_size-8)` -- covers the entire page body
 
-```
+```text
 [checksum][--- Range 1 ---][flush_lsn+space_id][------- Range 2 -------][trailer]
  0    3  4             25  26              37  38                    PS-8   PS
 ```
@@ -42,7 +42,7 @@ MariaDB 10.5 introduced a simplified checksum format called `full_crc32`:
 - **Single CRC-32C** computed over bytes `[0..page_size-4)` -- covers nearly the entire page
 - **Checksum location**: stored in the **last 4 bytes** of the page, not in the FIL header
 
-```
+```text
 [------------- CRC-32C input ---------------][checksum]
  0                                        PS-4    PS
 ```

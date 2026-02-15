@@ -4,7 +4,7 @@ The `idb::innodb::sdi` module provides functions for extracting Serialized Dicti
 
 ## Finding SDI Pages
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::sdi;
 
@@ -20,7 +20,7 @@ println!("Found {} SDI pages: {:?}", sdi_pages.len(), sdi_pages);
 
 ## Extracting SDI Records
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::sdi;
 
@@ -69,7 +69,7 @@ The function:
 
 ## SDI Type Names
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::sdi;
 
 assert_eq!(sdi::sdi_type_name(1), "Table");
@@ -79,7 +79,7 @@ assert_eq!(sdi::sdi_type_name(99), "Unknown");
 
 ## Checking Individual Pages
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::sdi;
 
 # let page_data = vec![0u8; 16384];
@@ -98,7 +98,7 @@ if sdi::is_sdi_page(&page_data) {
 
 For advanced use, you can read the SDI root page number directly from page 0:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::sdi;
 

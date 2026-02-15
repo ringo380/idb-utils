@@ -4,7 +4,7 @@ Intentionally corrupt pages in an InnoDB tablespace file for testing.
 
 ## Synopsis
 
-```
+```text
 inno corrupt -f <file> [-p <page>] [-b <bytes>] [-k] [-r] [--offset <byte>] [--verify] [--json] [--page-size <size>]
 ```
 
@@ -82,7 +82,7 @@ inno checksum -f test.ibd
 
 ### Text Mode
 
-```
+```text
 Writing 16 bytes of random data to test.ibd at offset 49152 (page 3)...
 Data written: A3 B1 C5 D7 E2 F0 11 22 33 44 55 66 77 88 99 AA
 Completed.
@@ -90,7 +90,7 @@ Completed.
 
 With `--verify`:
 
-```
+```text
 Verification:
   Before: OK (algorithm=Crc32c, stored=2741936599, calculated=2741936599)
   After:  INVALID (algorithm=Crc32c, stored=2741936599, calculated=1084227091)

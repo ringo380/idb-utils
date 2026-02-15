@@ -4,7 +4,7 @@ Monitor an InnoDB tablespace file for page-level changes in real time.
 
 ## Synopsis
 
-```
+```text
 inno watch -f <file> [-i <ms>] [-v] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -66,14 +66,14 @@ inno watch -f actor.ibd --json | jq -c 'select(.event == "poll")'
 
 On startup:
 
-```
+```text
 Watching actor.ibd (7 pages, 16384 bytes/page, MySQL)
 Polling every 1000ms. Press Ctrl+C to stop.
 ```
 
 When changes are detected:
 
-```
+```text
 14:32:15  2 pages modified
   Page 3     INDEX        LSN +473  checksum valid
   Page 4     INDEX        LSN +473  checksum valid
@@ -81,7 +81,7 @@ When changes are detected:
 
 With `--verbose`, full LSN values are shown:
 
-```
+```text
 14:32:15  2 pages modified
   Page 3     INDEX        LSN 5539 -> 6012 (+473)  checksum valid
   Page 4     INDEX        LSN 5540 -> 6013 (+473)  checksum valid
@@ -89,7 +89,7 @@ With `--verbose`, full LSN values are shown:
 
 On Ctrl+C:
 
-```
+```text
 Stopped after 12 polls. Total page changes: 6
 ```
 

@@ -6,7 +6,7 @@ The `Tablespace` struct (`idb::innodb::tablespace::Tablespace`) is the primary e
 
 ### From a file path
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 
 // Auto-detect page size from FSP flags on page 0
@@ -20,7 +20,7 @@ let mut ts = Tablespace::open_with_page_size("table.ibd", 16384).unwrap();
 
 ### From an in-memory buffer
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 
 let data: Vec<u8> = std::fs::read("table.ibd").unwrap();
@@ -39,7 +39,7 @@ The `from_bytes` constructors are available on all targets, including WASM.
 
 ### Single page by number
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::page::FilHeader;
 
@@ -56,7 +56,7 @@ println!("LSN: {}", header.lsn);
 
 ### Iterating all pages
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::page::FilHeader;
 
@@ -87,7 +87,7 @@ The callback receives `(page_number: u64, page_data: &[u8])` for each page. Retu
 
 ### Parsing headers from page buffers
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 
 let mut ts = Tablespace::open("table.ibd").unwrap();
@@ -104,7 +104,7 @@ println!("Trailer LSN low32: {}", trailer.lsn_low32);
 
 ## Encryption Support
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::decryption::DecryptionContext;
 

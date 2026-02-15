@@ -62,7 +62,7 @@ Each block ends with a 4-byte CRC-32C checksum:
 
 Each 512-byte block carries at most 494 bytes of log record data:
 
-```
+```text
 [header: 14 bytes][log data: up to 494 bytes][checksum: 4 bytes]
  0             13  14                    507  508           511
 ```

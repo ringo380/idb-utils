@@ -4,7 +4,7 @@ List or look up tablespace IDs from files in a MySQL data directory.
 
 ## Synopsis
 
-```
+```text
 inno tsid -d <datadir> [-l] [-t <tsid>] [--json] [--page-size <size>]
 ```
 
@@ -63,7 +63,7 @@ inno tsid -d /var/lib/mysql -t 42
 
 List mode:
 
-```
+```text
 sakila/actor.ibd - Space ID: 42
 sakila/film.ibd - Space ID: 43
 sakila/film_actor.ibd - Space ID: 44
@@ -71,7 +71,7 @@ sakila/film_actor.ibd - Space ID: 44
 
 Lookup mode when no match is found:
 
-```
+```text
 Tablespace ID 999 not found.
 ```
 

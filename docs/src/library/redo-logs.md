@@ -18,7 +18,7 @@ Each block has a 14-byte header and a 4-byte trailer (CRC-32C checksum at bytes 
 
 ### From a file path
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::LogFile;
 
 let mut log = LogFile::open("/var/lib/mysql/ib_logfile0").unwrap();
@@ -31,7 +31,7 @@ println!("Data blocks: {}", log.data_block_count());
 
 ### From an in-memory buffer
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::LogFile;
 
 let data: Vec<u8> = std::fs::read("/var/lib/mysql/ib_logfile0").unwrap();
@@ -42,7 +42,7 @@ The file must be at least 2048 bytes (4 blocks of 512 bytes for the header and c
 
 ## Reading the File Header
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::LogFile;
 
 let mut log = LogFile::open("/var/lib/mysql/ib_logfile0").unwrap();
@@ -65,7 +65,7 @@ println!("Created by: {}", header.created_by);
 
 The `created_by` string can be used for vendor detection:
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::LogFile;
 use idb::innodb::vendor::detect_vendor_from_created_by;
 
@@ -79,7 +79,7 @@ println!("Vendor: {}", vendor);
 
 InnoDB maintains two checkpoint slots for crash recovery. Slot 0 is in block 1, slot 1 is in block 3.
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::LogFile;
 
 let mut log = LogFile::open("/var/lib/mysql/ib_logfile0").unwrap();
@@ -105,7 +105,7 @@ println!("Checkpoint 1: number={}, LSN={}, offset={}, buf_size={}",
 
 ## Reading Data Blocks
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::{LogFile, LogBlockHeader, LogBlockTrailer, LOG_FILE_HDR_BLOCKS};
 
 let mut log = LogFile::open("/var/lib/mysql/ib_logfile0").unwrap();
@@ -138,7 +138,7 @@ The `has_data()` method returns `true` when `data_len` exceeds the header size (
 
 Each 512-byte block has a CRC-32C checksum stored in the last 4 bytes (offset 508-511), covering bytes 0-507.
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::{LogFile, validate_log_block_checksum, LOG_FILE_HDR_BLOCKS};
 
 let mut log = LogFile::open("/var/lib/mysql/ib_logfile0").unwrap();
@@ -156,7 +156,7 @@ for block_no in LOG_FILE_HDR_BLOCKS..log.block_count() {
 
 The `MlogRecordType` enum classifies redo log record types from MySQL's `mtr0types.h`. This is useful for analyzing what operations are recorded in the redo log.
 
-```rust,no_run
+```rust,ignore
 use idb::innodb::log::MlogRecordType;
 
 let rec_type = MlogRecordType::from_u8(9);

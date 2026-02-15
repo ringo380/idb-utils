@@ -4,7 +4,7 @@ Validate page checksums for every page in an InnoDB tablespace.
 
 ## Synopsis
 
-```
+```text
 inno checksum -f <file> [-v] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -72,7 +72,7 @@ fi
 
 Displays a progress bar during validation, then prints a summary:
 
-```
+```text
 Validating checksums for actor.ibd (7 pages, page size 16384)...
 
 Summary:
@@ -84,7 +84,7 @@ Summary:
 
 With `--verbose`, each non-empty page is printed individually:
 
-```
+```text
 Page 0: OK (Crc32c, stored=2741936599, calculated=2741936599)
 Page 1: OK (Crc32c, stored=1849326041, calculated=1849326041)
 Page 3: INVALID checksum (stored=12345, calculated=2741936599, algorithm=Crc32c)

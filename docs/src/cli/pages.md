@@ -4,7 +4,7 @@ Detailed page structure analysis for InnoDB tablespace files.
 
 ## Synopsis
 
-```
+```text
 inno pages -f <file> [-p <page>] [-v] [-e] [-l] [-t <type>] [--json] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -111,6 +111,6 @@ For each page, displays sections based on page type:
 
 One line per page:
 
-```
+```text
 -- Page 3 - INDEX: B-tree Node, Index ID: 157, Byte Start: 0x0000C000
 ```

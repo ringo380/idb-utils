@@ -4,7 +4,7 @@ Extract SDI (Serialized Dictionary Information) metadata from MySQL 8.0+ tablesp
 
 ## Synopsis
 
-```
+```text
 inno sdi -f <file> [--pretty] [--page-size <size>] [--keyring <path>]
 ```
 
@@ -59,7 +59,7 @@ inno sdi -f encrypted_table.ibd --keyring /path/to/keyring --pretty
 
 ## Output
 
-```
+```text
 Found 1 SDI page(s): [3]
 
 === SDI Record: type=1 (Table), id=373
@@ -90,7 +90,7 @@ Total SDI records: 1
 
 If the tablespace has no SDI pages (e.g., a pre-MySQL 8.0 file):
 
-```
+```text
 No SDI pages found in actor.ibd.
 SDI is only available in MySQL 8.0+ tablespaces.
 ```

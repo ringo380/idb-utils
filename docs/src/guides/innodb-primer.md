@@ -6,7 +6,7 @@ Understanding the on-disk format helps when interpreting `inno` output.
 
 Each `.ibd` file is a tablespace divided into fixed-size pages (default 16,384 bytes). Every page has:
 
-```
+```text
 +------------------+  byte 0
 | FIL Header       |  38 bytes -- checksum, page number, prev/next, LSN, type, space_id
 +------------------+  byte 38

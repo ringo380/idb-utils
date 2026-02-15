@@ -4,7 +4,7 @@ Analyze InnoDB redo log files.
 
 ## Synopsis
 
-```
+```text
 inno log -f <file> [-b <blocks>] [--no-empty] [-v] [--json]
 ```
 
@@ -81,7 +81,7 @@ inno log -f ib_logfile0 --json | jq '.header'
 
 ### Text Mode
 
-```
+```text
 InnoDB Redo Log File
   File:       ib_logfile0
   Size:       50331648 bytes
@@ -116,7 +116,7 @@ Displayed 3 data blocks (of 98300)
 
 With `--verbose`, record type summaries appear under each data block:
 
-```
+```text
   Block      4  no=4          len=492   first_rec=12    chk_no=42         csum=OK
     record types: MLOG_COMP_REC_INSERT(12), MLOG_WRITE_STRING(8), MLOG_COMP_PAGE_CREATE(2)
 ```
