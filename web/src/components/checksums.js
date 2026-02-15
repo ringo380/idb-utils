@@ -1,5 +1,6 @@
 // Checksum validation — mirrors `inno checksum`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createChecksums(container, fileData) {
   const wasm = getWasm();
@@ -107,8 +108,3 @@ function statCard(label, value, colorClass = '') {
     </div>`;
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

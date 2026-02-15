@@ -1,5 +1,6 @@
 // Recovery assessment — mirrors `inno recover`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createRecovery(container, fileData) {
   const wasm = getWasm();
@@ -115,8 +116,3 @@ function statCard(label, value, colorClass = '') {
     </div>`;
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

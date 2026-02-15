@@ -1,5 +1,6 @@
 // App initialization — WASM loading, routing, component orchestration
 import { initWasm, getWasm } from './wasm.js';
+import { esc } from './utils/html.js';
 import { initTheme } from './utils/theme.js';
 import { initKeyboard } from './utils/keyboard.js';
 import { createDropzone } from './components/dropzone.js';
@@ -182,8 +183,3 @@ function renderTab() {
   }
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

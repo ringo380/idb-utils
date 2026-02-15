@@ -1,5 +1,6 @@
 // Page detail view — mirrors `inno pages`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createPages(container, fileData) {
   const wasm = getWasm();
@@ -173,8 +174,3 @@ function summaryRow(p) {
     </tr>`;
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

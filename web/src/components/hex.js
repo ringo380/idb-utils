@@ -1,5 +1,6 @@
 // Hex dump viewer — mirrors `inno dump`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createHex(container, fileData, pageCount) {
   container.innerHTML = `
@@ -79,8 +80,3 @@ function formatHexDump(raw) {
     .join('\n');
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

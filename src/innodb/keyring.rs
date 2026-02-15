@@ -305,6 +305,22 @@ mod tests {
     }
 
     #[test]
+    fn test_keyring_from_bytes_empty() {
+        let result = Keyring::from_bytes(&[]);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("too small"), "Expected 'too small' in: {msg}");
+    }
+
+    #[test]
+    fn test_keyring_from_bytes_too_small() {
+        let result = Keyring::from_bytes(&[0u8; 10]);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("too small"), "Expected 'too small' in: {msg}");
+    }
+
+    #[test]
     fn test_empty_keyring() {
         let file_data = build_keyring_file(&[]);
 

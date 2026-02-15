@@ -1,5 +1,7 @@
 // Drag-and-drop file input for .ibd files
 
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+
 export function createDropzone(onFile, onDiffFiles) {
   const el = document.createElement('div');
   el.id = 'dropzone';
@@ -38,14 +40,32 @@ export function createDropzone(onFile, onDiffFiles) {
     handleFiles(e.dataTransfer.files);
   });
 
+  function showError(msg) {
+    let errEl = el.querySelector('.dropzone-error');
+    if (!errEl) {
+      errEl = document.createElement('p');
+      errEl.className = 'dropzone-error text-red-400 text-sm mt-4';
+      el.appendChild(errEl);
+    }
+    errEl.textContent = msg;
+  }
+
   function handleFiles(files) {
     if (!files || files.length === 0) return;
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        showError(`File "${file.name}" exceeds 500 MB limit (${(file.size / 1024 / 1024).toFixed(1)} MB).`);
+        return;
+      }
+    }
     if (files.length >= 2) {
-      Promise.all([readFile(files[0]), readFile(files[1])]).then(([a, b]) =>
-        onDiffFiles(files[0].name, a, files[1].name, b)
-      );
+      Promise.all([readFile(files[0]), readFile(files[1])])
+        .then(([a, b]) => onDiffFiles(files[0].name, a, files[1].name, b))
+        .catch((err) => showError(`Failed to read files: ${err.message || err}`));
     } else {
-      readFile(files[0]).then((data) => onFile(files[0].name, data));
+      readFile(files[0])
+        .then((data) => onFile(files[0].name, data))
+        .catch((err) => showError(`Failed to read file: ${err.message || err}`));
     }
   }
 

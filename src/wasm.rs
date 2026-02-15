@@ -407,6 +407,14 @@ pub fn diff_tablespaces(data1: &[u8], data2: &[u8]) -> Result<String, JsValue> {
     let mut ts1 = Tablespace::from_bytes(data1.to_vec()).map_err(to_js_err)?;
     let mut ts2 = Tablespace::from_bytes(data2.to_vec()).map_err(to_js_err)?;
 
+    if ts1.page_size() != ts2.page_size() {
+        return Err(JsValue::from_str(&format!(
+            "Page size mismatch: file 1 has {} byte pages, file 2 has {} byte pages",
+            ts1.page_size(),
+            ts2.page_size()
+        )));
+    }
+
     let max_pages = std::cmp::max(ts1.page_count(), ts2.page_count());
     let mut identical = 0u64;
     let mut modified = 0u64;

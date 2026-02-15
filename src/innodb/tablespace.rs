@@ -418,6 +418,22 @@ mod tests {
     }
 
     #[test]
+    fn test_from_bytes_empty_file() {
+        let result = Tablespace::from_bytes(vec![]);
+        match result {
+            Err(e) => assert!(e.to_string().contains("too small"), "Expected 'too small' in: {e}"),
+            Ok(_) => panic!("Expected error for empty input"),
+        }
+    }
+
+    #[test]
+    fn test_from_bytes_all_zeros() {
+        let data = vec![0u8; PS];
+        // All-zeros page should not panic — may succeed or return an error
+        let _ = Tablespace::from_bytes(data);
+    }
+
+    #[test]
     fn test_from_bytes_for_each_page() {
         let mut data = build_fsp_page(1, 3);
         data.extend_from_slice(&build_index_page(1, 1, 2000));

@@ -1,5 +1,6 @@
 // Two-file diff view — mirrors `inno diff`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createDiff(container, fileName1, fileData1, fileName2, fileData2) {
   const wasm = getWasm();
@@ -102,8 +103,3 @@ function fmtSize(bytes) {
   return `${bytes} B`;
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

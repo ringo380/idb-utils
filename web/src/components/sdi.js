@@ -1,5 +1,6 @@
 // SDI metadata viewer — mirrors `inno sdi`
 import { getWasm } from '../wasm.js';
+import { esc } from '../utils/html.js';
 
 export function createSdi(container, fileData) {
   const wasm = getWasm();
@@ -86,8 +87,3 @@ function renderRecord(record, idx) {
     </div>`;
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}

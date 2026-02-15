@@ -63,3 +63,9 @@ mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

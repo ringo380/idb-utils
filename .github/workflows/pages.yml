@@ -40,7 +40,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Build WASM package
-        run: wasm-pack build --target web --no-default-features
+        run: wasm-pack build --release --target web --no-default-features
 
       - name: Install web dependencies
         run: cd web && npm ci
