@@ -1,6 +1,7 @@
 // Page detail view — mirrors `inno pages`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createPages(container, fileData) {
   const wasm = getWasm();
@@ -18,6 +19,7 @@ export function createPages(container, fileData) {
     <div class="p-6 space-y-4 overflow-auto max-h-full">
       <div class="flex items-center gap-4">
         <h2 class="text-lg font-bold text-innodb-cyan">Page Analysis</h2>
+        <span id="pages-export"></span>
         <div class="flex items-center gap-2">
           <label class="text-sm text-gray-500">Page:</label>
           <input id="page-select" type="number" min="0" max="${analysisAll.length - 1}" value="0"
@@ -48,6 +50,11 @@ export function createPages(container, fileData) {
     </div>
   `;
 
+  const exportSlot = container.querySelector('#pages-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => analysisAll, 'pages'));
+  }
+
   const input = container.querySelector('#page-select');
   const detail = container.querySelector('#page-detail');
 
@@ -55,6 +62,30 @@ export function createPages(container, fileData) {
     if (num < 0 || num >= analysisAll.length) return;
     const p = analysisAll[num];
     detail.innerHTML = renderDetail(p);
+
+    // Wire up "View Records" button for INDEX pages
+    const viewRecsBtn = detail.querySelector('#view-records-btn');
+    if (viewRecsBtn) {
+      viewRecsBtn.addEventListener('click', () => {
+        const recsDiv = detail.querySelector('#records-section');
+        if (!recsDiv) return;
+        if (recsDiv.dataset.loaded === 'true') {
+          recsDiv.classList.toggle('hidden');
+          viewRecsBtn.textContent = recsDiv.classList.contains('hidden') ? 'View Records' : 'Hide Records';
+          return;
+        }
+        try {
+          const report = JSON.parse(wasm.inspect_index_records(fileData, num));
+          recsDiv.dataset.loaded = 'true';
+          recsDiv.classList.remove('hidden');
+          viewRecsBtn.textContent = 'Hide Records';
+          recsDiv.innerHTML = renderRecords(report);
+        } catch (e) {
+          recsDiv.classList.remove('hidden');
+          recsDiv.innerHTML = `<div class="text-red-400 text-xs py-2">Error: ${esc(String(e))}</div>`;
+        }
+      });
+    }
   }
 
   showPage(0);
@@ -144,6 +175,53 @@ function renderDetail(p) {
         'Space ID': p.header.space_id,
       })}
       ${extra}
+      ${p.index_header ? `
+        <div class="flex items-center gap-2 mt-2">
+          <button id="view-records-btn" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">View Records</button>
+          <span class="text-xs text-gray-600">${p.index_header.n_recs} records</span>
+        </div>
+        <div id="records-section" class="hidden mt-2"></div>
+      ` : ''}
+    </div>`;
+}
+
+function renderRecords(report) {
+  if (!report.records || report.records.length === 0) {
+    return `<div class="text-gray-500 text-xs py-2">No user records found on this page.</div>`;
+  }
+  return `
+    <div class="text-xs text-gray-500 mb-1">
+      Index ID: ${report.index_id} | Level: ${report.level} | Format: ${report.is_compact ? 'Compact' : 'Redundant'}
+    </div>
+    <div class="overflow-x-auto max-h-64">
+      <table class="w-full text-xs font-mono">
+        <thead class="sticky top-0 bg-gray-950">
+          <tr class="text-left text-gray-500 border-b border-gray-800">
+            <th class="py-1 pr-2">#</th>
+            <th class="py-1 pr-2">Type</th>
+            <th class="py-1 pr-2">Heap#</th>
+            <th class="py-1 pr-2">Owned</th>
+            <th class="py-1 pr-2">Del</th>
+            <th class="py-1 pr-2">MinRec</th>
+            <th class="py-1 pr-2">Next</th>
+            <th class="py-1 pr-2">Raw Bytes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${report.records.map((r, i) => `
+            <tr class="border-b border-gray-800/30 hover:bg-surface-2/50">
+              <td class="py-1 pr-2 text-gray-400">${i + 1}</td>
+              <td class="py-1 pr-2 text-innodb-cyan">${esc(r.rec_type)}</td>
+              <td class="py-1 pr-2">${r.heap_no}</td>
+              <td class="py-1 pr-2">${r.n_owned}</td>
+              <td class="py-1 pr-2 ${r.delete_mark ? 'text-innodb-red' : ''}">${r.delete_mark ? 'Y' : 'N'}</td>
+              <td class="py-1 pr-2">${r.min_rec ? 'Y' : 'N'}</td>
+              <td class="py-1 pr-2">${r.next_offset}</td>
+              <td class="py-1 pr-2 text-gray-500">${esc(r.raw_hex)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     </div>`;
 }
 

@@ -1,6 +1,7 @@
 // Two-file diff view — mirrors `inno diff`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createDiff(container, fileName1, fileData1, fileName2, fileData2) {
   const wasm = getWasm();
@@ -17,7 +18,10 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
 
   container.innerHTML = `
     <div class="p-6 space-y-6 overflow-auto max-h-full">
-      <h2 class="text-lg font-bold text-innodb-cyan">Tablespace Diff</h2>
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-bold text-innodb-cyan">Tablespace Diff</h2>
+        <span id="diff-export"></span>
+      </div>
 
       <div class="grid grid-cols-2 gap-4">
         <div class="bg-surface-2 rounded-lg p-4">
@@ -32,7 +36,7 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
         </div>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
         ${statCard('Identical', result.identical, 'text-innodb-green')}
         ${statCard('Modified', result.modified, result.modified > 0 ? 'text-innodb-amber' : '')}
         ${statCard('Only in File 1', result.only_in_first, result.only_in_first > 0 ? 'text-innodb-red' : '')}
@@ -75,6 +79,11 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
       `}
     </div>
   `;
+
+  const exportSlot = container.querySelector('#diff-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => result, 'diff'));
+  }
 }
 
 function modRow(p) {

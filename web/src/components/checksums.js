@@ -1,6 +1,7 @@
 // Checksum validation — mirrors `inno checksum`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createChecksums(container, fileData) {
   const wasm = getWasm();
@@ -20,6 +21,7 @@ export function createChecksums(container, fileData) {
     <div class="p-6 space-y-6 overflow-auto max-h-full">
       <div class="flex items-center gap-3">
         <h2 class="text-lg font-bold text-innodb-cyan">Checksum Validation</h2>
+        <span id="checksums-export"></span>
         <span class="${allValid ? 'badge-valid' : 'badge-invalid'} px-2 py-0.5 rounded text-xs font-bold">
           ${allValid ? 'ALL VALID' : `${report.invalid_pages} INVALID`}
         </span>
@@ -55,6 +57,11 @@ export function createChecksums(container, fileData) {
       </div>
     </div>
   `;
+
+  const exportSlot = container.querySelector('#checksums-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => report, 'checksums'));
+  }
 
   const checkbox = container.querySelector('#show-invalid-only');
   const wrap = container.querySelector('#checksum-table-wrap');

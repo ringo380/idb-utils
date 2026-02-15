@@ -1,6 +1,7 @@
 // Recovery assessment — mirrors `inno recover`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createRecovery(container, fileData) {
   const wasm = getWasm();
@@ -18,7 +19,10 @@ export function createRecovery(container, fileData) {
 
   container.innerHTML = `
     <div class="p-6 space-y-6 overflow-auto max-h-full">
-      <h2 class="text-lg font-bold text-innodb-cyan">Recovery Assessment</h2>
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-bold text-innodb-cyan">Recovery Assessment</h2>
+        <span id="recovery-export"></span>
+      </div>
 
       <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         ${statCard('Total Pages', total)}
@@ -61,6 +65,11 @@ export function createRecovery(container, fileData) {
       </div>
     </div>
   `;
+
+  const exportSlot = container.querySelector('#recovery-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => report, 'recovery'));
+  }
 
   const checkbox = container.querySelector('#recovery-show-corrupt');
   const wrap = container.querySelector('#recovery-table-wrap');

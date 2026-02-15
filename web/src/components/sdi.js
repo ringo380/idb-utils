@@ -1,6 +1,7 @@
 // SDI metadata viewer — mirrors `inno sdi`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createSdi(container, fileData) {
   const wasm = getWasm();
@@ -33,7 +34,7 @@ export function createSdi(container, fileData) {
       <div class="flex gap-2 mb-2">
         <button id="sdi-expand-all" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Expand All</button>
         <button id="sdi-collapse-all" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Collapse All</button>
-        <button id="sdi-copy-all" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Copy JSON</button>
+        <span id="sdi-export"></span>
       </div>
       <div id="sdi-records" class="space-y-3">
         ${records.map((r, i) => renderRecord(r, i)).join('')}
@@ -60,13 +61,10 @@ export function createSdi(container, fileData) {
     container.querySelectorAll('.sdi-toggle').forEach((b) => (b.textContent = '+'));
   });
 
-  container.querySelector('#sdi-copy-all').addEventListener('click', () => {
-    navigator.clipboard.writeText(JSON.stringify(records, null, 2)).then(() => {
-      const btn = container.querySelector('#sdi-copy-all');
-      btn.textContent = 'Copied!';
-      setTimeout(() => (btn.textContent = 'Copy JSON'), 1500);
-    });
-  });
+  const exportSlot = container.querySelector('#sdi-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(() => records, 'sdi'));
+  }
 }
 
 function renderRecord(record, idx) {

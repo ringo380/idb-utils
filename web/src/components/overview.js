@@ -1,6 +1,7 @@
 // Tablespace overview — mirrors `inno parse`
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { createExportBar } from '../utils/export.js';
 
 export function createOverview(container, fileData) {
   const wasm = getWasm();
@@ -21,7 +22,10 @@ export function createOverview(container, fileData) {
 
   container.innerHTML = `
     <div class="p-6 space-y-6 overflow-auto max-h-full">
-      <h2 class="text-lg font-bold text-innodb-cyan">Tablespace Overview</h2>
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-bold text-innodb-cyan">Tablespace Overview</h2>
+        <span id="overview-export"></span>
+      </div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         ${statCard('File Size', fmtSize(info.file_size))}
         ${statCard('Page Size', fmtSize(info.page_size))}
@@ -37,9 +41,9 @@ export function createOverview(container, fileData) {
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-gray-500 border-b border-gray-800">
-              <th class="py-2 pr-4">Type</th>
-              <th class="py-2 pr-4 text-right">Count</th>
-              <th class="py-2 w-full">Distribution</th>
+              <th scope="col" class="py-2 pr-4">Type</th>
+              <th scope="col" class="py-2 pr-4 text-right">Count</th>
+              <th scope="col" class="py-2 w-full">Distribution</th>
             </tr>
           </thead>
           <tbody>
@@ -69,6 +73,14 @@ export function createOverview(container, fileData) {
       </div>
     </div>
   `;
+
+  const exportSlot = container.querySelector('#overview-export');
+  if (exportSlot) {
+    exportSlot.appendChild(createExportBar(
+      () => ({ info, type_summary: parsed.type_summary }),
+      'overview',
+    ));
+  }
 }
 
 function statCard(label, value) {
