@@ -10,7 +10,9 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 use idb::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
-use idb::innodb::compression::{detect_compression, detect_mariadb_page_compression, CompressionAlgorithm};
+use idb::innodb::compression::{
+    detect_compression, detect_mariadb_page_compression, CompressionAlgorithm,
+};
 use idb::innodb::constants::*;
 use idb::innodb::encryption::{detect_encryption, EncryptionAlgorithm};
 use idb::innodb::page::{FilHeader, FspHeader};
@@ -175,10 +177,7 @@ fn test_vendor_from_created_by() {
         detect_vendor_from_created_by("Percona Server 8.0.32-24"),
         InnoDbVendor::Percona
     );
-    assert_eq!(
-        detect_vendor_from_created_by(""),
-        InnoDbVendor::MySQL
-    );
+    assert_eq!(detect_vendor_from_created_by(""), InnoDbVendor::MySQL);
 }
 
 // ── Tablespace vendor detection tests ───────────────────────────────
@@ -277,7 +276,10 @@ fn test_mariadb_page_compressed_type() {
 #[test]
 fn test_mariadb_page_compressed_encrypted_type() {
     let mut page = vec![0u8; PS];
-    BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED);
+    BigEndian::write_u16(
+        &mut page[FIL_PAGE_TYPE..],
+        FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED,
+    );
     let header = FilHeader::parse(&page).unwrap();
     assert_eq!(header.page_type, PageType::PageCompressedEncrypted);
 }

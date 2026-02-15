@@ -9,11 +9,11 @@ use wasm_bindgen::prelude::*;
 
 use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::index::IndexHeader;
+use crate::innodb::lob::{BlobPageHeader, LobFirstPageHeader};
 use crate::innodb::log::{
     validate_log_block_checksum, LogBlockHeader, LogCheckpoint, LogFile, LogFileHeader,
     MlogRecordType, LOG_BLOCK_HDR_SIZE, LOG_BLOCK_SIZE, LOG_FILE_HDR_BLOCKS,
 };
-use crate::innodb::lob::{BlobPageHeader, LobFirstPageHeader};
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
 use crate::innodb::record::walk_compact_records;

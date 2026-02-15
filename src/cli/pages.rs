@@ -560,7 +560,10 @@ fn print_fsp_header_detail(
         wprintln!(writer, "Encryption: {}", enc)?;
 
         // Display detailed encryption info if available
-        if let Some(info) = encryption::parse_encryption_info(page0, fsp.page_size_from_flags_with_vendor(vendor_info)) {
+        if let Some(info) = encryption::parse_encryption_info(
+            page0,
+            fsp.page_size_from_flags_with_vendor(vendor_info),
+        ) {
             let version_desc = match info.magic_version {
                 1 => "V1",
                 2 => "V2",

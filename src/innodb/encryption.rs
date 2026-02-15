@@ -25,10 +25,7 @@ pub enum EncryptionAlgorithm {
 /// When `vendor_info` indicates MariaDB, returns `None` because MariaDB
 /// does not use a tablespace-level encryption flag. For MySQL/Percona,
 /// checks bit 13 of FSP flags.
-pub fn detect_encryption(
-    fsp_flags: u32,
-    vendor_info: Option<&VendorInfo>,
-) -> EncryptionAlgorithm {
+pub fn detect_encryption(fsp_flags: u32, vendor_info: Option<&VendorInfo>) -> EncryptionAlgorithm {
     // MariaDB: no tablespace-level encryption flag
     if vendor_info.is_some_and(|v| v.vendor == crate::innodb::vendor::InnoDbVendor::MariaDB) {
         return EncryptionAlgorithm::None;

@@ -69,8 +69,13 @@ impl Keyring {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load<P: AsRef<std::path::Path>>(path: P) -> Result<Self, IdbError> {
         let path = path.as_ref();
-        let data = std::fs::read(path)
-            .map_err(|e| IdbError::Io(format!("Cannot read keyring file {}: {}", path.display(), e)))?;
+        let data = std::fs::read(path).map_err(|e| {
+            IdbError::Io(format!(
+                "Cannot read keyring file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
         Self::from_bytes(&data)
     }
 
@@ -191,7 +196,12 @@ mod tests {
         assert_eq!(data[0], data[OBFUSCATE_KEY.len()]);
     }
 
-    fn build_keyring_entry(key_id: &str, key_type: &str, user_id: &str, key_data: &[u8]) -> Vec<u8> {
+    fn build_keyring_entry(
+        key_id: &str,
+        key_type: &str,
+        user_id: &str,
+        key_data: &[u8],
+    ) -> Vec<u8> {
         let mut obfuscated = key_data.to_vec();
         deobfuscate(&mut obfuscated);
 
@@ -301,7 +311,10 @@ mod tests {
 
         let result = Keyring::load(tmp.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("checksum mismatch"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("checksum mismatch"));
     }
 
     #[test]

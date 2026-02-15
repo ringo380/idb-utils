@@ -643,7 +643,10 @@ mod tests {
     fn test_log_from_bytes_empty() {
         let result = LogFile::from_bytes(vec![]);
         match result {
-            Err(e) => assert!(e.to_string().contains("too small"), "Expected 'too small' in: {e}"),
+            Err(e) => assert!(
+                e.to_string().contains("too small"),
+                "Expected 'too small' in: {e}"
+            ),
             Ok(_) => panic!("Expected error for empty input"),
         }
     }
@@ -652,7 +655,10 @@ mod tests {
     fn test_log_from_bytes_too_small() {
         let result = LogFile::from_bytes(vec![0u8; 100]);
         match result {
-            Err(e) => assert!(e.to_string().contains("too small"), "Expected 'too small' in: {e}"),
+            Err(e) => assert!(
+                e.to_string().contains("too small"),
+                "Expected 'too small' in: {e}"
+            ),
             Ok(_) => panic!("Expected error for 100-byte input"),
         }
     }

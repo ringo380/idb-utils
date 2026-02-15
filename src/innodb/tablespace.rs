@@ -51,7 +51,10 @@ impl Tablespace {
 
     /// Open with a specific page size (bypass auto-detection).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn open_with_page_size<P: AsRef<std::path::Path>>(path: P, page_size: u32) -> Result<Self, IdbError> {
+    pub fn open_with_page_size<P: AsRef<std::path::Path>>(
+        path: P,
+        page_size: u32,
+    ) -> Result<Self, IdbError> {
         let path = path.as_ref();
         let file = std::fs::File::open(path)
             .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
@@ -421,7 +424,10 @@ mod tests {
     fn test_from_bytes_empty_file() {
         let result = Tablespace::from_bytes(vec![]);
         match result {
-            Err(e) => assert!(e.to_string().contains("too small"), "Expected 'too small' in: {e}"),
+            Err(e) => assert!(
+                e.to_string().contains("too small"),
+                "Expected 'too small' in: {e}"
+            ),
             Ok(_) => panic!("Expected error for empty input"),
         }
     }

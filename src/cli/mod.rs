@@ -91,10 +91,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 /// Loads the keyring file, reads the encryption info from page 0,
 /// decrypts the tablespace key, and installs the decryption context
 /// on the tablespace for transparent page decryption.
-pub(crate) fn setup_decryption(
-    ts: &mut Tablespace,
-    keyring_path: &str,
-) -> Result<(), IdbError> {
+pub(crate) fn setup_decryption(ts: &mut Tablespace, keyring_path: &str) -> Result<(), IdbError> {
     let keyring = Keyring::load(keyring_path)?;
     let enc_info = ts.encryption_info().ok_or_else(|| {
         IdbError::Parse(
