@@ -577,7 +577,7 @@ pub fn assess_recovery(data: &[u8]) -> Result<String, JsValue> {
                 } else {
                     None
                 };
-                if cksum.valid {
+                if cksum.valid && lsn_ok {
                     intact += 1;
                     if let Some(n) = rec {
                         total_records += n as u64;
