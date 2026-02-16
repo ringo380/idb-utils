@@ -28,7 +28,13 @@ const PAGE_COLORS = {
 };
 const DEFAULT_COLOR = '#6b7280';
 
-export function createHeatmap(container, fileData) {
+const COLOR_MODES = [
+  { id: 'type', label: 'Page Type' },
+  { id: 'lsn', label: 'LSN Age' },
+  { id: 'checksum', label: 'Checksum Status' },
+];
+
+export function createHeatmap(container, fileData, onPageClick) {
   const wasm = getWasm();
   let parsed;
   try {
@@ -52,18 +58,39 @@ export function createHeatmap(container, fileData) {
   }
   const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
 
+  // Precompute LSN range for age coloring
+  let minLsn = Infinity, maxLsn = 0;
+  for (const p of pages) {
+    if (p.lsn > 0) {
+      if (p.lsn < minLsn) minLsn = p.lsn;
+      if (p.lsn > maxLsn) maxLsn = p.lsn;
+    }
+  }
+  const lsnRange = maxLsn - minLsn || 1;
+
+  // Lazy-loaded checksum data
+  let checksumMap = null;
+
+  let colorMode = 'type';
+
   container.innerHTML = `
     <div class="p-6 space-y-4 overflow-auto max-h-full">
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 flex-wrap">
         <h2 class="text-lg font-bold text-innodb-cyan">Page Type Heatmap</h2>
         <span class="text-xs text-gray-500">${N.toLocaleString()} pages</span>
+        <select id="heatmap-mode" class="px-2 py-1 bg-surface-3 text-gray-300 rounded text-xs border border-gray-700">
+          ${COLOR_MODES.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join('')}
+        </select>
         ${N > 1000 ? '<span class="text-xs text-gray-600">Scroll to zoom, drag to pan</span>' : ''}
       </div>
-      <div id="heatmap-wrap" class="relative bg-surface-1 rounded-lg overflow-hidden" style="height:400px;">
+      <div id="heatmap-wrap" class="relative bg-surface-1 rounded-lg overflow-hidden cursor-pointer" style="height:400px;">
         <canvas id="heatmap-canvas"></canvas>
         <div id="heatmap-tooltip" class="absolute hidden pointer-events-none bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 z-10"></div>
       </div>
-      ${N > 1000 ? '<button id="heatmap-reset" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Reset Zoom</button>' : ''}
+      <div class="flex items-center gap-2 flex-wrap">
+        ${N > 1000 ? '<button id="heatmap-reset" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Reset Zoom</button>' : ''}
+        <span class="text-xs text-gray-600">Click a cell to inspect the page</span>
+      </div>
       <div id="heatmap-legend" class="flex flex-wrap gap-3 text-xs"></div>
     </div>
   `;
@@ -72,6 +99,7 @@ export function createHeatmap(container, fileData) {
   const canvas = container.querySelector('#heatmap-canvas');
   const tooltip = container.querySelector('#heatmap-tooltip');
   const legendEl = container.querySelector('#heatmap-legend');
+  const modeSelect = container.querySelector('#heatmap-mode');
   const ctx = canvas.getContext('2d');
 
   // Layout calculation
@@ -87,12 +115,36 @@ export function createHeatmap(container, fileData) {
   let dragStartY = 0;
   let dragPanX = 0;
   let dragPanY = 0;
+  let didDrag = false;
 
   function cellSize() {
     const wrapW = wrap.clientWidth;
     const wrapH = wrap.clientHeight;
     const raw = Math.min(wrapW / cols, wrapH / rows);
     return Math.max(2, Math.min(24, raw));
+  }
+
+  function lsnColor(lsn) {
+    if (lsn === 0) return '#1e293b';
+    const t = (lsn - minLsn) / lsnRange;
+    // Cold (blue) to hot (red) gradient
+    const r = Math.round(t * 239 + (1 - t) * 30);
+    const g = Math.round(t * 68 + (1 - t) * 64);
+    const b = Math.round(t * 68 + (1 - t) * 175);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function checksumColor(pageNum) {
+    if (!checksumMap) return DEFAULT_COLOR;
+    const entry = checksumMap.get(pageNum);
+    if (!entry) return '#1e293b'; // empty page
+    return entry.status === 'valid' ? '#10b981' : '#ef4444';
+  }
+
+  function getColor(p) {
+    if (colorMode === 'lsn') return lsnColor(p.lsn);
+    if (colorMode === 'checksum') return checksumColor(p.page_number);
+    return PAGE_COLORS[p.page_type_name] || DEFAULT_COLOR;
   }
 
   function render() {
@@ -115,7 +167,7 @@ export function createHeatmap(container, fileData) {
         const idx = row * cols + col;
         if (idx >= N) break;
         const p = pages[idx];
-        ctx.fillStyle = PAGE_COLORS[p.page_type_name] || DEFAULT_COLOR;
+        ctx.fillStyle = getColor(p);
         const x = col * cs + offsetX;
         const y = row * cs + offsetY;
         if (cs > 3) {
@@ -137,10 +189,71 @@ export function createHeatmap(container, fileData) {
     return pages[idx];
   }
 
+  function loadChecksums() {
+    if (checksumMap) return;
+    try {
+      const report = JSON.parse(wasm.validate_checksums(fileData));
+      checksumMap = new Map();
+      for (const p of report.pages) {
+        checksumMap.set(p.page_number, p);
+      }
+    } catch {
+      checksumMap = new Map();
+    }
+  }
+
+  function updateLegend() {
+    if (colorMode === 'type') {
+      legendEl.innerHTML = sortedTypes.map(([name, count]) => {
+        const color = PAGE_COLORS[name] || DEFAULT_COLOR;
+        return `<div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:${color}"></span>
+          <span class="text-gray-400">${esc(name)}</span>
+          <span class="text-gray-600">(${count})</span>
+        </div>`;
+      }).join('');
+    } else if (colorMode === 'lsn') {
+      legendEl.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-gray-400">Oldest LSN</span>
+          <div class="w-32 h-3 rounded" style="background:linear-gradient(to right, rgb(30,64,175), rgb(239,68,68))"></div>
+          <span class="text-gray-400">Newest LSN</span>
+          <span class="text-gray-600 ml-2">Range: ${minLsn.toLocaleString()} — ${maxLsn.toLocaleString()}</span>
+        </div>`;
+    } else if (colorMode === 'checksum') {
+      const valid = checksumMap ? [...checksumMap.values()].filter(e => e.status === 'valid').length : 0;
+      const invalid = checksumMap ? [...checksumMap.values()].filter(e => e.status !== 'valid').length : 0;
+      legendEl.innerHTML = `
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
+          <span class="text-gray-400">Valid</span>
+          <span class="text-gray-600">(${valid})</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#ef4444"></span>
+          <span class="text-gray-400">Invalid</span>
+          <span class="text-gray-600">(${invalid})</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#1e293b"></span>
+          <span class="text-gray-400">Empty</span>
+        </div>`;
+    }
+  }
+
+  // Color mode selector
+  modeSelect.addEventListener('change', () => {
+    colorMode = modeSelect.value;
+    if (colorMode === 'checksum') loadChecksums();
+    updateLegend();
+    requestAnimationFrame(render);
+  });
+
   canvas.addEventListener('mousemove', (e) => {
     if (dragging) {
       panX = dragPanX + (e.offsetX - dragStartX);
       panY = dragPanY + (e.offsetY - dragStartY);
+      didDrag = true;
       requestAnimationFrame(render);
       tooltip.classList.add('hidden');
       return;
@@ -148,7 +261,7 @@ export function createHeatmap(container, fileData) {
     const p = getPageAtMouse(e.offsetX, e.offsetY);
     if (p) {
       tooltip.classList.remove('hidden');
-      tooltip.innerHTML = `<strong>Page ${p.page_number}</strong><br>${esc(p.page_type_name)}<br>LSN: ${p.lsn}`;
+      tooltip.innerHTML = `<strong>Page ${esc(String(p.page_number))}</strong><br>${esc(p.page_type_name)}<br>LSN: ${esc(String(p.lsn))}`;
       tooltip.style.left = `${Math.min(e.offsetX + 12, wrap.clientWidth - 150)}px`;
       tooltip.style.top = `${Math.min(e.offsetY + 12, wrap.clientHeight - 60)}px`;
     } else {
@@ -158,6 +271,18 @@ export function createHeatmap(container, fileData) {
 
   canvas.addEventListener('mouseleave', () => {
     tooltip.classList.add('hidden');
+  });
+
+  // Click-to-inspect: navigate to Pages tab for the clicked page
+  canvas.addEventListener('click', (e) => {
+    if (didDrag) {
+      didDrag = false;
+      return;
+    }
+    const p = getPageAtMouse(e.offsetX, e.offsetY);
+    if (p && onPageClick) {
+      onPageClick(p.page_number);
+    }
   });
 
   if (N > 1000) {
@@ -176,6 +301,7 @@ export function createHeatmap(container, fileData) {
 
     canvas.addEventListener('mousedown', (e) => {
       dragging = true;
+      didDrag = false;
       dragStartX = e.offsetX;
       dragStartY = e.offsetY;
       dragPanX = panX;
@@ -183,9 +309,17 @@ export function createHeatmap(container, fileData) {
       canvas.style.cursor = 'grabbing';
     });
 
-    window.addEventListener('mouseup', () => {
+    // Use canvas-scoped listener instead of window to avoid memory leak
+    canvas.addEventListener('mouseup', () => {
       dragging = false;
       canvas.style.cursor = '';
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      if (dragging) {
+        dragging = false;
+        canvas.style.cursor = '';
+      }
     });
 
     const resetBtn = container.querySelector('#heatmap-reset');
@@ -199,17 +333,8 @@ export function createHeatmap(container, fileData) {
     }
   }
 
-  // Legend
-  legendEl.innerHTML = sortedTypes.map(([name, count]) => {
-    const color = PAGE_COLORS[name] || DEFAULT_COLOR;
-    return `<div class="flex items-center gap-1">
-      <span class="inline-block w-3 h-3 rounded-sm" style="background:${color}"></span>
-      <span class="text-gray-400">${esc(name)}</span>
-      <span class="text-gray-600">(${count})</span>
-    </div>`;
-  }).join('');
-
-  // Initial render + resize handler
+  // Initial render + legend
+  updateLegend();
   requestAnimationFrame(render);
   const ro = new ResizeObserver(() => requestAnimationFrame(render));
   ro.observe(wrap);

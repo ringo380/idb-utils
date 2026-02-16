@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Redo log analysis in web UI** — New "Redo Log" tab auto-detects redo log files (`ib_logfile*`, `#ib_redo*`) and displays file header, checkpoint slots, block-level analysis with filtering, and MLOG record type distribution. Uses the existing `parse_redo_log` WASM function. (Closes #21)
+- **Export functionality** — Download JSON and Copy to Clipboard buttons on every analysis tab. "Export All" button in the analyzer header runs all analysis functions and downloads a combined JSON file. Shared utilities in `web/src/utils/export.js`. (Closes #31)
+- **Page type heatmap** — New "Heatmap" tab renders a canvas-based grid visualization of all pages, color-coded by page type. Three color modes: Page Type (categorical), LSN Age (blue-to-red gradient), and Checksum Status (green/red/gray). Supports mouse wheel zoom, click-and-drag pan, hover tooltips, and click-to-inspect navigation to the Pages tab. (Closes #25)
+- **Record-level INDEX page inspection** — "View Records" button on INDEX pages in the Pages tab. Displays individual B+Tree record headers (type, heap number, n_owned, delete mark, min_rec, next offset) and raw hex bytes. Supports both compact (MySQL 5.0+) and redundant (pre-5.0) row formats. New `inspect_index_records` WASM function. (Closes #23)
+- **Encrypted tablespace support in web UI** — Automatic encryption detection with keyring file upload banner. New `decrypt_tablespace` and `get_encryption_info` WASM functions. Decrypted data is transparently passed to all analysis tabs. (Closes #29)
+- **Redundant row format parsing** — New `RedundantRecordHeader` struct and `walk_redundant_records()` function in `innodb::record` for pre-MySQL 5.0 row format support. Parses 6-byte headers with n_fields, one_byte_offs flag, and absolute next-record offsets.
+- **Accessibility improvements** — ARIA `role="tablist"`/`role="tab"` attributes with arrow key navigation, `scope="col"` on all table headers, skip-to-content link, keyboard shortcuts panel (`?` key), `aria-live` announcements for tab changes, focus-visible outlines, reduced-motion and high-contrast media queries, visible theme toggle button. (Closes #32)
+- 3 unit tests for redundant record header parsing and RecordHeader enum accessors
+
+### Changed
+
+- **BREAKING**: `RecordInfo.header` changed from `CompactRecordHeader` to `RecordHeader` enum (wrapping `Compact` or `Redundant` variants). Direct field access (e.g. `rec.header.heap_no`) must be replaced with accessor methods (e.g. `rec.header.heap_no()`). This enables unified handling of both compact and redundant row formats.
+- Web UI tab bar now includes Heatmap (key 7) and conditionally shows Diff (key 8) and Redo Log (key 9)
+- Diff view grid is now responsive (`grid-cols-1 md:grid-cols-2`)
+- Keyboard shortcuts no longer fire when a `<select>` element has focus
+
+### Fixed
+
+- XSS in heatmap tooltip — numeric values (`page_number`, `lsn`) are now escaped with `esc()`
+- Memory leak in heatmap — `mouseup` listener scoped to canvas instead of window, with `mouseleave` cleanup
+
 ## [2.0.0] - 2026-02-14
 
 ### Added

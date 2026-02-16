@@ -39,6 +39,30 @@
   background: rgba(34, 211, 238, 0.05);
 }
 
+/* Skip-to-content link */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 100;
+}
+.skip-link:focus {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  background: var(--color-innodb-cyan);
+  color: #0f172a;
+  font-weight: bold;
+  font-size: 0.875rem;
+  z-index: 100;
+}
+
 /* Accessibility — focus outlines */
 :focus-visible {
   outline: 2px solid var(--color-innodb-cyan);

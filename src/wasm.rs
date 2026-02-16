@@ -16,7 +16,7 @@ use crate::innodb::log::{
 };
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
-use crate::innodb::record::walk_compact_records;
+use crate::innodb::record::{walk_compact_records, walk_redundant_records};
 use crate::innodb::sdi;
 use crate::innodb::tablespace::Tablespace;
 use crate::innodb::undo::{UndoPageHeader, UndoSegmentHeader};
@@ -897,7 +897,11 @@ pub fn inspect_index_records(data: &[u8], page_num: u64) -> Result<String, JsVal
     let idx_hdr = IndexHeader::parse(&page_data)
         .ok_or_else(|| JsValue::from_str("Cannot parse INDEX header"))?;
 
-    let recs = walk_compact_records(&page_data);
+    let recs = if idx_hdr.is_compact() {
+        walk_compact_records(&page_data)
+    } else {
+        walk_redundant_records(&page_data)
+    };
     let records: Vec<RecordDetail> = recs
         .iter()
         .map(|r| {
@@ -911,12 +915,12 @@ pub fn inspect_index_records(data: &[u8], page_num: u64) -> Result<String, JsVal
 
             RecordDetail {
                 offset: r.offset,
-                rec_type: r.header.rec_type.name().to_string(),
-                heap_no: r.header.heap_no,
-                n_owned: r.header.n_owned,
-                delete_mark: r.header.delete_mark,
-                min_rec: r.header.min_rec,
-                next_offset: r.header.next_offset,
+                rec_type: r.header.rec_type().name().to_string(),
+                heap_no: r.header.heap_no(),
+                n_owned: r.header.n_owned(),
+                delete_mark: r.header.delete_mark(),
+                min_rec: r.header.min_rec(),
+                next_offset: r.header.next_offset_raw(),
                 raw_hex,
             }
         })

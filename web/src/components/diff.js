@@ -23,7 +23,7 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
         <span id="diff-export"></span>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="bg-surface-2 rounded-lg p-4">
           <div class="text-xs text-gray-500 uppercase tracking-wide">File 1</div>
           <div class="text-sm font-bold text-gray-100 mt-1 truncate">${esc(fileName1)}</div>
@@ -59,12 +59,12 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
           <table class="w-full text-xs font-mono">
             <thead class="sticky top-0 bg-gray-950">
               <tr class="text-left text-gray-500 border-b border-gray-800">
-                <th class="py-1 pr-3">#</th>
-                <th class="py-1 pr-3">Type (File 1)</th>
-                <th class="py-1 pr-3">Type (File 2)</th>
-                <th class="py-1 pr-3">LSN 1</th>
-                <th class="py-1 pr-3">LSN 2</th>
-                <th class="py-1 pr-3">Bytes Changed</th>
+                <th scope="col" class="py-1 pr-3">#</th>
+                <th scope="col" class="py-1 pr-3">Type (File 1)</th>
+                <th scope="col" class="py-1 pr-3">Type (File 2)</th>
+                <th scope="col" class="py-1 pr-3">LSN 1</th>
+                <th scope="col" class="py-1 pr-3">LSN 2</th>
+                <th scope="col" class="py-1 pr-3">Bytes Changed</th>
               </tr>
             </thead>
             <tbody>

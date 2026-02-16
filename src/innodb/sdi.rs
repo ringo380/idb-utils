@@ -97,7 +97,7 @@ pub fn extract_sdi_from_page(page_data: &[u8]) -> Option<Vec<SdiRecord>> {
     let mut sdi_records = Vec::new();
 
     for rec in &records {
-        if rec.header.rec_type != RecordType::Ordinary {
+        if rec.header.rec_type() != RecordType::Ordinary {
             continue;
         }
 
@@ -156,7 +156,7 @@ pub fn extract_sdi_from_pages(
         let records = walk_compact_records(&page_data);
 
         for rec in &records {
-            if rec.header.rec_type != RecordType::Ordinary {
+            if rec.header.rec_type() != RecordType::Ordinary {
                 continue;
             }
 

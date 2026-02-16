@@ -71,6 +71,12 @@ function showLoading(msg) {
 
 function showDropzone() {
   app.innerHTML = '';
+  // Skip-to-content link
+  const skipLink = document.createElement('a');
+  skipLink.href = '#app';
+  skipLink.className = 'skip-link';
+  skipLink.textContent = 'Skip to content';
+  app.appendChild(skipLink);
   // Header
   const header = document.createElement('header');
   header.className = 'flex items-center justify-between px-6 py-4 border-b border-gray-800';
@@ -160,6 +166,12 @@ function onDecrypt(kData) {
 
 function renderAnalyzer() {
   app.innerHTML = '';
+  // Skip-to-content link
+  const skipLink = document.createElement('a');
+  skipLink.href = '#tab-content';
+  skipLink.className = 'skip-link';
+  skipLink.textContent = 'Skip to content';
+  app.appendChild(skipLink);
   const opts = tabOpts();
 
   // Header with file name + back button
@@ -205,7 +217,7 @@ function renderAnalyzer() {
     fileData = null;
     diffData = null;
     isRedoLog = false;
-      decryptedData = null;
+    decryptedData = null;
     encryptionInfo = null;
     showDropzone();
   });
@@ -289,7 +301,11 @@ function renderTab() {
       createRecovery(content, data);
       break;
     case 'heatmap':
-      createHeatmap(content, data);
+      createHeatmap(content, data, (_pageNum) => {
+        // Navigate to Pages tab with selected page
+        const pagesIndex = tabOpts().showRedoLog ? 0 : 1;
+        switchTab(pagesIndex);
+      });
       break;
     case 'diff':
       if (diffData) {
