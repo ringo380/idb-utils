@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Encrypted tablespace support in web UI** — Automatic encryption detection with keyring file upload banner. New `decrypt_tablespace` and `get_encryption_info` WASM functions. Decrypted data is transparently passed to all analysis tabs. (Closes #29)
 - **Redundant row format parsing** — New `RedundantRecordHeader` struct and `walk_redundant_records()` function in `innodb::record` for pre-MySQL 5.0 row format support. Parses 6-byte headers with n_fields, one_byte_offs flag, and absolute next-record offsets.
 - **Accessibility improvements** — ARIA `role="tablist"`/`role="tab"` attributes with arrow key navigation, `scope="col"` on all table headers, skip-to-content link, keyboard shortcuts panel (`?` key), `aria-live` announcements for tab changes, focus-visible outlines, reduced-motion and high-contrast media queries, visible theme toggle button. (Closes #32)
-- 7 unit tests for redundant record header parsing and record chain walking
+- 3 unit tests for redundant record header parsing and RecordHeader enum accessors
 
 ### Changed
 
