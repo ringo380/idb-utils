@@ -325,7 +325,7 @@ function exportAll() {
   const data = effectiveData();
   const result = {};
   try { result.overview = JSON.parse(wasm.get_tablespace_info(data)); } catch { /* skip */ }
-  try { result.pages = JSON.parse(wasm.analyze_pages(data, -1)); } catch { /* skip */ }
+  try { result.pages = JSON.parse(wasm.analyze_pages(data, -1n)); } catch { /* skip */ }
   try { result.checksums = JSON.parse(wasm.validate_checksums(data)); } catch { /* skip */ }
   try { result.sdi = JSON.parse(wasm.extract_sdi(data)); } catch { /* skip */ }
   try { result.recovery = JSON.parse(wasm.assess_recovery(data)); } catch { /* skip */ }

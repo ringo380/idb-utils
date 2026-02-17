@@ -48,7 +48,7 @@ export function createHex(container, fileData, pageCount) {
     const length = parseInt(lengthInput.value) || 0;
 
     try {
-      const dump = wasm.hex_dump_page(fileData, page, offset, length);
+      const dump = wasm.hex_dump_page(fileData, BigInt(page), offset, length);
       lastDumpRaw = dump;
       output.innerHTML = formatHexDump(dump);
     } catch (e) {
