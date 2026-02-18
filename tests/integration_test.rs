@@ -2460,7 +2460,7 @@ fn test_mysql90_standard_checksums_valid() {
     let vendor = ts.vendor_info().clone();
     let page_size = ts.page_size();
 
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         // Skip all-zero (ALLOCATED) pages
         if data.iter().all(|&b| b == 0) {
             return Ok(());
@@ -2469,7 +2469,7 @@ fn test_mysql90_standard_checksums_valid() {
         assert!(
             result.valid,
             "page {} checksum should be valid (algo={:?})",
-            _page_num, result.algorithm
+            page_num, result.algorithm
         );
         assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
         Ok(())
@@ -2568,7 +2568,7 @@ fn test_mysql91_standard_checksums_valid() {
     let vendor = ts.vendor_info().clone();
     let page_size = ts.page_size();
 
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             return Ok(());
         }
@@ -2576,7 +2576,7 @@ fn test_mysql91_standard_checksums_valid() {
         assert!(
             result.valid,
             "page {} checksum should be valid",
-            _page_num
+            page_num
         );
         Ok(())
     })
@@ -2706,7 +2706,7 @@ fn test_mysql90_multipage_checksums_valid() {
 
     let mut valid_count = 0u32;
     let mut empty_count = 0u32;
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             empty_count += 1;
             return Ok(());
@@ -2715,7 +2715,7 @@ fn test_mysql90_multipage_checksums_valid() {
         assert!(
             result.valid,
             "page {} checksum should be valid",
-            _page_num
+            page_num
         );
         valid_count += 1;
         Ok(())
@@ -2787,7 +2787,7 @@ fn test_mysql91_multipage_checksums_valid() {
     let page_size = ts.page_size();
 
     let mut valid_count = 0u32;
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             return Ok(());
         }
@@ -2795,7 +2795,7 @@ fn test_mysql91_multipage_checksums_valid() {
         assert!(
             result.valid,
             "page {} checksum should be valid",
-            _page_num
+            page_num
         );
         valid_count += 1;
         Ok(())
@@ -2950,14 +2950,14 @@ fn test_mysql90_standard_lsn_valid() {
     let mut ts = Tablespace::open(&path).expect("open");
     let page_size = ts.page_size();
 
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             return Ok(());
         }
         assert!(
             validate_lsn(data, page_size),
             "page {} LSN should be consistent",
-            _page_num
+            page_num
         );
         Ok(())
     })
@@ -2970,14 +2970,14 @@ fn test_mysql91_standard_lsn_valid() {
     let mut ts = Tablespace::open(&path).expect("open");
     let page_size = ts.page_size();
 
-    ts.for_each_page(|_page_num, data| {
+    ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             return Ok(());
         }
         assert!(
             validate_lsn(data, page_size),
             "page {} LSN should be consistent",
-            _page_num
+            page_num
         );
         Ok(())
     })
@@ -3029,12 +3029,11 @@ fn test_mysql91_redo_log_10_opens() {
 
 // ── MySQL 9.x recovery assessment tests ─────────────────────────────
 
-#[test]
-fn test_mysql90_standard_recovery_assessment() {
-    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
-
+/// Run `inno recover --json` on a MySQL 9.x fixture and return the parsed JSON.
+fn run_mysql9_recovery_json(fixture_path: &str) -> serde_json::Value {
+    let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture_path);
     let opts = idb::cli::recover::RecoverOptions {
-        file: path,
+        file: path.clone(),
         page: None,
         verbose: false,
         json: true,
@@ -3042,90 +3041,42 @@ fn test_mysql90_standard_recovery_assessment() {
         page_size: None,
         keyring: None,
     };
-
     let mut out = Vec::new();
-    let result = idb::cli::recover::execute(&opts, &mut out);
-    assert!(
-        result.is_ok(),
-        "recover should succeed on MySQL 9.0 standard fixture: {:?}",
-        result.err()
-    );
-    let output = String::from_utf8(out).unwrap();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&output).expect("recover --json should produce valid JSON");
-    assert!(parsed.is_object());
+    idb::cli::recover::execute(&opts, &mut out)
+        .unwrap_or_else(|e| panic!("recover failed on {}: {}", path, e));
+    let output = String::from_utf8(out).expect("valid UTF-8 output");
+    serde_json::from_str(&output).expect("valid JSON output")
+}
+
+#[test]
+fn test_mysql90_standard_recovery_assessment() {
+    let parsed = run_mysql9_recovery_json("mysql90_standard.ibd");
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
     assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
-    // All pages in a clean fixture should be intact
-    let summary = &parsed["summary"];
     assert!(
-        summary.get("intact").is_some(),
+        parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"
     );
 }
 
 #[test]
 fn test_mysql91_standard_recovery_assessment() {
-    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
-
-    let opts = idb::cli::recover::RecoverOptions {
-        file: path,
-        page: None,
-        verbose: false,
-        json: true,
-        force: false,
-        page_size: None,
-        keyring: None,
-    };
-
-    let mut out = Vec::new();
-    let result = idb::cli::recover::execute(&opts, &mut out);
-    assert!(
-        result.is_ok(),
-        "recover should succeed on MySQL 9.1 standard fixture: {:?}",
-        result.err()
-    );
-    let output = String::from_utf8(out).unwrap();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&output).expect("recover --json should produce valid JSON");
-    assert!(parsed.is_object());
+    let parsed = run_mysql9_recovery_json("mysql91_standard.ibd");
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
     assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
-    let summary = &parsed["summary"];
     assert!(
-        summary.get("intact").is_some(),
+        parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"
     );
 }
 
 #[test]
 fn test_mysql90_multipage_recovery_assessment() {
-    let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
-
-    let opts = idb::cli::recover::RecoverOptions {
-        file: path,
-        page: None,
-        verbose: false,
-        json: true,
-        force: false,
-        page_size: None,
-        keyring: None,
-    };
-
-    let mut out = Vec::new();
-    let result = idb::cli::recover::execute(&opts, &mut out);
-    assert!(
-        result.is_ok(),
-        "recover should succeed on MySQL 9.0 multipage fixture: {:?}",
-        result.err()
-    );
-    let output = String::from_utf8(out).unwrap();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&output).expect("recover --json should produce valid JSON");
+    let parsed = run_mysql9_recovery_json("mysql90_multipage.ibd");
     assert!(
         parsed["total_pages"].as_u64().unwrap() > 7,
         "multipage fixture should have many pages"
@@ -3135,28 +3086,7 @@ fn test_mysql90_multipage_recovery_assessment() {
 
 #[test]
 fn test_mysql91_multipage_recovery_assessment() {
-    let path = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
-
-    let opts = idb::cli::recover::RecoverOptions {
-        file: path,
-        page: None,
-        verbose: false,
-        json: true,
-        force: false,
-        page_size: None,
-        keyring: None,
-    };
-
-    let mut out = Vec::new();
-    let result = idb::cli::recover::execute(&opts, &mut out);
-    assert!(
-        result.is_ok(),
-        "recover should succeed on MySQL 9.1 multipage fixture: {:?}",
-        result.err()
-    );
-    let output = String::from_utf8(out).unwrap();
-    let parsed: serde_json::Value =
-        serde_json::from_str(&output).expect("recover --json should produce valid JSON");
+    let parsed = run_mysql9_recovery_json("mysql91_multipage.ibd");
     assert!(
         parsed["total_pages"].as_u64().unwrap() > 7,
         "multipage fixture should have many pages"
