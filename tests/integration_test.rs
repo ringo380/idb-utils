@@ -3093,3 +3093,550 @@ fn test_mysql91_multipage_recovery_assessment() {
     );
     assert!(parsed.get("recoverable_records").is_some());
 }
+
+// ========== MySQL 9.x SDI JSON schema validation ==========
+//
+// These tests verify the SDI JSON structure from MySQL 9.x tablespaces in
+// detail — validating that the SDI page format, zlib decompression, and JSON
+// schema are fully compatible with MySQL 9.0 and 9.1.
+//
+// SDI format verified against MySQL 9.0.1 and 9.1.0:
+//   - sdi_version remains 80019 (unchanged from MySQL 8.0)
+//   - dd_version bumped to 90000
+//   - Binary record layout (type/id/trx_id/roll_ptr/lengths/data) unchanged
+//   - JSON schema fields identical to MySQL 8.0
+
+/// Helper: extract SDI Table record JSON from a fixture file.
+fn extract_sdi_table_json(fixture_name: &str) -> serde_json::Value {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture_name);
+    let mut ts = Tablespace::open(&path).expect("open tablespace");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find SDI pages");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records
+        .iter()
+        .find(|r| r.sdi_type == 1)
+        .expect("should have Table SDI record (type=1)");
+
+    assert!(!table_rec.data.is_empty(), "SDI data should not be empty");
+
+    serde_json::from_str(&table_rec.data).expect("SDI data should be valid JSON")
+}
+
+/// Helper: extract SDI Tablespace record JSON from a fixture file.
+fn extract_sdi_tablespace_json(fixture_name: &str) -> serde_json::Value {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture_name);
+    let mut ts = Tablespace::open(&path).expect("open tablespace");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let ts_rec = records
+        .iter()
+        .find(|r| r.sdi_type == 2)
+        .expect("should have Tablespace SDI record (type=2)");
+
+    assert!(!ts_rec.data.is_empty(), "SDI data should not be empty");
+
+    serde_json::from_str(&ts_rec.data).expect("SDI data should be valid JSON")
+}
+
+/// Validate top-level SDI envelope fields common to all MySQL 9.x records.
+fn assert_sdi_envelope(json: &serde_json::Value, expected_type: &str) {
+    assert_eq!(
+        json["dd_object_type"].as_str().unwrap(),
+        expected_type,
+        "dd_object_type mismatch"
+    );
+
+    let sdi_version = json["sdi_version"].as_u64().unwrap();
+    assert_eq!(sdi_version, 80019, "sdi_version should be 80019");
+
+    let dd_version = json["dd_version"].as_u64().unwrap();
+    assert!(
+        dd_version >= 90000,
+        "dd_version should be >= 90000 for MySQL 9.x, got {}",
+        dd_version
+    );
+
+    let mysqld_version = json["mysqld_version_id"].as_u64().unwrap();
+    assert!(
+        mysqld_version >= 90000,
+        "mysqld_version_id should be >= 90000, got {}",
+        mysqld_version
+    );
+
+    assert!(json.get("dd_object").is_some(), "dd_object must exist");
+}
+
+/// Validate Table dd_object fields for MySQL 9.x.
+fn assert_table_dd_object(dd: &serde_json::Value, expected_name: &str) {
+    // Required string/number fields
+    assert_eq!(
+        dd["name"].as_str().unwrap(),
+        expected_name,
+        "table name mismatch"
+    );
+    assert_eq!(dd["engine"].as_str().unwrap(), "InnoDB");
+    assert!(dd["collation_id"].as_u64().is_some(), "collation_id");
+    assert!(dd["created"].as_u64().is_some(), "created timestamp");
+    assert!(dd["last_altered"].as_u64().is_some(), "last_altered");
+    assert!(dd["se_private_id"].as_u64().is_some(), "se_private_id");
+    assert!(dd["row_format"].as_u64().is_some(), "row_format");
+    assert!(dd["hidden"].as_u64().is_some(), "hidden");
+    assert!(dd["schema_ref"].as_str().is_some(), "schema_ref");
+
+    let mysql_ver = dd["mysql_version_id"].as_u64().unwrap();
+    assert!(
+        mysql_ver >= 90000,
+        "mysql_version_id should be >= 90000, got {}",
+        mysql_ver
+    );
+
+    // Required arrays
+    assert!(dd["columns"].is_array(), "columns must be an array");
+    assert!(dd["indexes"].is_array(), "indexes must be an array");
+    assert!(
+        dd["columns"].as_array().unwrap().len() >= 3,
+        "should have at least 3 columns (id, name, data or similar)"
+    );
+    assert!(
+        dd["indexes"].as_array().unwrap().len() >= 1,
+        "should have at least 1 index"
+    );
+    assert!(dd["foreign_keys"].is_array(), "foreign_keys must be array");
+    assert!(
+        dd["check_constraints"].is_array(),
+        "check_constraints must be array"
+    );
+    assert!(dd["partitions"].is_array(), "partitions must be array");
+
+    // Optional string fields that should exist (even if empty)
+    for field in &[
+        "comment",
+        "engine_attribute",
+        "secondary_engine_attribute",
+        "se_private_data",
+        "options",
+        "partition_expression",
+        "partition_expression_utf8",
+        "subpartition_expression",
+        "subpartition_expression_utf8",
+    ] {
+        assert!(
+            dd.get(*field).is_some(),
+            "field '{}' should exist in dd_object",
+            field
+        );
+    }
+}
+
+/// Validate column fields in the SDI JSON.
+fn assert_column_fields(col: &serde_json::Value) {
+    let expected_fields = [
+        "name",
+        "type",
+        "char_length",
+        "collation_id",
+        "column_key",
+        "column_type_utf8",
+        "comment",
+        "datetime_precision",
+        "datetime_precision_null",
+        "default_option",
+        "default_value",
+        "default_value_null",
+        "default_value_utf8",
+        "default_value_utf8_null",
+        "elements",
+        "engine_attribute",
+        "generation_expression",
+        "generation_expression_utf8",
+        "has_no_default",
+        "hidden",
+        "is_auto_increment",
+        "is_explicit_collation",
+        "is_nullable",
+        "is_unsigned",
+        "is_virtual",
+        "is_zerofill",
+        "numeric_precision",
+        "numeric_scale",
+        "numeric_scale_null",
+        "options",
+        "ordinal_position",
+        "se_private_data",
+        "secondary_engine_attribute",
+        "srs_id",
+        "srs_id_null",
+        "update_option",
+    ];
+
+    for field in &expected_fields {
+        assert!(
+            col.get(*field).is_some(),
+            "column '{}' missing field '{}'",
+            col["name"].as_str().unwrap_or("<unknown>"),
+            field
+        );
+    }
+
+    // name must be a string
+    assert!(col["name"].as_str().is_some(), "column name must be string");
+    // ordinal_position must be a number
+    assert!(
+        col["ordinal_position"].as_u64().is_some(),
+        "ordinal_position must be number"
+    );
+}
+
+/// Validate index fields in the SDI JSON.
+fn assert_index_fields(idx: &serde_json::Value) {
+    let expected_fields = [
+        "name",
+        "type",
+        "algorithm",
+        "comment",
+        "elements",
+        "engine",
+        "engine_attribute",
+        "hidden",
+        "is_algorithm_explicit",
+        "is_generated",
+        "is_visible",
+        "options",
+        "ordinal_position",
+        "se_private_data",
+        "secondary_engine_attribute",
+        "tablespace_ref",
+    ];
+
+    for field in &expected_fields {
+        assert!(
+            idx.get(*field).is_some(),
+            "index '{}' missing field '{}'",
+            idx["name"].as_str().unwrap_or("<unknown>"),
+            field
+        );
+    }
+
+    assert!(idx["elements"].is_array(), "index elements must be array");
+    assert!(
+        !idx["elements"].as_array().unwrap().is_empty(),
+        "index should have at least one element"
+    );
+
+    // Validate index element fields
+    let elem = &idx["elements"].as_array().unwrap()[0];
+    for field in &[
+        "column_opx",
+        "hidden",
+        "length",
+        "order",
+        "ordinal_position",
+    ] {
+        assert!(
+            elem.get(*field).is_some(),
+            "index element missing field '{}'",
+            field
+        );
+    }
+}
+
+/// Validate Tablespace dd_object fields for MySQL 9.x.
+fn assert_tablespace_dd_object(dd: &serde_json::Value) {
+    assert!(dd["name"].as_str().is_some(), "tablespace name");
+    assert_eq!(dd["engine"].as_str().unwrap(), "InnoDB");
+    assert!(dd["files"].is_array(), "files must be array");
+    assert!(
+        !dd["files"].as_array().unwrap().is_empty(),
+        "should have at least one file"
+    );
+
+    let file = &dd["files"].as_array().unwrap()[0];
+    assert!(file["filename"].as_str().is_some(), "filename");
+    assert!(
+        file["ordinal_position"].as_u64().is_some(),
+        "ordinal_position"
+    );
+    assert!(file["se_private_data"].as_str().is_some(), "se_private_data");
+
+    for field in &[
+        "comment",
+        "engine_attribute",
+        "options",
+        "se_private_data",
+    ] {
+        assert!(
+            dd.get(*field).is_some(),
+            "tablespace dd_object missing '{}'",
+            field
+        );
+    }
+}
+
+// ── MySQL 9.0 standard SDI schema validation ────────────────────────
+
+#[test]
+fn test_mysql90_standard_sdi_table_json_schema() {
+    let json = extract_sdi_table_json("mysql90_standard.ibd");
+    assert_sdi_envelope(&json, "Table");
+
+    let dd = &json["dd_object"];
+    assert_table_dd_object(dd, "standard");
+
+    // Validate all columns
+    for col in dd["columns"].as_array().unwrap() {
+        assert_column_fields(col);
+    }
+
+    // Validate all indexes
+    for idx in dd["indexes"].as_array().unwrap() {
+        assert_index_fields(idx);
+    }
+
+    // MySQL 9.0 specific version checks
+    assert_eq!(json["mysqld_version_id"].as_u64().unwrap(), 90001);
+    assert_eq!(dd["mysql_version_id"].as_u64().unwrap(), 90001);
+}
+
+#[test]
+fn test_mysql90_standard_sdi_tablespace_json_schema() {
+    let json = extract_sdi_tablespace_json("mysql90_standard.ibd");
+    assert_sdi_envelope(&json, "Tablespace");
+    assert_tablespace_dd_object(&json["dd_object"]);
+
+    // Verify server_version in se_private_data
+    let se_data = json["dd_object"]["se_private_data"].as_str().unwrap();
+    assert!(
+        se_data.contains("server_version=90001"),
+        "se_private_data should reference server_version=90001, got: {}",
+        se_data
+    );
+}
+
+// ── MySQL 9.1 standard SDI schema validation ────────────────────────
+
+#[test]
+fn test_mysql91_standard_sdi_table_json_schema() {
+    let json = extract_sdi_table_json("mysql91_standard.ibd");
+    assert_sdi_envelope(&json, "Table");
+
+    let dd = &json["dd_object"];
+    assert_table_dd_object(dd, "standard");
+
+    for col in dd["columns"].as_array().unwrap() {
+        assert_column_fields(col);
+    }
+    for idx in dd["indexes"].as_array().unwrap() {
+        assert_index_fields(idx);
+    }
+
+    // MySQL 9.1 specific version checks
+    assert_eq!(json["mysqld_version_id"].as_u64().unwrap(), 90100);
+    assert_eq!(dd["mysql_version_id"].as_u64().unwrap(), 90100);
+}
+
+#[test]
+fn test_mysql91_standard_sdi_tablespace_json_schema() {
+    let json = extract_sdi_tablespace_json("mysql91_standard.ibd");
+    assert_sdi_envelope(&json, "Tablespace");
+    assert_tablespace_dd_object(&json["dd_object"]);
+
+    let se_data = json["dd_object"]["se_private_data"].as_str().unwrap();
+    assert!(
+        se_data.contains("server_version=90100"),
+        "se_private_data should reference server_version=90100, got: {}",
+        se_data
+    );
+}
+
+// ── MySQL 9.0 multipage SDI schema validation ───────────────────────
+
+#[test]
+fn test_mysql90_multipage_sdi_table_json_schema() {
+    let json = extract_sdi_table_json("mysql90_multipage.ibd");
+    assert_sdi_envelope(&json, "Table");
+
+    let dd = &json["dd_object"];
+    assert_table_dd_object(dd, "multipage");
+
+    for col in dd["columns"].as_array().unwrap() {
+        assert_column_fields(col);
+    }
+    for idx in dd["indexes"].as_array().unwrap() {
+        assert_index_fields(idx);
+    }
+}
+
+#[test]
+fn test_mysql90_multipage_sdi_tablespace_json_schema() {
+    let json = extract_sdi_tablespace_json("mysql90_multipage.ibd");
+    assert_sdi_envelope(&json, "Tablespace");
+    assert_tablespace_dd_object(&json["dd_object"]);
+}
+
+// ── MySQL 9.1 multipage SDI schema validation ───────────────────────
+
+#[test]
+fn test_mysql91_multipage_sdi_table_json_schema() {
+    let json = extract_sdi_table_json("mysql91_multipage.ibd");
+    assert_sdi_envelope(&json, "Table");
+
+    let dd = &json["dd_object"];
+    assert_table_dd_object(dd, "multipage");
+
+    for col in dd["columns"].as_array().unwrap() {
+        assert_column_fields(col);
+    }
+    for idx in dd["indexes"].as_array().unwrap() {
+        assert_index_fields(idx);
+    }
+}
+
+#[test]
+fn test_mysql91_multipage_sdi_tablespace_json_schema() {
+    let json = extract_sdi_tablespace_json("mysql91_multipage.ibd");
+    assert_sdi_envelope(&json, "Tablespace");
+    assert_tablespace_dd_object(&json["dd_object"]);
+}
+
+// ── Cross-version SDI schema consistency ────────────────────────────
+
+#[test]
+fn test_mysql9_sdi_schema_consistent_across_versions() {
+    // Verify that MySQL 9.0 and 9.1 produce identical SDI JSON schema
+    // (same field names, same structure — only values like version IDs differ)
+    let json90 = extract_sdi_table_json("mysql90_standard.ibd");
+    let json91 = extract_sdi_table_json("mysql91_standard.ibd");
+
+    // Top-level keys must match
+    let keys90: std::collections::BTreeSet<String> = json90
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let keys91: std::collections::BTreeSet<String> = json91
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(keys90, keys91, "top-level keys differ between 9.0 and 9.1");
+
+    // dd_object keys must match
+    let dd_keys90: std::collections::BTreeSet<String> = json90["dd_object"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let dd_keys91: std::collections::BTreeSet<String> = json91["dd_object"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        dd_keys90, dd_keys91,
+        "dd_object keys differ between 9.0 and 9.1"
+    );
+
+    // Column field names must match (compare first user column)
+    let col90 = &json90["dd_object"]["columns"][0];
+    let col91 = &json91["dd_object"]["columns"][0];
+    let col_keys90: std::collections::BTreeSet<String> = col90
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let col_keys91: std::collections::BTreeSet<String> = col91
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        col_keys90, col_keys91,
+        "column field names differ between 9.0 and 9.1"
+    );
+
+    // Index field names must match
+    let idx90 = &json90["dd_object"]["indexes"][0];
+    let idx91 = &json91["dd_object"]["indexes"][0];
+    let idx_keys90: std::collections::BTreeSet<String> = idx90
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let idx_keys91: std::collections::BTreeSet<String> = idx91
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(
+        idx_keys90, idx_keys91,
+        "index field names differ between 9.0 and 9.1"
+    );
+
+    // sdi_version must be the same across both versions
+    assert_eq!(
+        json90["sdi_version"].as_u64().unwrap(),
+        json91["sdi_version"].as_u64().unwrap(),
+        "sdi_version should be identical across MySQL 9.x versions"
+    );
+
+    // dd_version must be the same across both versions
+    assert_eq!(
+        json90["dd_version"].as_u64().unwrap(),
+        json91["dd_version"].as_u64().unwrap(),
+        "dd_version should be identical across MySQL 9.x versions"
+    );
+}
+
+#[test]
+fn test_mysql9_sdi_record_types() {
+    // Verify both type=1 (Table) and type=2 (Tablespace) records exist in all fixtures
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    for fixture in &[
+        "mysql90_standard.ibd",
+        "mysql91_standard.ibd",
+        "mysql90_multipage.ibd",
+        "mysql91_multipage.ibd",
+    ] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let mut ts = Tablespace::open(&path).expect("open");
+        let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+        let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+
+        let has_table = records.iter().any(|r| r.sdi_type == 1);
+        let has_tablespace = records.iter().any(|r| r.sdi_type == 2);
+
+        assert!(
+            has_table,
+            "{}: should have Table SDI record (type=1)",
+            fixture
+        );
+        assert!(
+            has_tablespace,
+            "{}: should have Tablespace SDI record (type=2)",
+            fixture
+        );
+        assert_eq!(
+            records.len(),
+            2,
+            "{}: should have exactly 2 SDI records (1 Table + 1 Tablespace)",
+            fixture
+        );
+    }
+}

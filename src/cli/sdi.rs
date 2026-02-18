@@ -23,7 +23,8 @@ pub struct SdiOptions {
 /// embedding the data dictionary (table definitions, column metadata, index
 /// descriptions) directly inside each `.ibd` file, replacing the `.frm` files
 /// used in MySQL 5.x. SDI data is stored in pages of type 17853
-/// (`FIL_PAGE_SDI`).
+/// (`FIL_PAGE_SDI`). The SDI binary format and JSON schema are identical
+/// across MySQL 8.0, 9.0, and 9.1.
 ///
 /// This command first scans the tablespace for SDI pages by checking page
 /// types, then uses [`sdi::extract_sdi_from_pages`]

@@ -9,6 +9,14 @@
 //! records by following the B+Tree page chain, decompress the payload, and return
 //! the parsed [`SdiRecord`] entries. Each record contains the SDI type (table or
 //! tablespace), object ID, and the raw JSON string.
+//!
+//! ## Version compatibility
+//!
+//! The SDI binary format (page type, record layout, zlib compression) and JSON
+//! schema are identical across MySQL 8.0, 9.0, and 9.1. The `sdi_version` field
+//! remains 80019 in MySQL 9.x; the `dd_version` field is bumped to 90000. No
+//! fields were added or removed in the JSON schema between MySQL 8.0 and 9.1.
+//! Verified against MySQL 9.0.1 and 9.1.0 test fixtures.
 
 use byteorder::{BigEndian, ByteOrder};
 use flate2::read::ZlibDecoder;
