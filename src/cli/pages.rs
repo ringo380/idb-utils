@@ -609,9 +609,27 @@ fn matches_page_type_filter(page_type: &PageType, filter: &str) -> bool {
         ),
         "LOB" => matches!(
             page_type,
-            PageType::LobIndex | PageType::LobData | PageType::LobFirst
+            PageType::LobIndex
+                | PageType::LobData
+                | PageType::LobFirst
+                | PageType::ZlobFirst
+                | PageType::ZlobData
+                | PageType::ZlobIndex
+                | PageType::ZlobFrag
+                | PageType::ZlobFragEntry
         ),
-        "SDI" => matches!(page_type, PageType::Sdi | PageType::SdiBlob),
+        "ZLOB" => matches!(
+            page_type,
+            PageType::ZlobFirst
+                | PageType::ZlobData
+                | PageType::ZlobIndex
+                | PageType::ZlobFrag
+                | PageType::ZlobFragEntry
+        ),
+        "SDI" => matches!(
+            page_type,
+            PageType::Sdi | PageType::SdiBlob | PageType::SdiZblob
+        ),
         "COMPRESSED" | "COMP" => matches!(
             page_type,
             PageType::Compressed
