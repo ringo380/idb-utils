@@ -959,7 +959,7 @@ struct RedoBlock {
     flush_flag: bool,
     data_len: u16,
     first_rec_group: u16,
-    checkpoint_no: u32,
+    epoch_no: u32,
     checksum_valid: bool,
     has_data: bool,
     record_types: Vec<String>,
@@ -976,11 +976,10 @@ struct RedoBlock {
 /// (u64), `total_blocks` (u64, including header blocks), `data_blocks`
 /// (u64, excluding the file header blocks), `header` (log file header
 /// object or null), `checkpoint_1` and `checkpoint_2` (checkpoint objects
-/// or null, each containing `checkpoint_no`, `checkpoint_lsn`,
-/// `checkpoint_offset`, etc.), and `blocks` (array of block details).
-/// Each block element contains: `block_index` (u64), `block_no` (u32),
-/// `flush_flag` (bool), `data_len` (u16), `first_rec_group` (u16),
-/// `checkpoint_no` (u32), `checksum_valid` (bool), `has_data` (bool),
+/// or null, each containing `lsn`, etc.), and `blocks` (array of block
+/// details). Each block element contains: `block_index` (u64), `block_no`
+/// (u32), `flush_flag` (bool), `data_len` (u16), `first_rec_group` (u16),
+/// `epoch_no` (u32), `checksum_valid` (bool), `has_data` (bool),
 /// and `record_types` (array of mlog record type name strings).
 ///
 /// Returns an error string if the input is not a valid InnoDB redo log
@@ -1018,7 +1017,7 @@ pub fn parse_redo_log(data: &[u8]) -> Result<String, JsValue> {
             flush_flag: bhdr.flush_flag,
             data_len: bhdr.data_len,
             first_rec_group: bhdr.first_rec_group,
-            checkpoint_no: bhdr.checkpoint_no,
+            epoch_no: bhdr.epoch_no,
             checksum_valid: cksum_ok,
             has_data: bhdr.has_data(),
             record_types,

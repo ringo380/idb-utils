@@ -10,7 +10,7 @@ use tempfile::NamedTempFile;
 
 use idb::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use idb::innodb::constants::*;
-use idb::innodb::log::{LOG_BLOCK_CHECKSUM_OFFSET, LOG_BLOCK_SIZE};
+use idb::innodb::log::{LOG_BLOCK_CHECKSUM_OFFSET, LOG_BLOCK_HDR_SIZE, LOG_BLOCK_SIZE};
 use idb::innodb::page::FilHeader;
 use idb::innodb::page_types::PageType;
 use idb::innodb::tablespace::Tablespace;
@@ -1095,11 +1095,19 @@ fn test_tsid_json_output() {
 // ========== Redo log builder helpers ==========
 
 /// Build a redo log header block (block 0) with valid CRC-32C.
-fn build_log_header_block(group_id: u32, start_lsn: u64, file_no: u32, creator: &str) -> Vec<u8> {
+///
+/// Offset 0: format_version (u32), Offset 4: log_uuid (u32),
+/// Offset 8: start_lsn (u64), Offset 16: creator (32 bytes).
+fn build_log_header_block(
+    format_version: u32,
+    start_lsn: u64,
+    log_uuid: u32,
+    creator: &str,
+) -> Vec<u8> {
     let mut block = vec![0u8; LOG_BLOCK_SIZE];
-    BigEndian::write_u32(&mut block[0..], group_id);
-    BigEndian::write_u64(&mut block[4..], start_lsn);
-    BigEndian::write_u32(&mut block[12..], file_no);
+    BigEndian::write_u32(&mut block[0..], format_version);
+    BigEndian::write_u32(&mut block[4..], log_uuid);
+    BigEndian::write_u64(&mut block[8..], start_lsn);
     let creator_bytes = creator.as_bytes();
     let len = creator_bytes.len().min(32);
     block[16..16 + len].copy_from_slice(&creator_bytes[..len]);
@@ -1119,15 +1127,15 @@ fn build_checkpoint_block(number: u64, lsn: u64, offset: u32, buf_size: u32) -> 
 }
 
 /// Build a redo log data block with valid CRC-32C.
-fn build_log_data_block(block_no: u32, data_len: u16, checkpoint_no: u32) -> Vec<u8> {
+fn build_log_data_block(block_no: u32, data_len: u16, epoch_no: u32) -> Vec<u8> {
     let mut block = vec![0u8; LOG_BLOCK_SIZE];
     BigEndian::write_u32(&mut block[0..], block_no);
     BigEndian::write_u16(&mut block[4..], data_len);
-    BigEndian::write_u16(&mut block[6..], 14); // first_rec_group = header size
-    BigEndian::write_u32(&mut block[8..], checkpoint_no);
+    BigEndian::write_u16(&mut block[6..], LOG_BLOCK_HDR_SIZE as u16); // first_rec_group
+    BigEndian::write_u32(&mut block[8..], epoch_no);
     // Fill some data bytes
-    if data_len as usize > 14 {
-        for i in 14..(data_len as usize).min(LOG_BLOCK_SIZE - 4) {
+    if data_len as usize > LOG_BLOCK_HDR_SIZE {
+        for i in LOG_BLOCK_HDR_SIZE..(data_len as usize).min(LOG_BLOCK_SIZE - 4) {
             block[i] = (i % 256) as u8;
         }
     }
@@ -1166,7 +1174,7 @@ fn write_redo_log(data_blocks: &[Vec<u8>]) -> NamedTempFile {
 fn test_log_basic_parse() {
     let b1 = build_log_data_block(5, 100, 42);
     let b2 = build_log_data_block(6, 200, 42);
-    let b3 = build_log_data_block(7, 14, 42); // empty (data_len == header size)
+    let b3 = build_log_data_block(7, LOG_BLOCK_HDR_SIZE as u16, 42); // empty (data_len == header size)
 
     let tmp = write_redo_log(&[b1, b2, b3]);
 
@@ -2329,9 +2337,9 @@ fn test_sdi_nonexistent_file() {
 
 #[test]
 fn test_log_no_empty_filter() {
-    // 3 data blocks: 2 with data, 1 empty (data_len==14)
+    // 3 data blocks: 2 with data, 1 empty (data_len == LOG_BLOCK_HDR_SIZE)
     let b1 = build_log_data_block(5, 100, 42);
-    let b2 = build_log_data_block(6, 14, 42); // empty: data_len == LOG_BLOCK_HDR_SIZE
+    let b2 = build_log_data_block(6, LOG_BLOCK_HDR_SIZE as u16, 42); // empty
     let b3 = build_log_data_block(7, 200, 42);
 
     let tmp = write_redo_log(&[b1, b2, b3]);
@@ -2355,10 +2363,10 @@ fn test_log_no_empty_filter() {
         2,
         "no_empty should filter out the empty block, leaving 2"
     );
-    // Verify all remaining blocks have data_len > 14
+    // Verify all remaining blocks have data_len > LOG_BLOCK_HDR_SIZE
     for block in blocks {
         assert!(
-            block["data_len"].as_u64().unwrap() > 14,
+            block["data_len"].as_u64().unwrap() > LOG_BLOCK_HDR_SIZE as u64,
             "filtered blocks should all have data"
         );
     }
@@ -3025,6 +3033,379 @@ fn test_mysql91_redo_log_10_opens() {
         detect_vendor_from_created_by(&header.created_by),
         InnoDbVendor::MySQL,
     );
+}
+
+// ── MySQL 9.x redo log comprehensive tests ──────────────────────────
+
+#[test]
+fn test_mysql90_redo_log_format_version() {
+    use idb::innodb::log::LogFile;
+
+    let path = format!("{}/mysql90_redo_9", MYSQL9_FIXTURE_DIR);
+    let mut log = LogFile::open(&path).expect("should open MySQL 9.0 redo log");
+    let header = log.read_header().expect("should read header");
+
+    // MySQL 9.x uses redo log format version 6 (introduced in MySQL 8.0.30)
+    assert_eq!(
+        header.format_version, 6,
+        "MySQL 9.0 should use format version 6, got {}",
+        header.format_version
+    );
+    // Log UUID should be non-zero for format version 6
+    assert_ne!(
+        header.log_uuid, 0,
+        "log_uuid should be non-zero for format version 6"
+    );
+    // Start LSN should be reasonable (non-zero)
+    assert!(
+        header.start_lsn > 0,
+        "start_lsn should be non-zero, got {}",
+        header.start_lsn
+    );
+}
+
+#[test]
+fn test_mysql91_redo_log_format_version() {
+    use idb::innodb::log::LogFile;
+
+    let path = format!("{}/mysql91_redo_9", MYSQL9_FIXTURE_DIR);
+    let mut log = LogFile::open(&path).expect("should open MySQL 9.1 redo log");
+    let header = log.read_header().expect("should read header");
+
+    assert_eq!(
+        header.format_version, 6,
+        "MySQL 9.1 should use format version 6, got {}",
+        header.format_version
+    );
+    assert_ne!(
+        header.log_uuid, 0,
+        "log_uuid should be non-zero for format version 6"
+    );
+    assert!(
+        header.start_lsn > 0,
+        "start_lsn should be non-zero, got {}",
+        header.start_lsn
+    );
+}
+
+#[test]
+fn test_mysql9_redo_log_checkpoints() {
+    use idb::innodb::log::LogFile;
+
+    // Test both MySQL 9.0 and 9.1
+    for (version, fixture) in &[("9.0", "mysql90_redo_9"), ("9.1", "mysql91_redo_9")] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let mut log = LogFile::open(&path).unwrap_or_else(|e| {
+            panic!("should open {} redo log: {}", version, e);
+        });
+
+        // Read checkpoint 1 (block 1)
+        let cp1 = log
+            .read_checkpoint(0)
+            .unwrap_or_else(|e| panic!("{} checkpoint 1 should be readable: {}", version, e));
+        assert!(
+            cp1.lsn > 0,
+            "{} checkpoint 1 LSN should be non-zero, got {}",
+            version,
+            cp1.lsn
+        );
+
+        // In MySQL 8.0.30+ (format version 6), the checkpoint block only stores
+        // the LSN at offset 8. The number, offset, buf_size, archived_lsn fields
+        // are not written. However, we just parse whatever is in those bytes.
+        // The key assertion is that LSN is valid.
+
+        // Read checkpoint 2 (block 3)
+        let cp2 = log
+            .read_checkpoint(1)
+            .unwrap_or_else(|e| panic!("{} checkpoint 2 should be readable: {}", version, e));
+        assert!(
+            cp2.lsn > 0,
+            "{} checkpoint 2 LSN should be non-zero, got {}",
+            version,
+            cp2.lsn
+        );
+    }
+}
+
+#[test]
+fn test_mysql9_redo_log_block_checksums() {
+    use idb::innodb::log::{validate_log_block_checksum, LogBlockHeader, LogFile, LOG_FILE_HDR_BLOCKS};
+
+    // Verify that block checksums validate correctly on MySQL 9.x redo logs
+    for (version, fixture) in &[("9.0", "mysql90_redo_9"), ("9.1", "mysql91_redo_9")] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let mut log = LogFile::open(&path).unwrap_or_else(|e| {
+            panic!("should open {} redo log: {}", version, e);
+        });
+
+        let data_blocks = log.data_block_count();
+        // Check at least the first 50 data blocks (or all if fewer)
+        let limit = data_blocks.min(50);
+        let mut valid_count = 0;
+        let mut data_count = 0;
+
+        for i in 0..limit {
+            let block_idx = LOG_FILE_HDR_BLOCKS + i;
+            let block_data = log
+                .read_block(block_idx)
+                .unwrap_or_else(|e| panic!("{} block {} read failed: {}", version, block_idx, e));
+
+            let hdr = LogBlockHeader::parse(&block_data);
+            if let Some(hdr) = hdr {
+                if hdr.has_data() {
+                    data_count += 1;
+                    if validate_log_block_checksum(&block_data) {
+                        valid_count += 1;
+                    }
+                }
+            }
+        }
+
+        // All non-empty data blocks should have valid checksums
+        assert_eq!(
+            valid_count, data_count,
+            "{} redo log: {}/{} blocks had valid checksums",
+            version, valid_count, data_count
+        );
+    }
+}
+
+#[test]
+fn test_mysql9_redo_log_data_blocks_parseable() {
+    use idb::innodb::log::{LogBlockHeader, LogFile, LOG_BLOCK_HDR_SIZE, LOG_FILE_HDR_BLOCKS};
+
+    // Verify that all data blocks can be parsed without errors
+    for (version, fixture) in &[("9.0", "mysql90_redo_9"), ("9.1", "mysql91_redo_9")] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let mut log = LogFile::open(&path).unwrap_or_else(|e| {
+            panic!("should open {} redo log: {}", version, e);
+        });
+
+        let data_blocks = log.data_block_count();
+        assert!(
+            data_blocks > 0,
+            "{} redo log should have data blocks",
+            version
+        );
+
+        let limit = data_blocks.min(100);
+        let mut has_data_count = 0;
+
+        for i in 0..limit {
+            let block_idx = LOG_FILE_HDR_BLOCKS + i;
+            let block_data = log
+                .read_block(block_idx)
+                .unwrap_or_else(|e| panic!("{} block {} read failed: {}", version, block_idx, e));
+
+            let hdr = LogBlockHeader::parse(&block_data)
+                .unwrap_or_else(|| panic!("{} block {} header parse failed", version, block_idx));
+
+            // data_len should be within valid range
+            assert!(
+                (hdr.data_len as usize) <= 512,
+                "{} block {} data_len {} exceeds block size",
+                version,
+                block_idx,
+                hdr.data_len
+            );
+
+            if hdr.has_data() {
+                has_data_count += 1;
+                // data_len should be at least the header size
+                assert!(
+                    hdr.data_len as usize >= LOG_BLOCK_HDR_SIZE,
+                    "{} block {} data_len {} < header size {}",
+                    version,
+                    block_idx,
+                    hdr.data_len,
+                    LOG_BLOCK_HDR_SIZE
+                );
+            }
+        }
+
+        // There should be at least some non-empty data blocks in an active redo log
+        assert!(
+            has_data_count > 0,
+            "{} redo log should have non-empty data blocks",
+            version
+        );
+    }
+}
+
+#[test]
+fn test_mysql9_redo_log_json_output() {
+    use idb::innodb::log::LOG_BLOCK_HDR_SIZE;
+
+    // Test the `inno log --json` output against MySQL 9.x fixtures
+    for (version, fixture) in &[("9.0", "mysql90_redo_9"), ("9.1", "mysql91_redo_9")] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let opts = idb::cli::log::LogOptions {
+            file: path.clone(),
+            blocks: Some(20),
+            no_empty: false,
+            verbose: true,
+            json: true,
+        };
+        let mut out = Vec::new();
+        idb::cli::log::execute(&opts, &mut out)
+            .unwrap_or_else(|e| panic!("{} log JSON failed: {}", version, e));
+
+        let output = String::from_utf8(out).expect("valid UTF-8");
+        let json: serde_json::Value =
+            serde_json::from_str(&output).expect("should parse as JSON");
+
+        // Validate top-level fields
+        assert!(json.get("file_size").is_some(), "{} missing file_size", version);
+        assert!(json.get("total_blocks").is_some(), "{} missing total_blocks", version);
+        assert!(json.get("data_blocks").is_some(), "{} missing data_blocks", version);
+
+        // Validate header fields
+        let header = json.get("header").expect("missing header");
+        assert_eq!(
+            header["format_version"].as_u64().unwrap(),
+            6,
+            "{} format_version should be 6",
+            version
+        );
+        assert!(
+            header["start_lsn"].as_u64().unwrap() > 0,
+            "{} start_lsn should be > 0",
+            version
+        );
+        let created = header["created_by"].as_str().unwrap();
+        assert!(
+            created.contains(version),
+            "{} created_by should contain version string, got: {}",
+            version,
+            created
+        );
+
+        // Validate checkpoint fields
+        let cp1 = json.get("checkpoint_1").expect("missing checkpoint_1");
+        assert!(
+            cp1["lsn"].as_u64().unwrap() > 0,
+            "{} checkpoint_1 LSN should be > 0",
+            version
+        );
+
+        // Validate blocks array
+        let blocks = json["blocks"].as_array().expect("blocks should be array");
+        assert!(
+            !blocks.is_empty(),
+            "{} blocks array should not be empty",
+            version
+        );
+
+        for block in blocks {
+            // Each block should have all required fields
+            assert!(block.get("block_index").is_some());
+            assert!(block.get("block_no").is_some());
+            assert!(block.get("flush_flag").is_some());
+            assert!(block.get("data_len").is_some());
+            assert!(block.get("first_rec_group").is_some());
+            assert!(block.get("epoch_no").is_some());
+            assert!(block.get("checksum_valid").is_some());
+            assert!(block.get("record_types").is_some());
+
+            let data_len = block["data_len"].as_u64().unwrap();
+            let has_data = data_len > LOG_BLOCK_HDR_SIZE as u64;
+            if has_data {
+                // Non-empty blocks should have valid checksums
+                assert!(
+                    block["checksum_valid"].as_bool().unwrap(),
+                    "{} block {} should have valid checksum",
+                    version,
+                    block["block_index"]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_mysql9_redo_log_cross_version_consistency() {
+    use idb::innodb::log::LogFile;
+
+    // MySQL 9.0 and 9.1 redo logs should have the same format version
+    let path90 = format!("{}/mysql90_redo_9", MYSQL9_FIXTURE_DIR);
+    let path91 = format!("{}/mysql91_redo_9", MYSQL9_FIXTURE_DIR);
+
+    let mut log90 = LogFile::open(&path90).expect("open 9.0 redo log");
+    let mut log91 = LogFile::open(&path91).expect("open 9.1 redo log");
+
+    let hdr90 = log90.read_header().expect("read 9.0 header");
+    let hdr91 = log91.read_header().expect("read 9.1 header");
+
+    // Both should use format version 6
+    assert_eq!(
+        hdr90.format_version, hdr91.format_version,
+        "MySQL 9.0 and 9.1 should use the same format version"
+    );
+    assert_eq!(hdr90.format_version, 6);
+
+    // Both should have non-zero log UUIDs (though they'll differ)
+    assert_ne!(hdr90.log_uuid, 0, "9.0 log_uuid should be non-zero");
+    assert_ne!(hdr91.log_uuid, 0, "9.1 log_uuid should be non-zero");
+
+    // Block counts should be equal (same file size)
+    assert_eq!(
+        log90.block_count(),
+        log91.block_count(),
+        "9.0 and 9.1 redo logs should have the same block count"
+    );
+}
+
+#[test]
+fn test_mysql9_redo_log_file_10_format_version() {
+    use idb::innodb::log::LogFile;
+
+    // Verify format version for the second redo log file as well
+    for (version, fixture) in &[("9.0", "mysql90_redo_10"), ("9.1", "mysql91_redo_10")] {
+        let path = format!("{}/{}", MYSQL9_FIXTURE_DIR, fixture);
+        let mut log = LogFile::open(&path).unwrap_or_else(|e| {
+            panic!("should open {} redo log 10: {}", version, e);
+        });
+        let header = log.read_header().expect("should read header");
+
+        assert_eq!(
+            header.format_version, 6,
+            "{} redo log 10 should use format version 6",
+            version
+        );
+        assert_ne!(
+            header.log_uuid, 0,
+            "{} redo log 10 log_uuid should be non-zero",
+            version
+        );
+    }
+}
+
+#[test]
+fn test_mysql9_redo_log_backward_compat_accessors() {
+    use idb::innodb::log::{LogBlockHeader, LogFile, LOG_FILE_HDR_BLOCKS};
+
+    // Test that backward-compatibility accessors work
+    let path = format!("{}/mysql90_redo_9", MYSQL9_FIXTURE_DIR);
+    let mut log = LogFile::open(&path).expect("open redo log");
+
+    // Test LogFileHeader::group_id() == format_version
+    let header = log.read_header().expect("read header");
+    assert_eq!(
+        header.group_id(),
+        header.format_version,
+        "group_id() should equal format_version"
+    );
+
+    // Test LogBlockHeader::checkpoint_no() == epoch_no
+    let block_data = log.read_block(LOG_FILE_HDR_BLOCKS).expect("read first data block");
+    if let Some(hdr) = LogBlockHeader::parse(&block_data) {
+        assert_eq!(
+            hdr.checkpoint_no(),
+            hdr.epoch_no,
+            "checkpoint_no() should equal epoch_no"
+        );
+    }
 }
 
 // ── MySQL 9.x recovery assessment tests ─────────────────────────────
