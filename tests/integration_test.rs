@@ -4021,3 +4021,664 @@ fn test_mysql9_sdi_record_types() {
         );
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Percona Server fixture tests
+// ══════════════════════════════════════════════════════════════════════
+//
+// These tests use real .ibd files extracted from Percona Server 8.0.45
+// and 8.4.7 Docker containers. They validate that the parser correctly
+// handles Percona Server tablespace formats, which are binary-compatible
+// with MySQL but may contain Percona-specific XtraDB features.
+
+const PERCONA_FIXTURE_DIR: &str = "tests/fixtures/percona";
+
+// ── Percona 8.0 standard tablespace ─────────────────────────────────
+
+#[test]
+fn test_percona80_standard_opens() {
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.0 standard tablespace");
+    assert_eq!(ts.page_size(), 16384, "standard table should use 16K pages");
+    assert_eq!(ts.page_count(), 7, "standard table should have 7 pages");
+}
+
+#[test]
+fn test_percona80_standard_checksums_valid() {
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|page_num, data| {
+        // Skip all-zero (ALLOCATED) pages
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid (algo={:?})",
+            page_num, result.algorithm
+        );
+        assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
+        Ok(())
+    })
+    .expect("iterate pages");
+}
+
+#[test]
+fn test_percona80_standard_page_types() {
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut types = Vec::new();
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        types.push(hdr.page_type);
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        types.contains(&PageType::FspHdr),
+        "should contain FSP_HDR page"
+    );
+    assert!(
+        types.contains(&PageType::Index),
+        "should contain INDEX page"
+    );
+    assert!(types.contains(&PageType::Sdi), "should contain SDI page");
+    assert!(
+        types.contains(&PageType::Inode),
+        "should contain INODE page"
+    );
+}
+
+#[test]
+fn test_percona80_standard_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    assert!(!records.is_empty(), "should extract at least one SDI record");
+
+    // Table SDI record (type 1)
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have a Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"standard\"") || data.contains("\"name\":\"standard\""),
+        "SDI data should contain table name 'standard'"
+    );
+}
+
+#[test]
+fn test_percona80_standard_vendor_detection() {
+    use idb::innodb::vendor::InnoDbVendor;
+
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    // Percona is binary-compatible with MySQL; vendor detection from FSP flags
+    // alone cannot distinguish Percona from MySQL.
+    assert_eq!(
+        ts.vendor_info().vendor,
+        InnoDbVendor::MySQL,
+        "Percona should be detected as MySQL from FSP flags (binary-compatible)"
+    );
+}
+
+#[test]
+fn test_percona80_standard_fsp_header() {
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    assert_eq!(fsp.size, 7, "FSP size should match page count");
+}
+
+#[test]
+fn test_percona80_standard_lsn_valid() {
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        assert!(
+            validate_lsn(data, page_size),
+            "page {} LSN should be consistent",
+            page_num
+        );
+        Ok(())
+    })
+    .expect("iterate");
+}
+
+// ── Percona 8.4 standard tablespace ─────────────────────────────────
+
+#[test]
+fn test_percona84_standard_opens() {
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.4 standard tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 7);
+}
+
+#[test]
+fn test_percona84_standard_checksums_valid() {
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            page_num
+        );
+        Ok(())
+    })
+    .expect("iterate pages");
+}
+
+#[test]
+fn test_percona84_standard_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    assert!(!records.is_empty(), "should extract at least one SDI record");
+
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have a Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"standard\"") || data.contains("\"name\":\"standard\""),
+        "SDI data should contain table name 'standard'"
+    );
+}
+
+#[test]
+fn test_percona84_standard_page_types() {
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut has_fsp_hdr = false;
+    let mut has_index = false;
+    let mut has_sdi = false;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        match hdr.page_type {
+            PageType::FspHdr => has_fsp_hdr = true,
+            PageType::Index => has_index = true,
+            PageType::Sdi => has_sdi = true,
+            _ => {}
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(has_fsp_hdr, "should contain FSP_HDR page");
+    assert!(has_index, "should contain INDEX page");
+    assert!(has_sdi, "should contain SDI page");
+}
+
+#[test]
+fn test_percona84_standard_lsn_valid() {
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        assert!(
+            validate_lsn(data, page_size),
+            "page {} LSN should be consistent",
+            page_num
+        );
+        Ok(())
+    })
+    .expect("iterate");
+}
+
+// ── Percona 8.0 compressed tablespace ───────────────────────────────
+
+#[test]
+fn test_percona80_compressed_opens() {
+    let path = format!("{}/percona80_compressed.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.0 compressed tablespace");
+    assert_eq!(
+        ts.page_size(),
+        16384,
+        "logical page size should be 16K even for compressed tablespaces"
+    );
+    assert!(
+        ts.page_count() > 1,
+        "should have FSP_HDR plus at least one data page"
+    );
+}
+
+#[test]
+fn test_percona80_compressed_fsp_header() {
+    let path = format!("{}/percona80_compressed.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    // FSP flags should indicate compressed format
+    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+}
+
+// ── Percona 8.4 compressed tablespace ───────────────────────────────
+
+#[test]
+fn test_percona84_compressed_opens() {
+    let path = format!("{}/percona84_compressed.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.4 compressed tablespace");
+    assert_eq!(
+        ts.page_size(),
+        16384,
+        "logical page size should be 16K even for compressed tablespaces"
+    );
+    assert!(
+        ts.page_count() > 1,
+        "should have FSP_HDR plus at least one data page"
+    );
+}
+
+#[test]
+fn test_percona84_compressed_fsp_header() {
+    let path = format!("{}/percona84_compressed.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+}
+
+// ── Percona 8.0 multipage tablespace ────────────────────────────────
+
+#[test]
+fn test_percona80_multipage_opens() {
+    let path = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.0 multipage tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 576, "multipage table should have 576 pages");
+}
+
+#[test]
+fn test_percona80_multipage_checksums_valid() {
+    let path = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    let mut valid_count = 0u32;
+    let mut empty_count = 0u32;
+    ts.for_each_page(|page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            empty_count += 1;
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            page_num
+        );
+        valid_count += 1;
+        Ok(())
+    })
+    .expect("iterate pages");
+
+    assert!(valid_count > 50, "should have many valid pages, got {}", valid_count);
+    assert!(empty_count > 0, "should have some empty (ALLOCATED) pages");
+}
+
+#[test]
+fn test_percona80_multipage_has_many_index_pages() {
+    let path = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut index_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        if hdr.page_type == PageType::Index {
+            index_count += 1;
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        index_count >= 50,
+        "multipage table should have at least 50 INDEX pages, got {}",
+        index_count
+    );
+}
+
+#[test]
+fn test_percona80_multipage_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find SDI pages");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"multipage\"") || data.contains("\"name\":\"multipage\""),
+        "SDI should contain table name 'multipage'"
+    );
+}
+
+// ── Percona 8.4 multipage tablespace ────────────────────────────────
+
+#[test]
+fn test_percona84_multipage_opens() {
+    let path = format!("{}/percona84_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open Percona 8.4 multipage tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 576);
+}
+
+#[test]
+fn test_percona84_multipage_checksums_valid() {
+    let path = format!("{}/percona84_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    let mut valid_count = 0u32;
+    ts.for_each_page(|page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            page_num
+        );
+        valid_count += 1;
+        Ok(())
+    })
+    .expect("iterate pages");
+
+    assert!(valid_count > 50, "should have many valid pages, got {}", valid_count);
+}
+
+#[test]
+fn test_percona84_multipage_has_many_index_pages() {
+    let path = format!("{}/percona84_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut index_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        if hdr.page_type == PageType::Index {
+            index_count += 1;
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        index_count >= 50,
+        "multipage table should have at least 50 INDEX pages, got {}",
+        index_count
+    );
+}
+
+#[test]
+fn test_percona84_multipage_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona84_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find SDI pages");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"multipage\"") || data.contains("\"name\":\"multipage\""),
+        "SDI should contain table name 'multipage'"
+    );
+}
+
+// ── Percona cross-version comparison tests ──────────────────────────
+
+#[test]
+fn test_percona_standard_cross_version_page_structure() {
+    // Both Percona 8.0 and 8.4 standard tables should have the same page layout
+    let path80 = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let path84 = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+
+    let mut ts80 = Tablespace::open(&path80).expect("open 8.0");
+    let mut ts84 = Tablespace::open(&path84).expect("open 8.4");
+
+    assert_eq!(ts80.page_size(), ts84.page_size(), "page sizes should match");
+    assert_eq!(
+        ts80.page_count(),
+        ts84.page_count(),
+        "page counts should match"
+    );
+
+    let mut types80 = Vec::new();
+    let mut types84 = Vec::new();
+
+    ts80.for_each_page(|_n, data| {
+        types80.push(FilHeader::parse(data).unwrap().page_type);
+        Ok(())
+    })
+    .expect("iterate 8.0");
+
+    ts84.for_each_page(|_n, data| {
+        types84.push(FilHeader::parse(data).unwrap().page_type);
+        Ok(())
+    })
+    .expect("iterate 8.4");
+
+    assert_eq!(
+        types80, types84,
+        "page type sequences should be identical across Percona 8.0 and 8.4"
+    );
+}
+
+#[test]
+fn test_percona_multipage_cross_version_structure() {
+    let path80 = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
+    let path84 = format!("{}/percona84_multipage.ibd", PERCONA_FIXTURE_DIR);
+
+    let ts80 = Tablespace::open(&path80).expect("open 8.0");
+    let ts84 = Tablespace::open(&path84).expect("open 8.4");
+
+    assert_eq!(ts80.page_size(), ts84.page_size());
+    assert_eq!(ts80.page_count(), ts84.page_count());
+}
+
+// ── Percona recovery assessment tests ───────────────────────────────
+
+/// Run `inno recover --json` on a Percona fixture and return the parsed JSON.
+fn run_percona_recovery_json(fixture_path: &str) -> serde_json::Value {
+    let path = format!("{}/{}", PERCONA_FIXTURE_DIR, fixture_path);
+    let opts = idb::cli::recover::RecoverOptions {
+        file: path.clone(),
+        page: None,
+        verbose: false,
+        json: true,
+        force: false,
+        page_size: None,
+        keyring: None,
+    };
+    let mut out = Vec::new();
+    idb::cli::recover::execute(&opts, &mut out)
+        .unwrap_or_else(|e| panic!("recover failed on {}: {}", path, e));
+    let output = String::from_utf8(out).expect("valid UTF-8 output");
+    serde_json::from_str(&output).expect("valid JSON output")
+}
+
+#[test]
+fn test_percona80_standard_recovery_assessment() {
+    let parsed = run_percona_recovery_json("percona80_standard.ibd");
+    assert!(parsed.get("summary").is_some());
+    assert!(parsed.get("total_pages").is_some());
+    assert!(parsed.get("recoverable_records").is_some());
+    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert!(
+        parsed["summary"].get("intact").is_some(),
+        "summary should contain intact count"
+    );
+}
+
+#[test]
+fn test_percona84_standard_recovery_assessment() {
+    let parsed = run_percona_recovery_json("percona84_standard.ibd");
+    assert!(parsed.get("summary").is_some());
+    assert!(parsed.get("total_pages").is_some());
+    assert!(parsed.get("recoverable_records").is_some());
+    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert!(
+        parsed["summary"].get("intact").is_some(),
+        "summary should contain intact count"
+    );
+}
+
+#[test]
+fn test_percona80_multipage_recovery_assessment() {
+    let parsed = run_percona_recovery_json("percona80_multipage.ibd");
+    assert!(
+        parsed["total_pages"].as_u64().unwrap() > 7,
+        "multipage fixture should have many pages"
+    );
+    assert!(parsed.get("recoverable_records").is_some());
+}
+
+#[test]
+fn test_percona84_multipage_recovery_assessment() {
+    let parsed = run_percona_recovery_json("percona84_multipage.ibd");
+    assert!(
+        parsed["total_pages"].as_u64().unwrap() > 7,
+        "multipage fixture should have many pages"
+    );
+    assert!(parsed.get("recoverable_records").is_some());
+}
+
+// ── Percona SDI metadata version validation ─────────────────────────
+
+#[test]
+fn test_percona80_standard_sdi_version_fields() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona80_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&table_rec.data).unwrap();
+
+    // Percona 8.0.45 is based on MySQL 8.0.x
+    assert_eq!(json["sdi_version"], 80019, "sdi_version should be 80019");
+    assert!(
+        json["mysqld_version_id"].as_u64().unwrap() >= 80045,
+        "mysqld_version_id should be >= 80045 for Percona 8.0.45"
+    );
+    assert!(
+        json["dd_object"]["name"].as_str().unwrap() == "standard",
+        "table name should be 'standard'"
+    );
+}
+
+#[test]
+fn test_percona84_standard_sdi_version_fields() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/percona84_standard.ibd", PERCONA_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&table_rec.data).unwrap();
+
+    // Percona 8.4.7 is based on MySQL 8.4.x
+    assert_eq!(json["sdi_version"], 80019, "sdi_version should be 80019");
+    assert!(
+        json["mysqld_version_id"].as_u64().unwrap() >= 80400,
+        "mysqld_version_id should be >= 80400 for Percona 8.4.7"
+    );
+    assert!(
+        json["dd_object"]["name"].as_str().unwrap() == "standard",
+        "table name should be 'standard'"
+    );
+}
+
+#[test]
+fn test_percona_sdi_record_types() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    // All Percona fixtures should have exactly 2 SDI records: Table (type=1) + Tablespace (type=2)
+    for fixture in &[
+        "percona80_standard.ibd",
+        "percona84_standard.ibd",
+        "percona80_multipage.ibd",
+        "percona84_multipage.ibd",
+    ] {
+        let path = format!("{}/{}", PERCONA_FIXTURE_DIR, fixture);
+        let mut ts = Tablespace::open(&path).expect("open");
+        let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+        let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+
+        let has_table = records.iter().any(|r| r.sdi_type == 1);
+        let has_tablespace = records.iter().any(|r| r.sdi_type == 2);
+
+        assert!(
+            has_table,
+            "{}: should have Table SDI record (type=1)",
+            fixture
+        );
+        assert!(
+            has_tablespace,
+            "{}: should have Tablespace SDI record (type=2)",
+            fixture
+        );
+        assert_eq!(
+            records.len(),
+            2,
+            "{}: should have exactly 2 SDI records (1 Table + 1 Tablespace)",
+            fixture
+        );
+    }
+}
