@@ -37,11 +37,13 @@ impl<T: Read + Seek> ReadSeek for T {}
 
 /// Size of a redo log block in bytes (from MySQL `log0constants.h`).
 pub const LOG_BLOCK_SIZE: usize = 512;
-/// Size of the log block header in bytes (MySQL 8.0.30+).
+/// Maximum size of the log block header in bytes.
 ///
-/// Prior to MySQL 8.0.30, the header was 14 bytes. In 8.0.30+ (format
-/// version 6), the header is 12 bytes with the epoch number at offset 8.
-pub const LOG_BLOCK_HDR_SIZE: usize = 12;
+/// Prior to MySQL 8.0.30, the header was 14 bytes (with a 4-byte checkpoint
+/// number at offset 8). In 8.0.30+ (format version 6), the header is 12
+/// bytes with a 4-byte epoch number at offset 8. We use 14 as the universal
+/// threshold for `has_data()` to correctly handle both old and new formats.
+pub const LOG_BLOCK_HDR_SIZE: usize = 14;
 /// Size of the log block trailer in bytes.
 pub const LOG_BLOCK_TRL_SIZE: usize = 4;
 /// Bitmask for the flush flag in the block number field (bit 31).
@@ -900,7 +902,7 @@ mod tests {
         let mut block = make_block();
         // Set flush bit (bit 31) + block_no = 100
         BigEndian::write_u32(&mut block[0..], 0x80000064);
-        BigEndian::write_u16(&mut block[4..], 12); // data_len = header only
+        BigEndian::write_u16(&mut block[4..], 14); // data_len = header only
 
         let hdr = LogBlockHeader::parse(&block).unwrap();
         assert!(hdr.flush_flag);

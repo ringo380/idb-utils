@@ -48,7 +48,8 @@ struct FindMatchJson {
 }
 
 /// Search a single tablespace file for pages matching the target page number.
-/// Returns matches found within this file. Pure function safe for parallel execution.
+/// Returns `(matches, opened)` where `opened` indicates whether the file was
+/// successfully opened. Pure function safe for parallel execution.
 #[allow(clippy::too_many_arguments)]
 fn search_file(
     ibd_path: &Path,
@@ -59,20 +60,20 @@ fn search_file(
     page_size_override: Option<u32>,
     first: bool,
     use_mmap: bool,
-) -> Vec<FindMatchJson> {
+) -> (Vec<FindMatchJson>, bool) {
     let display_path = ibd_path.strip_prefix(datadir).unwrap_or(ibd_path);
 
     let path_str = ibd_path.to_string_lossy();
     let ts_result = crate::cli::open_tablespace(&path_str, page_size_override, use_mmap);
     let mut ts = match ts_result {
         Ok(t) => t,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), false),
     };
 
     // Read all pages into memory for parallel page scanning within this file
     let all_data = match ts.read_all_pages() {
         Ok(d) => d,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), true),
     };
 
     let page_size = ts.page_size() as usize;
@@ -115,11 +116,12 @@ fn search_file(
         })
         .collect();
 
-    if first {
+    let matches = if first {
         file_matches.into_iter().take(1).collect()
     } else {
         file_matches
-    }
+    };
+    (matches, true)
 }
 
 /// Search a MySQL data directory for pages matching a given page number.
@@ -190,7 +192,7 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     let all_results: Vec<(Vec<FindMatchJson>, bool)> = ibd_files
         .par_iter()
         .map(|ibd_path| {
-            let file_matches = search_file(
+            search_file(
                 ibd_path,
                 datadir,
                 target_page,
@@ -199,9 +201,7 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
                 page_size_override,
                 first,
                 use_mmap,
-            );
-            let opened = true; // File was attempted
-            (file_matches, opened)
+            )
         })
         .collect();
 
