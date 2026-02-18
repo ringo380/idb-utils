@@ -5,6 +5,7 @@
 //! - Checksum validation (CRC-32C, legacy InnoDB, MariaDB full_crc32)
 //! - Full tablespace scan (Tablespace::from_bytes + for_each_page)
 //! - Real fixture parsing (MySQL 9.0 multipage tablespace)
+//! - SDI extraction (find_sdi_pages + extract_sdi_from_pages)
 
 use byteorder::{BigEndian, ByteOrder};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
@@ -12,6 +13,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use idb::innodb::checksum::validate_checksum;
 use idb::innodb::constants::*;
 use idb::innodb::page::FilHeader;
+use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::vendor::{MariaDbFormat, VendorInfo};
 
@@ -351,6 +353,44 @@ fn bench_real_fixture_parse(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmark: SDI extraction (find_sdi_pages + extract_sdi_from_pages)
+// ---------------------------------------------------------------------------
+
+fn bench_sdi_extraction(c: &mut Criterion) {
+    let fixture_path = "tests/fixtures/mysql9/mysql90_standard.ibd";
+    let data = match std::fs::read(fixture_path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!(
+                "Skipping SDI extraction benchmark: cannot read {}: {}",
+                fixture_path, e
+            );
+            return;
+        }
+    };
+
+    let mut group = c.benchmark_group("sdi_extraction");
+    group.throughput(Throughput::Bytes(data.len() as u64));
+
+    group.bench_function("find_sdi_pages", |b| {
+        b.iter(|| {
+            let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
+            black_box(find_sdi_pages(&mut ts).unwrap());
+        });
+    });
+
+    group.bench_function("find_and_extract_sdi", |b| {
+        b.iter(|| {
+            let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
+            let sdi_pages = find_sdi_pages(&mut ts).unwrap();
+            black_box(extract_sdi_from_pages(&mut ts, &sdi_pages).unwrap());
+        });
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Group and main
 // ---------------------------------------------------------------------------
 
@@ -363,5 +403,6 @@ criterion_group!(
     bench_tablespace_scan,
     bench_tablespace_scan_with_checksum,
     bench_real_fixture_parse,
+    bench_sdi_extraction,
 );
 criterion_main!(benches);
