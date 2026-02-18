@@ -74,6 +74,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Detailed page structure analysis
@@ -442,6 +446,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Validate page checksums
@@ -473,6 +481,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Monitor a tablespace file for page-level changes

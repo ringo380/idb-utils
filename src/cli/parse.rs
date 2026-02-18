@@ -26,6 +26,8 @@ pub struct ParseOptions {
     pub threads: usize,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Stream results incrementally for lower memory usage.
+    pub streaming: bool,
 }
 
 /// JSON-serializable page info.
@@ -77,6 +79,14 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
     }
 
     let page_size = ts.page_size();
+
+    // Streaming mode: process one page at a time, output immediately
+    if opts.streaming && opts.page.is_none() {
+        if opts.json {
+            return execute_streaming_json(opts, &mut ts, page_size, writer);
+        }
+        return execute_streaming_text(opts, &mut ts, page_size, writer);
+    }
 
     if opts.json {
         return execute_json(opts, &mut ts, page_size, writer);
@@ -169,6 +179,114 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             wprintln!(writer, "  {:20} {:>6} {}", pt.name(), count, label)?;
         }
     }
+
+    Ok(())
+}
+
+/// Streaming text mode: process pages one at a time via `for_each_page()`,
+/// writing each result immediately. No progress bar, no bulk memory allocation.
+fn execute_streaming_text(
+    opts: &ParseOptions,
+    ts: &mut Tablespace,
+    page_size: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let page_count = ts.page_count();
+
+    // Print FSP header from page 0 first
+    let page0_data = ts.read_page(0)?;
+    if let Some(fsp) = FspHeader::parse(&page0_data) {
+        print_fsp_header(writer, &fsp)?;
+        wprintln!(writer)?;
+    }
+
+    wprintln!(
+        writer,
+        "Pages in {} ({} pages, page size {}):",
+        opts.file,
+        page_count,
+        page_size
+    )?;
+    wprintln!(writer, "{}", "-".repeat(50))?;
+
+    let mut type_counts: HashMap<PageType, u64> = HashMap::new();
+
+    ts.for_each_page(|page_num, page_data| {
+        let header = match FilHeader::parse(page_data) {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+
+        let page_type = header.page_type;
+        *type_counts.entry(page_type).or_insert(0) += 1;
+
+        // Skip empty pages if --no-empty
+        if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
+            return Ok(());
+        }
+
+        // Skip pages with zero checksum unless they are page 0
+        if header.checksum == 0 && page_num != 0 && !opts.verbose {
+            return Ok(());
+        }
+
+        print_page_info(writer, page_data, page_num, page_size, opts.verbose)?;
+        Ok(())
+    })?;
+
+    // Print page type summary
+    wprintln!(writer)?;
+    wprintln!(writer, "{}", "Page Type Summary".bold())?;
+    let mut sorted_types: Vec<_> = type_counts.iter().collect();
+    sorted_types.sort_by(|a, b| b.1.cmp(a.1));
+    for (pt, count) in sorted_types {
+        let label = if *count == 1 { "page" } else { "pages" };
+        wprintln!(writer, "  {:20} {:>6} {}", pt.name(), count, label)?;
+    }
+
+    Ok(())
+}
+
+/// Streaming JSON mode: output NDJSON (one JSON object per line per page).
+fn execute_streaming_json(
+    opts: &ParseOptions,
+    ts: &mut Tablespace,
+    page_size: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    ts.for_each_page(|page_num, page_data| {
+        let header = match FilHeader::parse(page_data) {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+
+        if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
+            return Ok(());
+        }
+
+        let pt = header.page_type;
+        let byte_start = page_num * page_size as u64;
+        let fsp_header = if page_num == 0 {
+            FspHeader::parse(page_data)
+        } else {
+            None
+        };
+
+        let page_json = PageJson {
+            page_number: page_num,
+            page_type_name: pt.name().to_string(),
+            page_type_description: pt.description().to_string(),
+            byte_start,
+            byte_end: byte_start + page_size as u64,
+            header,
+            fsp_header,
+        };
+
+        let line = serde_json::to_string(&page_json)
+            .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+        wprintln!(writer, "{}", line)?;
+        Ok(())
+    })?;
 
     Ok(())
 }

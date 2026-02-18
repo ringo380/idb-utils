@@ -33,6 +33,8 @@ pub struct RecoverOptions {
     pub threads: usize,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Stream results incrementally for lower memory usage.
+    pub streaming: bool,
 }
 
 /// Page integrity status.
@@ -339,6 +341,11 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     };
     let scan_count = end_page - start_page;
 
+    // Streaming mode: process one page at a time, output immediately
+    if opts.streaming && opts.page.is_none() {
+        return execute_streaming(opts, &mut ts, page_size, file_size, page_size_source, scan_count, verbose_json, writer);
+    }
+
     // Read all pages into memory for parallel processing
     let all_data = ts.read_all_pages()?;
     let ps = page_size as usize;
@@ -449,6 +456,190 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     }
 }
 
+/// Streaming mode: process pages one at a time via `for_each_page()`, writing
+/// per-page results immediately and accumulating running counters for the summary.
+/// JSON output uses NDJSON (one JSON object per line per page, plus a final summary line).
+#[allow(clippy::too_many_arguments)]
+fn execute_streaming(
+    opts: &RecoverOptions,
+    ts: &mut Tablespace,
+    page_size: u32,
+    file_size: u64,
+    page_size_source: Option<String>,
+    scan_count: u64,
+    verbose_json: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let force = opts.force;
+
+    // Running counters
+    let mut intact = 0u64;
+    let mut corrupt = 0u64;
+    let mut empty = 0u64;
+    let mut unreadable = 0u64;
+    let mut total_records = 0u64;
+    let mut corrupt_records = 0u64;
+    let mut corrupt_page_numbers: Vec<u64> = Vec::new();
+    let mut index_pages_total = 0u64;
+    let mut index_pages_recoverable = 0u64;
+
+    if !opts.json {
+        wprintln!(writer, "Recovery Analysis: {}", opts.file)?;
+        wprintln!(
+            writer,
+            "File size: {} bytes ({} pages x {} bytes)",
+            file_size,
+            scan_count,
+            page_size
+        )?;
+        let source_note = match &page_size_source {
+            Some(s) => format!(" ({})", s),
+            None => " (auto-detected)".to_string(),
+        };
+        wprintln!(writer, "Page size: {}{}", page_size, source_note)?;
+        wprintln!(writer)?;
+    }
+
+    ts.for_each_page(|page_num, page_data| {
+        let a = analyze_page(page_data, page_num, page_size, force, verbose_json);
+
+        // Update running counters
+        match a.status {
+            PageStatus::Intact => intact += 1,
+            PageStatus::Corrupt => {
+                corrupt += 1;
+                corrupt_page_numbers.push(a.page_number);
+            }
+            PageStatus::Empty => empty += 1,
+            PageStatus::Unreadable => unreadable += 1,
+        }
+
+        if a.page_type == PageType::Index {
+            index_pages_total += 1;
+            if a.status == PageStatus::Intact {
+                index_pages_recoverable += 1;
+            }
+            if force && a.status == PageStatus::Corrupt && a.record_count.is_some() {
+                index_pages_recoverable += 1;
+            }
+            if let Some(count) = a.record_count {
+                if a.status == PageStatus::Intact {
+                    total_records += count as u64;
+                } else {
+                    corrupt_records += count as u64;
+                }
+            }
+        }
+
+        if opts.json {
+            // NDJSON: emit per-page info (always in streaming, or only verbose)
+            if opts.verbose {
+                let info = PageRecoveryInfo {
+                    page_number: a.page_number,
+                    status: a.status,
+                    page_type: a.page_type.name().to_string(),
+                    checksum_valid: a.checksum_valid,
+                    lsn_valid: a.lsn_valid,
+                    lsn: a.lsn,
+                    record_count: a.record_count,
+                    records: a.records,
+                };
+                let line = serde_json::to_string(&info)
+                    .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+                wprintln!(writer, "{}", line)?;
+            }
+        } else if opts.verbose {
+            // Text: per-page detail
+            let status_str = match a.status {
+                PageStatus::Intact => a.status.label().to_string(),
+                PageStatus::Corrupt => format!("{}", a.status.label().red()),
+                PageStatus::Empty => a.status.label().to_string(),
+                PageStatus::Unreadable => format!("{}", a.status.label().red()),
+            };
+
+            let mut line = format!(
+                "Page {:>4}: {:<14} {:<12} LSN={}",
+                a.page_number,
+                a.page_type.name(),
+                status_str,
+                a.lsn,
+            );
+
+            if let Some(count) = a.record_count {
+                line.push_str(&format!("  records={}", count));
+            }
+
+            if a.status == PageStatus::Corrupt {
+                if !a.checksum_valid {
+                    line.push_str("  checksum mismatch");
+                }
+                if !a.lsn_valid {
+                    line.push_str("  LSN mismatch");
+                }
+            }
+
+            wprintln!(writer, "{}", line)?;
+        }
+
+        Ok(())
+    })?;
+
+    // Output summary
+    let stats = RecoverStats {
+        file_size,
+        page_size,
+        page_size_source,
+        scan_count,
+        intact,
+        corrupt,
+        empty,
+        unreadable,
+        total_records,
+        corrupt_records,
+        corrupt_page_numbers,
+        index_pages_total,
+        index_pages_recoverable,
+    };
+
+    if opts.json {
+        // Emit a final summary line as NDJSON
+        let all_records = stats.total_records + if opts.force { stats.corrupt_records } else { 0 };
+        let force_recs = if stats.corrupt_records > 0 && !opts.force {
+            Some(stats.corrupt_records)
+        } else {
+            None
+        };
+
+        let summary = serde_json::json!({
+            "type": "summary",
+            "file": opts.file,
+            "file_size": stats.file_size,
+            "page_size": stats.page_size,
+            "page_size_source": stats.page_size_source,
+            "total_pages": stats.scan_count,
+            "summary": {
+                "intact": stats.intact,
+                "corrupt": stats.corrupt,
+                "empty": stats.empty,
+                "unreadable": stats.unreadable,
+            },
+            "recoverable_records": all_records,
+            "force_recoverable_records": force_recs,
+        });
+        let line = serde_json::to_string(&summary)
+            .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+        wprintln!(writer, "{}", line)?;
+    } else {
+        // Print text summary (verbose per-page was already output above)
+        if opts.verbose {
+            wprintln!(writer)?;
+        }
+        output_text_summary(opts, &stats, writer)?;
+    }
+
+    Ok(())
+}
+
 fn output_text(
     opts: &RecoverOptions,
     analyses: &[PageAnalysis],
@@ -507,7 +698,15 @@ fn output_text(
         wprintln!(writer)?;
     }
 
-    // Summary
+    output_text_summary(opts, stats, writer)
+}
+
+/// Print the text-mode recovery summary (shared by streaming and non-streaming paths).
+fn output_text_summary(
+    opts: &RecoverOptions,
+    stats: &RecoverStats,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     wprintln!(writer, "Page Status Summary:")?;
     wprintln!(writer, "  Intact:      {:>4} pages", stats.intact)?;
     if stats.corrupt > 0 {

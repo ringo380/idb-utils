@@ -395,6 +395,7 @@ fn test_parse_subcommand_with_encrypted_tablespace() {
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
             threads: 0,
             mmap: false,
+        streaming: false,
         },
         &mut buf,
     );
@@ -432,6 +433,7 @@ fn test_parse_subcommand_without_keyring_shows_encrypted() {
             keyring: None,
             threads: 0,
             mmap: false,
+        streaming: false,
         },
         &mut buf,
     );
@@ -468,6 +470,7 @@ fn test_checksum_subcommand_encrypted_with_keyring() {
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
             threads: 0,
             mmap: false,
+        streaming: false,
         },
         &mut buf,
     );

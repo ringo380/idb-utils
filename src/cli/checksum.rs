@@ -25,6 +25,8 @@ pub struct ChecksumOptions {
     pub threads: usize,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Stream results incrementally for lower memory usage.
+    pub streaming: bool,
 }
 
 #[derive(Serialize)]
@@ -115,6 +117,11 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     let page_size = ts.page_size();
     let page_count = ts.page_count();
     let vendor_info = ts.vendor_info().clone();
+
+    // Streaming mode: process one page at a time, output immediately
+    if opts.streaming {
+        return execute_streaming(opts, &mut ts, page_size, page_count, &vendor_info, writer);
+    }
 
     // Read all pages into memory for parallel processing
     let all_data = ts.read_all_pages()?;
@@ -247,6 +254,180 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     Ok(())
 }
 
+/// Return a short string name for a checksum algorithm.
+fn algorithm_name(algo: ChecksumAlgorithm) -> &'static str {
+    match algo {
+        ChecksumAlgorithm::Crc32c => "crc32c",
+        ChecksumAlgorithm::InnoDB => "innodb",
+        ChecksumAlgorithm::MariaDbFullCrc32 => "mariadb_full_crc32",
+        ChecksumAlgorithm::None => "none",
+    }
+}
+
+/// Streaming mode: process pages one at a time via `for_each_page()`, writing
+/// each result immediately. No progress bar, no bulk memory allocation.
+/// JSON output uses NDJSON (one JSON object per line).
+fn execute_streaming(
+    opts: &ChecksumOptions,
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    page_size: u32,
+    page_count: u64,
+    vendor_info: &crate::innodb::vendor::VendorInfo,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let mut valid_count = 0u64;
+    let mut invalid_count = 0u64;
+    let mut empty_count = 0u64;
+    let mut lsn_mismatch_count = 0u64;
+
+    if !opts.json {
+        wprintln!(
+            writer,
+            "Validating checksums for {} ({} pages, page size {})...",
+            opts.file,
+            page_count,
+            page_size
+        )?;
+        wprintln!(writer)?;
+    }
+
+    ts.for_each_page(|page_num, page_data| {
+        let result = validate_page(page_data, page_size, vendor_info);
+
+        match &result {
+            PageResult::ParseError => {
+                invalid_count += 1;
+                if opts.json {
+                    let obj = PageChecksumJson {
+                        page_number: page_num,
+                        status: "error".to_string(),
+                        algorithm: "unknown".to_string(),
+                        stored_checksum: 0,
+                        calculated_checksum: 0,
+                        lsn_valid: false,
+                    };
+                    let line = serde_json::to_string(&obj)
+                        .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+                    wprintln!(writer, "{}", line)?;
+                } else {
+                    eprintln!("Page {}: Could not parse FIL header", page_num);
+                }
+            }
+            PageResult::Empty => {
+                empty_count += 1;
+                // In streaming JSON mode, skip empty pages (same as non-streaming)
+                if !opts.json && opts.verbose {
+                    wprintln!(writer, "Page {}: EMPTY", page_num)?;
+                }
+            }
+            PageResult::Validated {
+                csum_result,
+                lsn_valid,
+            } => {
+                if csum_result.valid {
+                    valid_count += 1;
+                } else {
+                    invalid_count += 1;
+                }
+                if !lsn_valid {
+                    lsn_mismatch_count += 1;
+                }
+
+                if opts.json {
+                    if opts.verbose || !csum_result.valid || !lsn_valid {
+                        let obj = PageChecksumJson {
+                            page_number: page_num,
+                            status: if csum_result.valid {
+                                "valid".to_string()
+                            } else {
+                                "invalid".to_string()
+                            },
+                            algorithm: algorithm_name(csum_result.algorithm).to_string(),
+                            stored_checksum: csum_result.stored_checksum,
+                            calculated_checksum: csum_result.calculated_checksum,
+                            lsn_valid: *lsn_valid,
+                        };
+                        let line = serde_json::to_string(&obj)
+                            .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+                        wprintln!(writer, "{}", line)?;
+                    }
+                } else {
+                    if csum_result.valid {
+                        if opts.verbose {
+                            wprintln!(
+                                writer,
+                                "Page {}: {} ({:?}, stored={}, calculated={})",
+                                page_num,
+                                "OK".green(),
+                                csum_result.algorithm,
+                                csum_result.stored_checksum,
+                                csum_result.calculated_checksum,
+                            )?;
+                        }
+                    } else {
+                        wprintln!(
+                            writer,
+                            "Page {}: {} checksum (stored={}, calculated={}, algorithm={:?})",
+                            page_num,
+                            "INVALID".red(),
+                            csum_result.stored_checksum,
+                            csum_result.calculated_checksum,
+                            csum_result.algorithm,
+                        )?;
+                    }
+
+                    if !lsn_valid && csum_result.valid {
+                        wprintln!(
+                            writer,
+                            "Page {}: {} - header LSN low32 does not match trailer",
+                            page_num,
+                            "LSN MISMATCH".yellow(),
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    })?;
+
+    if !opts.json {
+        wprintln!(writer)?;
+        wprintln!(writer, "Summary:")?;
+        wprintln!(writer, "  Total pages: {}", page_count)?;
+        wprintln!(writer, "  Empty pages: {}", empty_count)?;
+        wprintln!(writer, "  Valid checksums: {}", valid_count)?;
+        if invalid_count > 0 {
+            wprintln!(
+                writer,
+                "  Invalid checksums: {}",
+                format!("{}", invalid_count).red()
+            )?;
+        } else {
+            wprintln!(
+                writer,
+                "  Invalid checksums: {}",
+                format!("{}", invalid_count).green()
+            )?;
+        }
+        if lsn_mismatch_count > 0 {
+            wprintln!(
+                writer,
+                "  LSN mismatches: {}",
+                format!("{}", lsn_mismatch_count).yellow()
+            )?;
+        }
+    }
+
+    if invalid_count > 0 {
+        return Err(IdbError::Parse(format!(
+            "{} pages with invalid checksums",
+            invalid_count
+        )));
+    }
+
+    Ok(())
+}
+
 fn execute_json_parallel(
     opts: &ChecksumOptions,
     all_data: &[u8],
@@ -304,12 +485,6 @@ fn execute_json_parallel(
                 }
 
                 if opts.verbose || !csum_result.valid || !lsn_valid {
-                    let algorithm_name = match csum_result.algorithm {
-                        ChecksumAlgorithm::Crc32c => "crc32c",
-                        ChecksumAlgorithm::InnoDB => "innodb",
-                        ChecksumAlgorithm::MariaDbFullCrc32 => "mariadb_full_crc32",
-                        ChecksumAlgorithm::None => "none",
-                    };
                     pages.push(PageChecksumJson {
                         page_number: *page_num,
                         status: if csum_result.valid {
@@ -317,7 +492,7 @@ fn execute_json_parallel(
                         } else {
                             "invalid".to_string()
                         },
-                        algorithm: algorithm_name.to_string(),
+                        algorithm: algorithm_name(csum_result.algorithm).to_string(),
                         stored_checksum: csum_result.stored_checksum,
                         calculated_checksum: csum_result.calculated_checksum,
                         lsn_valid: *lsn_valid,

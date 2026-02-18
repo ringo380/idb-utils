@@ -249,6 +249,7 @@ fn test_parse_execute_succeeds() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -277,6 +278,7 @@ fn test_parse_single_page() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -301,6 +303,7 @@ fn test_checksum_execute_all_valid() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -327,6 +330,7 @@ fn test_checksum_json_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -706,6 +710,7 @@ fn test_parse_nonexistent_file() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -747,6 +752,7 @@ fn test_parse_json_validates_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -776,6 +782,7 @@ fn test_checksum_json_validates_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -845,6 +852,7 @@ fn test_recover_all_intact() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -876,6 +884,7 @@ fn test_recover_with_corrupt_page() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -904,6 +913,7 @@ fn test_recover_with_empty_page() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -930,6 +940,7 @@ fn test_recover_single_page() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -957,6 +968,7 @@ fn test_recover_json_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -989,6 +1001,7 @@ fn test_recover_json_verbose_includes_pages() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -1021,6 +1034,7 @@ fn test_recover_force_extracts_corrupt_records() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out).unwrap();
@@ -1042,6 +1056,7 @@ fn test_recover_force_extracts_corrupt_records() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
     let mut out2 = Vec::new();
     idb::cli::recover::execute(&opts_force, &mut out2).unwrap();
@@ -1068,6 +1083,7 @@ fn test_recover_page_size_override() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -1096,6 +1112,7 @@ fn test_recover_verbose_text_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -1377,6 +1394,7 @@ fn test_checksum_invalid_returns_error() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -1720,6 +1738,7 @@ fn test_parse_verbose_output() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -1755,6 +1774,7 @@ fn test_parse_no_empty() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -2473,6 +2493,7 @@ fn test_recover_nonexistent_file() {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
 
     let mut out = Vec::new();
@@ -3513,6 +3534,7 @@ fn run_mysql9_recovery_json(fixture_path: &str) -> serde_json::Value {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out)
@@ -4635,6 +4657,7 @@ fn run_percona_recovery_json(fixture_path: &str) -> serde_json::Value {
         keyring: None,
         threads: 0,
         mmap: false,
+        streaming: false,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out)
@@ -4775,4 +4798,374 @@ fn test_percona_sdi_record_types() {
             fixture
         );
     }
+}
+
+// ========================================================================
+// Streaming mode tests
+// ========================================================================
+
+#[test]
+fn test_streaming_checksum_text_matches_nonstreaming() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+    let path = tmp.path().to_string_lossy().to_string();
+
+    // Non-streaming verbose
+    let opts_normal = idb::cli::checksum::ChecksumOptions {
+        file: path.clone(),
+        verbose: true,
+        json: false,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: false,
+    };
+    let mut out_normal = Vec::new();
+    idb::cli::checksum::execute(&opts_normal, &mut out_normal).unwrap();
+
+    // Streaming verbose
+    let opts_stream = idb::cli::checksum::ChecksumOptions {
+        file: path,
+        verbose: true,
+        json: false,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+    let mut out_stream = Vec::new();
+    idb::cli::checksum::execute(&opts_stream, &mut out_stream).unwrap();
+
+    // Both should produce the same output (same header, summary, per-page lines)
+    let normal_str = String::from_utf8(out_normal).unwrap();
+    let stream_str = String::from_utf8(out_stream).unwrap();
+    assert_eq!(normal_str, stream_str);
+}
+
+#[test]
+fn test_streaming_checksum_json_is_valid_ndjson() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::checksum::ChecksumOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        verbose: true,
+        json: true,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::checksum::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+
+    // With verbose + streaming JSON, should have one line per non-empty page
+    assert!(
+        !lines.is_empty(),
+        "streaming JSON should produce at least one line"
+    );
+
+    // Each line should be valid JSON
+    for (i, line) in lines.iter().enumerate() {
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
+        assert!(
+            parsed.is_ok(),
+            "Line {} should be valid JSON: {:?}\nContent: {}",
+            i,
+            parsed.err(),
+            line
+        );
+    }
+}
+
+#[test]
+fn test_streaming_parse_json_is_valid_ndjson() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::parse::ParseOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        no_empty: false,
+        page_size: None,
+        json: true,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::parse::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+
+    // Should have 3 lines (one per page)
+    assert_eq!(
+        lines.len(),
+        3,
+        "streaming parse JSON should produce one line per page"
+    );
+
+    // Each line should be valid JSON with expected fields
+    for (i, line) in lines.iter().enumerate() {
+        let parsed: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| {
+            panic!("Line {} should be valid JSON: {}\nContent: {}", i, e, line);
+        });
+        assert!(
+            parsed.get("page_number").is_some(),
+            "Line {} should have page_number field",
+            i
+        );
+        assert!(
+            parsed.get("page_type_name").is_some(),
+            "Line {} should have page_type_name field",
+            i
+        );
+    }
+}
+
+#[test]
+fn test_streaming_parse_json_line_count_matches_pages() {
+    let page0 = build_fsp_hdr_page(1, 5);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+    let page3 = build_index_page(3, 1, 4000);
+    let page4 = build_index_page(4, 1, 5000);
+
+    let tmp = write_tablespace(&[page0, page1, page2, page3, page4]);
+
+    let opts = idb::cli::parse::ParseOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        no_empty: false,
+        page_size: None,
+        json: true,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::parse::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+
+    assert_eq!(
+        lines.len(),
+        5,
+        "streaming parse JSON line count should match page count"
+    );
+}
+
+#[test]
+fn test_streaming_parse_json_no_empty_filters_pages() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_allocated_page(2, 1); // empty page
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::parse::ParseOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        no_empty: true,
+        page_size: None,
+        json: true,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::parse::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+
+    // Empty page should be filtered: page0 (FSP_HDR), page1 (INDEX) = 2 lines
+    assert_eq!(
+        lines.len(),
+        2,
+        "streaming parse JSON with --no-empty should filter allocated pages"
+    );
+}
+
+#[test]
+fn test_streaming_recover_text_produces_summary() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: false,
+        json: false,
+        force: false,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::recover::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    assert!(
+        output.contains("Page Status Summary:"),
+        "streaming recover should produce summary"
+    );
+    assert!(
+        output.contains("Intact:"),
+        "streaming recover should show intact count"
+    );
+}
+
+#[test]
+fn test_streaming_recover_json_is_valid_ndjson() {
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 2000);
+    let page2 = build_index_page(2, 1, 3000);
+
+    let tmp = write_tablespace(&[page0, page1, page2]);
+
+    let opts = idb::cli::recover::RecoverOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: None,
+        verbose: true,
+        json: true,
+        force: false,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::recover::execute(&opts, &mut out).unwrap();
+
+    let output = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+
+    // Should have per-page lines + 1 summary line
+    assert!(
+        lines.len() >= 2,
+        "streaming recover JSON should produce per-page lines + summary"
+    );
+
+    // Each line should be valid JSON
+    for (i, line) in lines.iter().enumerate() {
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
+        assert!(
+            parsed.is_ok(),
+            "Line {} should be valid JSON: {:?}\nContent: {}",
+            i,
+            parsed.err(),
+            line
+        );
+    }
+
+    // Last line should be the summary
+    let last: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
+    assert_eq!(
+        last.get("type").and_then(|v| v.as_str()),
+        Some("summary"),
+        "last NDJSON line should be the summary"
+    );
+    assert!(
+        last.get("total_pages").is_some(),
+        "summary should have total_pages"
+    );
+}
+
+#[test]
+fn test_streaming_checksum_detects_invalid() {
+    let page0 = build_fsp_hdr_page(1, 2);
+    let mut page1 = build_index_page(1, 1, 2000);
+    // Corrupt the checksum
+    BigEndian::write_u32(&mut page1[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::checksum::ChecksumOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        verbose: false,
+        json: false,
+        page_size: None,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true,
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::checksum::execute(&opts, &mut out);
+    assert!(
+        result.is_err(),
+        "streaming checksum should return error for invalid pages"
+    );
+    let output = String::from_utf8(out).unwrap();
+    assert!(
+        output.contains("INVALID"),
+        "streaming checksum should report invalid pages"
+    );
+}
+
+#[test]
+fn test_streaming_single_page_mode_ignored() {
+    // When --page is specified, --streaming is ignored (single page reads one page)
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 2000);
+
+    let tmp = write_tablespace(&[page0, page1]);
+
+    let opts = idb::cli::parse::ParseOptions {
+        file: tmp.path().to_string_lossy().to_string(),
+        page: Some(0),
+        verbose: false,
+        no_empty: false,
+        page_size: None,
+        json: false,
+        keyring: None,
+        threads: 0,
+        mmap: false,
+        streaming: true, // should be ignored since page=Some
+    };
+
+    let mut out = Vec::new();
+    let result = idb::cli::parse::execute(&opts, &mut out);
+    assert!(
+        result.is_ok(),
+        "streaming with single page should succeed: {:?}",
+        result.err()
+    );
 }

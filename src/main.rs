@@ -51,6 +51,7 @@ fn main() {
             json,
             page_size,
             keyring,
+            streaming,
         } => cli::parse::execute(
             &cli::parse::ParseOptions {
                 file,
@@ -62,6 +63,7 @@ fn main() {
                 keyring,
                 threads: cli.threads,
                 mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
@@ -255,6 +257,7 @@ fn main() {
             force,
             page_size,
             keyring,
+            streaming,
         } => cli::recover::execute(
             &cli::recover::RecoverOptions {
                 file,
@@ -266,6 +269,7 @@ fn main() {
                 keyring,
                 threads: cli.threads,
                 mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
@@ -276,6 +280,7 @@ fn main() {
             json,
             page_size,
             keyring,
+            streaming,
         } => cli::checksum::execute(
             &cli::checksum::ChecksumOptions {
                 file,
@@ -285,6 +290,7 @@ fn main() {
                 keyring,
                 threads: cli.threads,
                 mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
