@@ -427,6 +427,7 @@ fn test_sdi_rejects_mariadb_tablespace() {
         pretty: false,
         page_size: None,
         keyring: None,
+        mmap: false,
     };
 
     let mut output = Vec::new();

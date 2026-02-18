@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use colored::Colorize;
+use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::cli::{create_progress_bar, wprintln};
@@ -28,6 +29,10 @@ pub struct RecoverOptions {
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Number of threads for parallel processing (0 = auto-detect).
+    pub threads: usize,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 /// Page integrity status.
@@ -134,14 +139,15 @@ struct PageAnalysis {
 fn open_tablespace(
     file: &str,
     page_size_override: Option<u32>,
+    use_mmap: bool,
     writer: &mut dyn Write,
 ) -> Result<(Tablespace, Option<String>), IdbError> {
     if let Some(ps) = page_size_override {
-        let ts = Tablespace::open_with_page_size(file, ps)?;
+        let ts = crate::cli::open_tablespace(file, Some(ps), use_mmap)?;
         return Ok((ts, Some("user-specified".to_string())));
     }
 
-    match Tablespace::open(file) {
+    match crate::cli::open_tablespace(file, None, use_mmap) {
         Ok(ts) => Ok((ts, None)),
         Err(_) => {
             // Page 0 may be corrupt — try common page sizes
@@ -159,7 +165,7 @@ fn open_tablespace(
 
             for &ps in &candidates {
                 if file_size >= ps as u64 && file_size % ps as u64 == 0 {
-                    if let Ok(ts) = Tablespace::open_with_page_size(file, ps) {
+                    if let Ok(ts) = crate::cli::open_tablespace(file, Some(ps), use_mmap) {
                         let _ = wprintln!(
                             writer,
                             "Warning: auto-detect failed, using page size {} (file size divisible)",
@@ -171,7 +177,7 @@ fn open_tablespace(
             }
 
             // Last resort: default 16K
-            let ts = Tablespace::open_with_page_size(file, SIZE_PAGE_DEFAULT)?;
+            let ts = crate::cli::open_tablespace(file, Some(SIZE_PAGE_DEFAULT), use_mmap)?;
             let _ = wprintln!(
                 writer,
                 "Warning: using default page size {} (no size divides evenly)",
@@ -306,7 +312,7 @@ fn extract_records(
 
 /// Run the recovery analysis and output results.
 pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let (mut ts, page_size_source) = open_tablespace(&opts.file, opts.page_size, writer)?;
+    let (mut ts, page_size_source) = open_tablespace(&opts.file, opts.page_size, opts.mmap, writer)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;
@@ -333,23 +339,24 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     };
     let scan_count = end_page - start_page;
 
-    // Analyze pages
-    let mut analyses = Vec::with_capacity(scan_count as usize);
+    // Read all pages into memory for parallel processing
+    let all_data = ts.read_all_pages()?;
+    let ps = page_size as usize;
+
     let pb = if !opts.json && scan_count > 1 {
         Some(create_progress_bar(scan_count, "pages"))
     } else {
         None
     };
 
-    for page_num in start_page..end_page {
-        if let Some(ref pb) = pb {
-            pb.inc(1);
-        }
-
-        let page_data = match ts.read_page(page_num) {
-            Ok(data) => data,
-            Err(_) => {
-                analyses.push(PageAnalysis {
+    // Analyze pages in parallel
+    let force = opts.force;
+    let analyses: Vec<PageAnalysis> = (start_page..end_page)
+        .into_par_iter()
+        .map(|page_num| {
+            let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                return PageAnalysis {
                     page_number: page_num,
                     status: PageStatus::Unreadable,
                     page_type: PageType::Unknown,
@@ -358,21 +365,15 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
                     lsn: 0,
                     record_count: None,
                     records: Vec::new(),
-                });
-                continue;
+                };
             }
-        };
-
-        analyses.push(analyze_page(
-            &page_data,
-            page_num,
-            page_size,
-            opts.force,
-            verbose_json,
-        ));
-    }
+            let page_data = &all_data[offset..offset + ps];
+            analyze_page(page_data, page_num, page_size, force, verbose_json)
+        })
+        .collect();
 
     if let Some(pb) = pb {
+        pb.set_position(scan_count);
         pb.finish_and_clear();
     }
 

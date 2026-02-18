@@ -86,6 +86,24 @@ use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
 use indicatif::{ProgressBar, ProgressStyle};
 
+/// Open a tablespace file, selecting mmap or buffered I/O based on the flag.
+///
+/// When `use_mmap` is true, the file is memory-mapped via `mmap(2)` for
+/// potentially better performance on large files (especially with parallel
+/// processing). When `page_size` is `Some`, auto-detection is bypassed.
+pub(crate) fn open_tablespace(
+    path: &str,
+    page_size: Option<u32>,
+    use_mmap: bool,
+) -> Result<Tablespace, IdbError> {
+    match (use_mmap, page_size) {
+        (true, Some(ps)) => Tablespace::open_mmap_with_page_size(path, ps),
+        (true, None) => Tablespace::open_mmap(path),
+        (false, Some(ps)) => Tablespace::open_with_page_size(path, ps),
+        (false, None) => Tablespace::open(path),
+    }
+}
+
 /// Set up decryption on a tablespace if a keyring path is provided.
 ///
 /// Loads the keyring file, reads the encryption info from page 0,

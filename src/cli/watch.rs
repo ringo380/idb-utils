@@ -30,6 +30,8 @@ pub struct WatchOptions {
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 // ── Internal types ──────────────────────────────────────────────────
@@ -100,10 +102,7 @@ fn now_time_short() -> String {
 }
 
 fn open_tablespace(opts: &WatchOptions) -> Result<Tablespace, IdbError> {
-    let mut ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
     if let Some(ref keyring_path) = opts.keyring {
         setup_decryption(&mut ts, keyring_path)?;
     }
@@ -572,6 +571,7 @@ mod tests {
             json: false,
             page_size: None,
             keyring: None,
+            mmap: false,
         };
         let ts = open_tablespace(&opts).unwrap();
         assert_eq!(ts.page_count(), 2);
@@ -588,6 +588,7 @@ mod tests {
             json: false,
             page_size: Some(16384),
             keyring: None,
+            mmap: false,
         };
         let ts = open_tablespace(&opts).unwrap();
         assert_eq!(ts.page_count(), 2);
@@ -602,6 +603,7 @@ mod tests {
             json: false,
             page_size: None,
             keyring: None,
+            mmap: false,
         };
         assert!(open_tablespace(&opts).is_err());
     }

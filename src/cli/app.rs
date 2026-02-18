@@ -14,6 +14,14 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub output: Option<String>,
 
+    /// Number of threads for parallel page processing (0 = auto-detect CPU count)
+    #[arg(long, default_value = "0", global = true)]
+    pub threads: usize,
+
+    /// Use memory-mapped I/O for file access (can be faster for large files)
+    #[arg(long, global = true)]
+    pub mmap: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

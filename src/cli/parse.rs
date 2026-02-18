@@ -3,6 +3,7 @@ use std::io::Write;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
+use rayon::prelude::*;
 
 use crate::cli::{create_progress_bar, wprint, wprintln};
 use crate::innodb::checksum;
@@ -21,6 +22,10 @@ pub struct ParseOptions {
     pub page_size: Option<u32>,
     pub json: bool,
     pub keyring: Option<String>,
+    /// Number of threads for parallel processing (0 = auto-detect).
+    pub threads: usize,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 /// JSON-serializable page info.
@@ -36,6 +41,13 @@ struct PageJson {
     fsp_header: Option<crate::innodb::page::FspHeader>,
 }
 
+/// Pre-parsed page data for parallel processing.
+struct ParsedPage {
+    page_num: u64,
+    header: Option<FilHeader>,
+    page_type: PageType,
+}
+
 /// Parse an InnoDB tablespace file and display page headers with a type summary.
 ///
 /// Opens the tablespace, auto-detects (or uses the overridden) page size, then
@@ -43,6 +55,10 @@ struct PageJson {
 /// checksum, page number, prev/next page pointers, LSN, page type, and space ID.
 /// Page 0 additionally displays the FSP header (space ID, tablespace size,
 /// free-page limit, and flags).
+///
+/// When the tablespace has more than one page, all page data is read into memory
+/// and headers are parsed in parallel using rayon. Results are collected in
+/// page order for deterministic output.
 ///
 /// In **single-page mode** (`-p N`), only the specified page is printed with
 /// its full FIL header and trailer. In **full-file mode** (the default), all
@@ -54,10 +70,7 @@ struct PageJson {
 /// With `--verbose`, each page also shows checksum validation status (algorithm,
 /// stored vs. calculated values) and LSN consistency between header and trailer.
 pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let mut ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;
@@ -70,14 +83,20 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
     }
 
     if let Some(page_num) = opts.page {
-        // Single page mode
+        // Single page mode — no parallelism needed
         let page_data = ts.read_page(page_num)?;
         print_page_info(writer, &page_data, page_num, page_size, opts.verbose)?;
     } else {
-        // All pages mode
+        // All pages mode — use parallel processing
+        let page_count = ts.page_count();
+        let ps = page_size as usize;
+
+        // Read all pages into memory
+        let all_data = ts.read_all_pages()?;
+
         // Print FSP header first
-        let page0 = ts.read_page(0)?;
-        if let Some(fsp) = FspHeader::parse(&page0) {
+        let page0_data = &all_data[0..ps];
+        if let Some(fsp) = FspHeader::parse(page0_data) {
             print_fsp_header(writer, &fsp)?;
             wprintln!(writer)?;
         }
@@ -86,24 +105,42 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             writer,
             "Pages in {} ({} pages, page size {}):",
             opts.file,
-            ts.page_count(),
+            page_count,
             page_size
         )?;
         wprintln!(writer, "{}", "-".repeat(50))?;
 
+        // Parse headers in parallel to build type counts
+        let parsed_pages: Vec<ParsedPage> = (0..page_count)
+            .into_par_iter()
+            .map(|page_num| {
+                let offset = page_num as usize * ps;
+                let page_data = &all_data[offset..offset + ps];
+                let header = FilHeader::parse(page_data);
+                let page_type = header
+                    .as_ref()
+                    .map(|h| h.page_type)
+                    .unwrap_or(PageType::Unknown);
+                ParsedPage {
+                    page_num,
+                    header,
+                    page_type,
+                }
+            })
+            .collect();
+
         let mut type_counts: HashMap<PageType, u64> = HashMap::new();
 
-        let pb = create_progress_bar(ts.page_count(), "pages");
+        let pb = create_progress_bar(page_count, "pages");
 
-        for page_num in 0..ts.page_count() {
+        for pp in &parsed_pages {
             pb.inc(1);
-            let page_data = ts.read_page(page_num)?;
-            let header = match FilHeader::parse(&page_data) {
+            let header = match &pp.header {
                 Some(h) => h,
                 None => continue,
             };
 
-            *type_counts.entry(header.page_type).or_insert(0) += 1;
+            *type_counts.entry(pp.page_type).or_insert(0) += 1;
 
             // Skip empty pages if --no-empty
             if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
@@ -111,11 +148,13 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             }
 
             // Skip pages with zero checksum unless they are page 0
-            if header.checksum == 0 && page_num != 0 && !opts.verbose {
+            if header.checksum == 0 && pp.page_num != 0 && !opts.verbose {
                 continue;
             }
 
-            print_page_info(writer, &page_data, page_num, page_size, opts.verbose)?;
+            let offset = pp.page_num as usize * ps;
+            let page_data = &all_data[offset..offset + ps];
+            print_page_info(writer, page_data, pp.page_num, page_size, opts.verbose)?;
         }
 
         pb.finish_and_clear();
@@ -141,44 +180,81 @@ fn execute_json(
     page_size: u32,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    let mut pages = Vec::new();
-
-    let range: Box<dyn Iterator<Item = u64>> = if let Some(p) = opts.page {
-        Box::new(std::iter::once(p))
-    } else {
-        Box::new(0..ts.page_count())
-    };
-
-    for page_num in range {
-        let page_data = ts.read_page(page_num)?;
+    if let Some(p) = opts.page {
+        // Single page — no parallelism
+        let page_data = ts.read_page(p)?;
         let header = match FilHeader::parse(&page_data) {
             Some(h) => h,
-            None => continue,
+            None => {
+                wprintln!(writer, "[]")?;
+                return Ok(());
+            }
         };
 
-        if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
-            continue;
-        }
-
         let pt = header.page_type;
-        let byte_start = page_num * page_size as u64;
-
-        let fsp_header = if page_num == 0 {
+        let byte_start = p * page_size as u64;
+        let fsp_header = if p == 0 {
             FspHeader::parse(&page_data)
         } else {
             None
         };
 
-        pages.push(PageJson {
-            page_number: page_num,
+        let pages = vec![PageJson {
+            page_number: p,
             page_type_name: pt.name().to_string(),
             page_type_description: pt.description().to_string(),
             byte_start,
             byte_end: byte_start + page_size as u64,
             header,
             fsp_header,
-        });
+        }];
+
+        let json = serde_json::to_string_pretty(&pages)
+            .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+        wprintln!(writer, "{}", json)?;
+        return Ok(());
     }
+
+    // Full tablespace — read all then process in parallel
+    let page_count = ts.page_count();
+    let ps = page_size as usize;
+    let all_data = ts.read_all_pages()?;
+
+    let pages: Vec<Option<PageJson>> = (0..page_count)
+        .into_par_iter()
+        .map(|page_num| {
+            let offset = page_num as usize * ps;
+            let page_data = &all_data[offset..offset + ps];
+            let header = match FilHeader::parse(page_data) {
+                Some(h) => h,
+                None => return None,
+            };
+
+            if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
+                return None;
+            }
+
+            let pt = header.page_type;
+            let byte_start = page_num * page_size as u64;
+            let fsp_header = if page_num == 0 {
+                FspHeader::parse(page_data)
+            } else {
+                None
+            };
+
+            Some(PageJson {
+                page_number: page_num,
+                page_type_name: pt.name().to_string(),
+                page_type_description: pt.description().to_string(),
+                byte_start,
+                byte_end: byte_start + page_size as u64,
+                header,
+                fsp_header,
+            })
+        })
+        .collect();
+
+    let pages: Vec<PageJson> = pages.into_iter().flatten().collect();
 
     let json = serde_json::to_string_pretty(&pages)
         .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;

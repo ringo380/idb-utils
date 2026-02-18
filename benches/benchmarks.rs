@@ -391,6 +391,209 @@ fn bench_sdi_extraction(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmark: Sequential vs Parallel checksum validation
+// ---------------------------------------------------------------------------
+
+fn bench_checksum_sequential_vs_parallel(c: &mut Criterion) {
+    use rayon::prelude::*;
+
+    let mut group = c.benchmark_group("sequential_vs_parallel_checksum");
+
+    for num_pages in [64u32, 640, 6400] {
+        let data = build_synthetic_tablespace(num_pages);
+        group.throughput(Throughput::Elements(num_pages as u64));
+
+        // Sequential
+        group.bench_with_input(
+            BenchmarkId::new("sequential", format!("{num_pages}_pages")),
+            &data,
+            |b, data| {
+                b.iter(|| {
+                    for i in 0..num_pages as usize {
+                        let offset = i * PS;
+                        let page_data = &data[offset..offset + PS];
+                        black_box(validate_checksum(page_data, PAGE_SIZE, None));
+                    }
+                });
+            },
+        );
+
+        // Parallel (rayon)
+        group.bench_with_input(
+            BenchmarkId::new("parallel", format!("{num_pages}_pages")),
+            &data,
+            |b, data| {
+                b.iter(|| {
+                    let _results: Vec<_> = (0..num_pages as usize)
+                        .into_par_iter()
+                        .map(|i| {
+                            let offset = i * PS;
+                            let page_data = &data[offset..offset + PS];
+                            black_box(validate_checksum(page_data, PAGE_SIZE, None))
+                        })
+                        .collect();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_header_parse_sequential_vs_parallel(c: &mut Criterion) {
+    use rayon::prelude::*;
+
+    let mut group = c.benchmark_group("sequential_vs_parallel_header_parse");
+
+    for num_pages in [64u32, 640, 6400] {
+        let data = build_synthetic_tablespace(num_pages);
+        group.throughput(Throughput::Elements(num_pages as u64));
+
+        // Sequential
+        group.bench_with_input(
+            BenchmarkId::new("sequential", format!("{num_pages}_pages")),
+            &data,
+            |b, data| {
+                b.iter(|| {
+                    for i in 0..num_pages as usize {
+                        let offset = i * PS;
+                        let page_data = &data[offset..offset + PS];
+                        black_box(FilHeader::parse(page_data));
+                    }
+                });
+            },
+        );
+
+        // Parallel (rayon)
+        group.bench_with_input(
+            BenchmarkId::new("parallel", format!("{num_pages}_pages")),
+            &data,
+            |b, data| {
+                b.iter(|| {
+                    let _results: Vec<_> = (0..num_pages as usize)
+                        .into_par_iter()
+                        .map(|i| {
+                            let offset = i * PS;
+                            let page_data = &data[offset..offset + PS];
+                            black_box(FilHeader::parse(page_data))
+                        })
+                        .collect();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark: Memory-mapped I/O vs buffered I/O
+// ---------------------------------------------------------------------------
+
+fn bench_mmap_vs_buffered(c: &mut Criterion) {
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    let mut group = c.benchmark_group("mmap_vs_buffered");
+
+    for num_pages in [64u32, 640, 6400] {
+        let data = build_synthetic_tablespace(num_pages);
+        let data_size = data.len() as u64;
+        group.throughput(Throughput::Bytes(data_size));
+
+        // Write test data to a temp file
+        let mut tmp = NamedTempFile::new().expect("create temp file");
+        tmp.write_all(&data).expect("write test data");
+        tmp.flush().expect("flush");
+        let path = tmp.path().to_path_buf();
+
+        // Buffered I/O: open + read_all_pages + parse headers
+        group.bench_with_input(
+            BenchmarkId::new("buffered", format!("{num_pages}_pages")),
+            &path,
+            |b, path| {
+                b.iter(|| {
+                    let mut ts = Tablespace::open(path).unwrap();
+                    let all_data = ts.read_all_pages().unwrap();
+                    let ps = ts.page_size() as usize;
+                    for i in 0..num_pages as usize {
+                        let offset = i * ps;
+                        let page_data = &all_data[offset..offset + ps];
+                        black_box(FilHeader::parse(page_data));
+                        black_box(validate_checksum(page_data, PAGE_SIZE, None));
+                    }
+                });
+            },
+        );
+
+        // Mmap I/O: open_mmap + read_all_pages + parse headers
+        group.bench_with_input(
+            BenchmarkId::new("mmap", format!("{num_pages}_pages")),
+            &path,
+            |b, path| {
+                b.iter(|| {
+                    let mut ts = Tablespace::open_mmap(path).unwrap();
+                    let all_data = ts.read_all_pages().unwrap();
+                    let ps = ts.page_size() as usize;
+                    for i in 0..num_pages as usize {
+                        let offset = i * ps;
+                        let page_data = &all_data[offset..offset + ps];
+                        black_box(FilHeader::parse(page_data));
+                        black_box(validate_checksum(page_data, PAGE_SIZE, None));
+                    }
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_mmap_vs_buffered_real_fixture(c: &mut Criterion) {
+    let fixture_path = "tests/fixtures/mysql9/mysql90_multipage.ibd";
+    if std::fs::metadata(fixture_path).is_err() {
+        eprintln!(
+            "Skipping mmap vs buffered real fixture benchmark: {} not found",
+            fixture_path
+        );
+        return;
+    }
+
+    let mut group = c.benchmark_group("mmap_vs_buffered_real");
+    let file_size = std::fs::metadata(fixture_path).unwrap().len();
+    group.throughput(Throughput::Bytes(file_size));
+
+    group.bench_function("buffered", |b| {
+        b.iter(|| {
+            let mut ts = Tablespace::open(fixture_path).unwrap();
+            let all_data = ts.read_all_pages().unwrap();
+            let ps = ts.page_size() as usize;
+            let page_count = ts.page_count() as usize;
+            for i in 0..page_count {
+                let offset = i * ps;
+                let page_data = &all_data[offset..offset + ps];
+                black_box(FilHeader::parse(page_data));
+                black_box(validate_checksum(page_data, PAGE_SIZE, None));
+            }
+        });
+    });
+
+    group.bench_function("mmap", |b| {
+        b.iter(|| {
+            let mut ts = Tablespace::open_mmap(fixture_path).unwrap();
+            let all_data = ts.read_all_pages().unwrap();
+            let ps = ts.page_size() as usize;
+            let page_count = ts.page_count() as usize;
+            for i in 0..page_count {
+                let offset = i * ps;
+                let page_data = &all_data[offset..offset + ps];
+                black_box(FilHeader::parse(page_data));
+                black_box(validate_checksum(page_data, PAGE_SIZE, None));
+            }
+        });
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Group and main
 // ---------------------------------------------------------------------------
 
@@ -404,5 +607,9 @@ criterion_group!(
     bench_tablespace_scan_with_checksum,
     bench_real_fixture_parse,
     bench_sdi_extraction,
+    bench_checksum_sequential_vs_parallel,
+    bench_header_parse_sequential_vs_parallel,
+    bench_mmap_vs_buffered,
+    bench_mmap_vs_buffered_real_fixture,
 );
 criterion_main!(benches);

@@ -36,6 +36,8 @@ pub struct PagesOptions {
     pub json: bool,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 /// JSON-serializable detailed page info.
@@ -77,10 +79,7 @@ struct PageDetailJson {
 /// filter by page type name (supports aliases like "undo", "blob", "lob",
 /// "sdi", "compressed", "encrypted").
 pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let mut ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;

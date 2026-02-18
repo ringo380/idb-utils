@@ -8,7 +8,6 @@ use serde::Serialize;
 use crate::cli::wprintln;
 use crate::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
 use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
-use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::format_bytes;
 use crate::IdbError;
 
@@ -32,6 +31,8 @@ pub struct CorruptOptions {
     pub json: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 #[derive(Serialize)]
@@ -89,10 +90,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     }
 
     // Open tablespace to get page size and count
-    let ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     let page_size = ts.page_size() as usize;
     let page_count = ts.page_count();

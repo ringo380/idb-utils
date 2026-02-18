@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::cli::wprintln;
-use crate::innodb::tablespace::Tablespace;
 use crate::util::hex::hex_dump;
 use crate::IdbError;
 
@@ -24,6 +23,8 @@ pub struct DumpOptions {
     pub keyring: Option<String>,
     /// Decrypt page before dumping (requires --keyring).
     pub decrypt: bool,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 /// Produce a hex dump of raw bytes from an InnoDB tablespace file.
@@ -56,10 +57,7 @@ pub fn execute(opts: &DumpOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     }
 
     // Page mode: dump a specific page (or page 0 by default)
-    let mut ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if opts.decrypt {
         if let Some(ref keyring_path) = opts.keyring {

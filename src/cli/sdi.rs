@@ -2,7 +2,6 @@ use std::io::Write;
 
 use crate::cli::wprintln;
 use crate::innodb::sdi;
-use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
 
 /// Options for the `inno sdi` subcommand.
@@ -15,6 +14,8 @@ pub struct SdiOptions {
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 /// Extract SDI metadata from a MySQL 8.0+ tablespace.
@@ -36,10 +37,7 @@ pub struct SdiOptions {
 /// for readability. If a tablespace has no SDI pages (e.g., pre-8.0 files),
 /// a message is printed indicating that SDI is unavailable.
 pub fn execute(opts: &SdiOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let mut ts = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file, ps)?,
-        None => Tablespace::open(&opts.file)?,
-    };
+    let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;
