@@ -2432,3 +2432,546 @@ fn test_info_missing_ibdata1() {
         err_msg
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// MySQL 9.x fixture tests
+// ══════════════════════════════════════════════════════════════════════
+//
+// These tests use real .ibd files extracted from MySQL 9.0.1 and 9.1.0
+// Docker containers. They validate that the parser correctly handles
+// MySQL 9.x tablespace formats.
+
+const MYSQL9_FIXTURE_DIR: &str = "tests/fixtures/mysql9";
+
+// ── MySQL 9.0 standard tablespace ───────────────────────────────────
+
+#[test]
+fn test_mysql90_standard_opens() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.0 standard tablespace");
+    assert_eq!(ts.page_size(), 16384, "standard table should use 16K pages");
+    assert_eq!(ts.page_count(), 7, "standard table should have 7 pages");
+}
+
+#[test]
+fn test_mysql90_standard_checksums_valid() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|_page_num, data| {
+        // Skip all-zero (ALLOCATED) pages
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid (algo={:?})",
+            _page_num, result.algorithm
+        );
+        assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
+        Ok(())
+    })
+    .expect("iterate pages");
+}
+
+#[test]
+fn test_mysql90_standard_page_types() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut types = Vec::new();
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        types.push(hdr.page_type);
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        types.contains(&PageType::FspHdr),
+        "should contain FSP_HDR page"
+    );
+    assert!(
+        types.contains(&PageType::Index),
+        "should contain INDEX page"
+    );
+    assert!(types.contains(&PageType::Sdi), "should contain SDI page");
+    assert!(
+        types.contains(&PageType::Inode),
+        "should contain INODE page"
+    );
+}
+
+#[test]
+fn test_mysql90_standard_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    assert!(!records.is_empty(), "should extract at least one SDI record");
+
+    // Table SDI record (type 1)
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have a Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"standard\"") || data.contains("\"name\":\"standard\""),
+        "SDI data should contain table name 'standard'"
+    );
+}
+
+#[test]
+fn test_mysql90_standard_vendor_detection() {
+    use idb::innodb::vendor::InnoDbVendor;
+
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    assert_eq!(
+        ts.vendor_info().vendor,
+        InnoDbVendor::MySQL,
+        "should detect MySQL vendor"
+    );
+}
+
+#[test]
+fn test_mysql90_standard_fsp_header() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    assert_eq!(fsp.size, 7, "FSP size should match page count");
+}
+
+// ── MySQL 9.1 standard tablespace ───────────────────────────────────
+
+#[test]
+fn test_mysql91_standard_opens() {
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.1 standard tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 7);
+}
+
+#[test]
+fn test_mysql91_standard_checksums_valid() {
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|_page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            _page_num
+        );
+        Ok(())
+    })
+    .expect("iterate pages");
+}
+
+#[test]
+fn test_mysql91_standard_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    assert!(!records.is_empty(), "should extract at least one SDI record");
+
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have a Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"standard\"") || data.contains("\"name\":\"standard\""),
+        "SDI data should contain table name 'standard'"
+    );
+}
+
+#[test]
+fn test_mysql91_standard_page_types() {
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut has_fsp_hdr = false;
+    let mut has_index = false;
+    let mut has_sdi = false;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        match hdr.page_type {
+            PageType::FspHdr => has_fsp_hdr = true,
+            PageType::Index => has_index = true,
+            PageType::Sdi => has_sdi = true,
+            _ => {}
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(has_fsp_hdr, "should contain FSP_HDR page");
+    assert!(has_index, "should contain INDEX page");
+    assert!(has_sdi, "should contain SDI page");
+}
+
+// ── MySQL 9.0 compressed tablespace ─────────────────────────────────
+
+#[test]
+fn test_mysql90_compressed_opens() {
+    let path = format!("{}/mysql90_compressed.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.0 compressed tablespace");
+    // The file is 56K. The parser reads at the detected page size.
+    // Compressed tablespace with KEY_BLOCK_SIZE=8 has 8K physical pages,
+    // but page 0 (FSP_HDR) is always stored at the logical page size.
+    assert!(
+        ts.page_size() > 0,
+        "page size should be detected"
+    );
+    assert!(
+        ts.page_count() > 0,
+        "should have at least one page"
+    );
+}
+
+#[test]
+fn test_mysql90_compressed_fsp_header() {
+    let path = format!("{}/mysql90_compressed.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    // FSP flags should indicate compressed format
+    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+}
+
+// ── MySQL 9.1 compressed tablespace ─────────────────────────────────
+
+#[test]
+fn test_mysql91_compressed_opens() {
+    let path = format!("{}/mysql91_compressed.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.1 compressed tablespace");
+    assert!(ts.page_size() > 0, "page size should be detected");
+    assert!(ts.page_count() > 0, "should have at least one page");
+}
+
+#[test]
+fn test_mysql91_compressed_fsp_header() {
+    let path = format!("{}/mysql91_compressed.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("open");
+    let fsp = ts.fsp_header().expect("FSP header present");
+    assert!(fsp.space_id > 0, "space_id should be nonzero");
+    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+}
+
+// ── MySQL 9.0 multipage tablespace ──────────────────────────────────
+
+#[test]
+fn test_mysql90_multipage_opens() {
+    let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.0 multipage tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 640, "multipage table should have 640 pages");
+}
+
+#[test]
+fn test_mysql90_multipage_checksums_valid() {
+    let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    let mut valid_count = 0u32;
+    let mut empty_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            empty_count += 1;
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            _page_num
+        );
+        valid_count += 1;
+        Ok(())
+    })
+    .expect("iterate pages");
+
+    assert!(valid_count > 100, "should have many valid pages, got {}", valid_count);
+    assert!(empty_count > 0, "should have some empty (ALLOCATED) pages");
+}
+
+#[test]
+fn test_mysql90_multipage_has_many_index_pages() {
+    let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut index_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        if hdr.page_type == PageType::Index {
+            index_count += 1;
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        index_count >= 100,
+        "multipage table should have at least 100 INDEX pages, got {}",
+        index_count
+    );
+}
+
+#[test]
+fn test_mysql90_multipage_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find SDI pages");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"multipage\"") || data.contains("\"name\":\"multipage\""),
+        "SDI should contain table name 'multipage'"
+    );
+}
+
+// ── MySQL 9.1 multipage tablespace ──────────────────────────────────
+
+#[test]
+fn test_mysql91_multipage_opens() {
+    let path = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let ts = Tablespace::open(&path).expect("should open MySQL 9.1 multipage tablespace");
+    assert_eq!(ts.page_size(), 16384);
+    assert_eq!(ts.page_count(), 640);
+}
+
+#[test]
+fn test_mysql91_multipage_checksums_valid() {
+    let path = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let vendor = ts.vendor_info().clone();
+    let page_size = ts.page_size();
+
+    let mut valid_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        let result = validate_checksum(data, page_size, Some(&vendor));
+        assert!(
+            result.valid,
+            "page {} checksum should be valid",
+            _page_num
+        );
+        valid_count += 1;
+        Ok(())
+    })
+    .expect("iterate pages");
+
+    assert!(valid_count > 100, "should have many valid pages, got {}", valid_count);
+}
+
+#[test]
+fn test_mysql91_multipage_has_many_index_pages() {
+    let path = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let mut index_count = 0u32;
+    ts.for_each_page(|_page_num, data| {
+        let hdr = FilHeader::parse(data).unwrap();
+        if hdr.page_type == PageType::Index {
+            index_count += 1;
+        }
+        Ok(())
+    })
+    .expect("iterate");
+
+    assert!(
+        index_count >= 100,
+        "multipage table should have at least 100 INDEX pages, got {}",
+        index_count
+    );
+}
+
+#[test]
+fn test_mysql91_multipage_sdi_extraction() {
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(!sdi_pages.is_empty(), "should find SDI pages");
+
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+    let table_rec = records.iter().find(|r| r.sdi_type == 1);
+    assert!(table_rec.is_some(), "should have Table SDI record");
+
+    let data = &table_rec.unwrap().data;
+    assert!(
+        data.contains("\"name\": \"multipage\"") || data.contains("\"name\":\"multipage\""),
+        "SDI should contain table name 'multipage'"
+    );
+}
+
+// ── MySQL 9.x redo log tests ────────────────────────────────────────
+
+#[test]
+fn test_mysql90_redo_log_opens() {
+    use idb::innodb::log::LogFile;
+    use idb::innodb::vendor::{detect_vendor_from_created_by, InnoDbVendor};
+
+    let path = format!("{}/mysql90_redo_9", MYSQL9_FIXTURE_DIR);
+    let mut log = LogFile::open(&path).expect("should open MySQL 9.0 redo log");
+    let header = log.read_header().expect("should read header");
+
+    assert!(
+        header.created_by.contains("9.0"),
+        "created_by should mention 9.0, got: {}",
+        header.created_by
+    );
+    assert_eq!(
+        detect_vendor_from_created_by(&header.created_by),
+        InnoDbVendor::MySQL,
+        "should detect MySQL vendor from redo log"
+    );
+}
+
+#[test]
+fn test_mysql91_redo_log_opens() {
+    use idb::innodb::log::LogFile;
+    use idb::innodb::vendor::{detect_vendor_from_created_by, InnoDbVendor};
+
+    let path = format!("{}/mysql91_redo_9", MYSQL9_FIXTURE_DIR);
+    let mut log = LogFile::open(&path).expect("should open MySQL 9.1 redo log");
+    let header = log.read_header().expect("should read header");
+
+    assert!(
+        header.created_by.contains("9.1"),
+        "created_by should mention 9.1, got: {}",
+        header.created_by
+    );
+    assert_eq!(
+        detect_vendor_from_created_by(&header.created_by),
+        InnoDbVendor::MySQL,
+    );
+}
+
+// ── Cross-version comparison tests ──────────────────────────────────
+
+#[test]
+fn test_mysql9_standard_cross_version_page_structure() {
+    // Both MySQL 9.0 and 9.1 standard tables should have the same page layout
+    let path90 = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let path91 = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+
+    let mut ts90 = Tablespace::open(&path90).expect("open 9.0");
+    let mut ts91 = Tablespace::open(&path91).expect("open 9.1");
+
+    assert_eq!(ts90.page_size(), ts91.page_size(), "page sizes should match");
+    assert_eq!(
+        ts90.page_count(),
+        ts91.page_count(),
+        "page counts should match"
+    );
+
+    let mut types90 = Vec::new();
+    let mut types91 = Vec::new();
+
+    ts90.for_each_page(|_n, data| {
+        types90.push(FilHeader::parse(data).unwrap().page_type);
+        Ok(())
+    })
+    .expect("iterate 9.0");
+
+    ts91.for_each_page(|_n, data| {
+        types91.push(FilHeader::parse(data).unwrap().page_type);
+        Ok(())
+    })
+    .expect("iterate 9.1");
+
+    assert_eq!(
+        types90, types91,
+        "page type sequences should be identical across 9.0 and 9.1"
+    );
+}
+
+#[test]
+fn test_mysql9_multipage_cross_version_structure() {
+    let path90 = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
+    let path91 = format!("{}/mysql91_multipage.ibd", MYSQL9_FIXTURE_DIR);
+
+    let ts90 = Tablespace::open(&path90).expect("open 9.0");
+    let ts91 = Tablespace::open(&path91).expect("open 9.1");
+
+    assert_eq!(ts90.page_size(), ts91.page_size());
+    assert_eq!(ts90.page_count(), ts91.page_count());
+}
+
+// ── LSN validation tests ────────────────────────────────────────────
+
+#[test]
+fn test_mysql90_standard_lsn_valid() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|_page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        assert!(
+            validate_lsn(data, page_size),
+            "page {} LSN should be consistent",
+            _page_num
+        );
+        Ok(())
+    })
+    .expect("iterate");
+}
+
+#[test]
+fn test_mysql91_standard_lsn_valid() {
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+    let page_size = ts.page_size();
+
+    ts.for_each_page(|_page_num, data| {
+        if data.iter().all(|&b| b == 0) {
+            return Ok(());
+        }
+        assert!(
+            validate_lsn(data, page_size),
+            "page {} LSN should be consistent",
+            _page_num
+        );
+        Ok(())
+    })
+    .expect("iterate");
+}
