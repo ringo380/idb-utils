@@ -63,6 +63,18 @@ jobs:
           echo "ARCHIVE=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
           echo "CHECKSUM=${ARCHIVE_NAME}.tar.gz.sha256" >> $GITHUB_ENV
 
+      - name: Build deb package
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cargo install cargo-deb
+          cargo deb --no-build --target ${{ matrix.target }}
+
+      - name: Build rpm package
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cargo install cargo-generate-rpm
+          cargo generate-rpm --target ${{ matrix.target }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -70,6 +82,8 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/${{ env.ARCHIVE }}
             target/${{ matrix.target }}/release/${{ env.CHECKSUM }}
+            target/${{ matrix.target }}/debian/*.deb
+            target/${{ matrix.target }}/generate-rpm/*.rpm
 
   release:
     name: Create Release
@@ -93,6 +107,8 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.sha256
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
 
   update-homebrew:
     name: Update Homebrew Formula

@@ -74,6 +74,25 @@ mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
+[package.metadata.deb]
+maintainer = "Ryan Robson <ryan@ringo380.com>"
+copyright = "2026, Ryan Robson"
+extended-description = "InnoDB file analysis toolkit for parsing, validating, and inspecting MySQL/InnoDB tablespace files (.ibd), redo logs, and system tablespaces."
+section = "database"
+priority = "optional"
+assets = [
+    ["target/release/inno", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/innodb-utils/", "644"],
+    ["LICENSE", "usr/share/doc/innodb-utils/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/inno", dest = "/usr/bin/inno", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/innodb-utils/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/innodb-utils/LICENSE", mode = "644" },
+]
+
 [package.metadata.docs.rs]
 all-features = true
 
