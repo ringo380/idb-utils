@@ -120,17 +120,29 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         )?;
         wprintln!(writer, "{}", "-".repeat(50))?;
 
+        // Create progress bar before parallel work so it tracks real progress
+        let pb = create_progress_bar(page_count, "pages");
+
         // Parse headers in parallel to build type counts
         let parsed_pages: Vec<ParsedPage> = (0..page_count)
             .into_par_iter()
             .map(|page_num| {
                 let offset = page_num as usize * ps;
+                if offset + ps > all_data.len() {
+                    pb.inc(1);
+                    return ParsedPage {
+                        page_num,
+                        header: None,
+                        page_type: PageType::Unknown(0),
+                    };
+                }
                 let page_data = &all_data[offset..offset + ps];
                 let header = FilHeader::parse(page_data);
                 let page_type = header
                     .as_ref()
                     .map(|h| h.page_type)
-                    .unwrap_or(PageType::Unknown);
+                    .unwrap_or(PageType::Unknown(0));
+                pb.inc(1);
                 ParsedPage {
                     page_num,
                     header,
@@ -139,12 +151,11 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             })
             .collect();
 
+        pb.finish_and_clear();
+
         let mut type_counts: HashMap<PageType, u64> = HashMap::new();
 
-        let pb = create_progress_bar(page_count, "pages");
-
         for pp in &parsed_pages {
-            pb.inc(1);
             let header = match &pp.header {
                 Some(h) => h,
                 None => continue,
@@ -166,8 +177,6 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             let page_data = &all_data[offset..offset + ps];
             print_page_info(writer, page_data, pp.page_num, page_size, opts.verbose)?;
         }
-
-        pb.finish_and_clear();
 
         // Print page type summary
         wprintln!(writer)?;
@@ -342,6 +351,9 @@ fn execute_json(
         .into_par_iter()
         .map(|page_num| {
             let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                return None;
+            }
             let page_data = &all_data[offset..offset + ps];
             let header = match FilHeader::parse(page_data) {
                 Some(h) => h,

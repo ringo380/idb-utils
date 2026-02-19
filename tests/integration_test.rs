@@ -2635,7 +2635,10 @@ fn test_mysql90_standard_sdi_extraction() {
     assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
 
     let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
-    assert!(!records.is_empty(), "should extract at least one SDI record");
+    assert!(
+        !records.is_empty(),
+        "should extract at least one SDI record"
+    );
 
     // Table SDI record (type 1)
     let table_rec = records.iter().find(|r| r.sdi_type == 1);
@@ -2692,11 +2695,7 @@ fn test_mysql91_standard_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         Ok(())
     })
     .expect("iterate pages");
@@ -2713,7 +2712,10 @@ fn test_mysql91_standard_sdi_extraction() {
     assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
 
     let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
-    assert!(!records.is_empty(), "should extract at least one SDI record");
+    assert!(
+        !records.is_empty(),
+        "should extract at least one SDI record"
+    );
 
     let table_rec = records.iter().find(|r| r.sdi_type == 1);
     assert!(table_rec.is_some(), "should have a Table SDI record");
@@ -2777,7 +2779,10 @@ fn test_mysql90_compressed_fsp_header() {
     let fsp = ts.fsp_header().expect("FSP header present");
     assert!(fsp.space_id > 0, "space_id should be nonzero");
     // FSP flags should indicate compressed format
-    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+    assert!(
+        fsp.flags > 0,
+        "flags should be nonzero for compressed table"
+    );
 }
 
 // ── MySQL 9.1 compressed tablespace ─────────────────────────────────
@@ -2803,7 +2808,10 @@ fn test_mysql91_compressed_fsp_header() {
     let ts = Tablespace::open(&path).expect("open");
     let fsp = ts.fsp_header().expect("FSP header present");
     assert!(fsp.space_id > 0, "space_id should be nonzero");
-    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+    assert!(
+        fsp.flags > 0,
+        "flags should be nonzero for compressed table"
+    );
 }
 
 // ── MySQL 9.0 multipage tablespace ──────────────────────────────────
@@ -2813,7 +2821,11 @@ fn test_mysql90_multipage_opens() {
     let path = format!("{}/mysql90_multipage.ibd", MYSQL9_FIXTURE_DIR);
     let ts = Tablespace::open(&path).expect("should open MySQL 9.0 multipage tablespace");
     assert_eq!(ts.page_size(), 16384);
-    assert_eq!(ts.page_count(), 640, "multipage table should have 640 pages");
+    assert_eq!(
+        ts.page_count(),
+        640,
+        "multipage table should have 640 pages"
+    );
 }
 
 #[test]
@@ -2831,17 +2843,17 @@ fn test_mysql90_multipage_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         valid_count += 1;
         Ok(())
     })
     .expect("iterate pages");
 
-    assert!(valid_count > 100, "should have many valid pages, got {}", valid_count);
+    assert!(
+        valid_count > 100,
+        "should have many valid pages, got {}",
+        valid_count
+    );
     assert!(empty_count > 0, "should have some empty (ALLOCATED) pages");
 }
 
@@ -2911,17 +2923,17 @@ fn test_mysql91_multipage_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         valid_count += 1;
         Ok(())
     })
     .expect("iterate pages");
 
-    assert!(valid_count > 100, "should have many valid pages, got {}", valid_count);
+    assert!(
+        valid_count > 100,
+        "should have many valid pages, got {}",
+        valid_count
+    );
 }
 
 #[test]
@@ -3021,7 +3033,11 @@ fn test_mysql9_standard_cross_version_page_structure() {
     let mut ts90 = Tablespace::open(&path90).expect("open 9.0");
     let mut ts91 = Tablespace::open(&path91).expect("open 9.1");
 
-    assert_eq!(ts90.page_size(), ts91.page_size(), "page sizes should match");
+    assert_eq!(
+        ts90.page_size(),
+        ts91.page_size(),
+        "page sizes should match"
+    );
     assert_eq!(
         ts90.page_count(),
         ts91.page_count(),
@@ -3241,7 +3257,9 @@ fn test_mysql9_redo_log_checkpoints() {
 
 #[test]
 fn test_mysql9_redo_log_block_checksums() {
-    use idb::innodb::log::{validate_log_block_checksum, LogBlockHeader, LogFile, LOG_FILE_HDR_BLOCKS};
+    use idb::innodb::log::{
+        validate_log_block_checksum, LogBlockHeader, LogFile, LOG_FILE_HDR_BLOCKS,
+    };
 
     // Verify that block checksums validate correctly on MySQL 9.x redo logs
     for (version, fixture) in &[("9.0", "mysql90_redo_9"), ("9.1", "mysql91_redo_9")] {
@@ -3363,13 +3381,24 @@ fn test_mysql9_redo_log_json_output() {
             .unwrap_or_else(|e| panic!("{} log JSON failed: {}", version, e));
 
         let output = String::from_utf8(out).expect("valid UTF-8");
-        let json: serde_json::Value =
-            serde_json::from_str(&output).expect("should parse as JSON");
+        let json: serde_json::Value = serde_json::from_str(&output).expect("should parse as JSON");
 
         // Validate top-level fields
-        assert!(json.get("file_size").is_some(), "{} missing file_size", version);
-        assert!(json.get("total_blocks").is_some(), "{} missing total_blocks", version);
-        assert!(json.get("data_blocks").is_some(), "{} missing data_blocks", version);
+        assert!(
+            json.get("file_size").is_some(),
+            "{} missing file_size",
+            version
+        );
+        assert!(
+            json.get("total_blocks").is_some(),
+            "{} missing total_blocks",
+            version
+        );
+        assert!(
+            json.get("data_blocks").is_some(),
+            "{} missing data_blocks",
+            version
+        );
 
         // Validate header fields
         let header = json.get("header").expect("missing header");
@@ -3509,7 +3538,9 @@ fn test_mysql9_redo_log_backward_compat_accessors() {
     );
 
     // Test LogBlockHeader::checkpoint_no() == epoch_no
-    let block_data = log.read_block(LOG_FILE_HDR_BLOCKS).expect("read first data block");
+    let block_data = log
+        .read_block(LOG_FILE_HDR_BLOCKS)
+        .expect("read first data block");
     if let Some(hdr) = LogBlockHeader::parse(&block_data) {
         assert_eq!(
             hdr.checkpoint_no(),
@@ -3549,7 +3580,10 @@ fn test_mysql90_standard_recovery_assessment() {
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
-    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert_eq!(
+        parsed["total_pages"], 7,
+        "standard fixture should have 7 pages"
+    );
     assert!(
         parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"
@@ -3562,7 +3596,10 @@ fn test_mysql91_standard_recovery_assessment() {
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
-    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert_eq!(
+        parsed["total_pages"], 7,
+        "standard fixture should have 7 pages"
+    );
     assert!(
         parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"
@@ -3859,14 +3896,12 @@ fn assert_tablespace_dd_object(dd: &serde_json::Value) {
         file["ordinal_position"].as_u64().is_some(),
         "ordinal_position"
     );
-    assert!(file["se_private_data"].as_str().is_some(), "se_private_data");
+    assert!(
+        file["se_private_data"].as_str().is_some(),
+        "se_private_data"
+    );
 
-    for field in &[
-        "comment",
-        "engine_attribute",
-        "options",
-        "se_private_data",
-    ] {
+    for field in &["comment", "engine_attribute", "options", "se_private_data"] {
         assert!(
             dd.get(*field).is_some(),
             "tablespace dd_object missing '{}'",
@@ -4011,18 +4046,10 @@ fn test_mysql9_sdi_schema_consistent_across_versions() {
     let json91 = extract_sdi_table_json("mysql91_standard.ibd");
 
     // Top-level keys must match
-    let keys90: std::collections::BTreeSet<String> = json90
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    let keys91: std::collections::BTreeSet<String> = json91
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
+    let keys90: std::collections::BTreeSet<String> =
+        json90.as_object().unwrap().keys().cloned().collect();
+    let keys91: std::collections::BTreeSet<String> =
+        json91.as_object().unwrap().keys().cloned().collect();
     assert_eq!(keys90, keys91, "top-level keys differ between 9.0 and 9.1");
 
     // dd_object keys must match
@@ -4046,18 +4073,10 @@ fn test_mysql9_sdi_schema_consistent_across_versions() {
     // Column field names must match (compare first user column)
     let col90 = &json90["dd_object"]["columns"][0];
     let col91 = &json91["dd_object"]["columns"][0];
-    let col_keys90: std::collections::BTreeSet<String> = col90
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    let col_keys91: std::collections::BTreeSet<String> = col91
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
+    let col_keys90: std::collections::BTreeSet<String> =
+        col90.as_object().unwrap().keys().cloned().collect();
+    let col_keys91: std::collections::BTreeSet<String> =
+        col91.as_object().unwrap().keys().cloned().collect();
     assert_eq!(
         col_keys90, col_keys91,
         "column field names differ between 9.0 and 9.1"
@@ -4066,18 +4085,10 @@ fn test_mysql9_sdi_schema_consistent_across_versions() {
     // Index field names must match
     let idx90 = &json90["dd_object"]["indexes"][0];
     let idx91 = &json91["dd_object"]["indexes"][0];
-    let idx_keys90: std::collections::BTreeSet<String> = idx90
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    let idx_keys91: std::collections::BTreeSet<String> = idx91
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
+    let idx_keys90: std::collections::BTreeSet<String> =
+        idx90.as_object().unwrap().keys().cloned().collect();
+    let idx_keys91: std::collections::BTreeSet<String> =
+        idx91.as_object().unwrap().keys().cloned().collect();
     assert_eq!(
         idx_keys90, idx_keys91,
         "index field names differ between 9.0 and 9.1"
@@ -4220,7 +4231,10 @@ fn test_percona80_standard_sdi_extraction() {
     assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
 
     let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
-    assert!(!records.is_empty(), "should extract at least one SDI record");
+    assert!(
+        !records.is_empty(),
+        "should extract at least one SDI record"
+    );
 
     // Table SDI record (type 1)
     let table_rec = records.iter().find(|r| r.sdi_type == 1);
@@ -4299,11 +4313,7 @@ fn test_percona84_standard_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         Ok(())
     })
     .expect("iterate pages");
@@ -4320,7 +4330,10 @@ fn test_percona84_standard_sdi_extraction() {
     assert!(!sdi_pages.is_empty(), "should find at least one SDI page");
 
     let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
-    assert!(!records.is_empty(), "should extract at least one SDI record");
+    assert!(
+        !records.is_empty(),
+        "should extract at least one SDI record"
+    );
 
     let table_rec = records.iter().find(|r| r.sdi_type == 1);
     assert!(table_rec.is_some(), "should have a Table SDI record");
@@ -4401,7 +4414,10 @@ fn test_percona80_compressed_fsp_header() {
     let fsp = ts.fsp_header().expect("FSP header present");
     assert!(fsp.space_id > 0, "space_id should be nonzero");
     // FSP flags should indicate compressed format
-    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+    assert!(
+        fsp.flags > 0,
+        "flags should be nonzero for compressed table"
+    );
 }
 
 // ── Percona 8.4 compressed tablespace ───────────────────────────────
@@ -4427,7 +4443,10 @@ fn test_percona84_compressed_fsp_header() {
     let ts = Tablespace::open(&path).expect("open");
     let fsp = ts.fsp_header().expect("FSP header present");
     assert!(fsp.space_id > 0, "space_id should be nonzero");
-    assert!(fsp.flags > 0, "flags should be nonzero for compressed table");
+    assert!(
+        fsp.flags > 0,
+        "flags should be nonzero for compressed table"
+    );
 }
 
 // ── Percona 8.0 multipage tablespace ────────────────────────────────
@@ -4437,7 +4456,11 @@ fn test_percona80_multipage_opens() {
     let path = format!("{}/percona80_multipage.ibd", PERCONA_FIXTURE_DIR);
     let ts = Tablespace::open(&path).expect("should open Percona 8.0 multipage tablespace");
     assert_eq!(ts.page_size(), 16384);
-    assert_eq!(ts.page_count(), 576, "multipage table should have 576 pages");
+    assert_eq!(
+        ts.page_count(),
+        576,
+        "multipage table should have 576 pages"
+    );
 }
 
 #[test]
@@ -4455,17 +4478,17 @@ fn test_percona80_multipage_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         valid_count += 1;
         Ok(())
     })
     .expect("iterate pages");
 
-    assert!(valid_count > 50, "should have many valid pages, got {}", valid_count);
+    assert!(
+        valid_count > 50,
+        "should have many valid pages, got {}",
+        valid_count
+    );
     assert!(empty_count > 0, "should have some empty (ALLOCATED) pages");
 }
 
@@ -4535,17 +4558,17 @@ fn test_percona84_multipage_checksums_valid() {
             return Ok(());
         }
         let result = validate_checksum(data, page_size, Some(&vendor));
-        assert!(
-            result.valid,
-            "page {} checksum should be valid",
-            page_num
-        );
+        assert!(result.valid, "page {} checksum should be valid", page_num);
         valid_count += 1;
         Ok(())
     })
     .expect("iterate pages");
 
-    assert!(valid_count > 50, "should have many valid pages, got {}", valid_count);
+    assert!(
+        valid_count > 50,
+        "should have many valid pages, got {}",
+        valid_count
+    );
 }
 
 #[test]
@@ -4602,7 +4625,11 @@ fn test_percona_standard_cross_version_page_structure() {
     let mut ts80 = Tablespace::open(&path80).expect("open 8.0");
     let mut ts84 = Tablespace::open(&path84).expect("open 8.4");
 
-    assert_eq!(ts80.page_size(), ts84.page_size(), "page sizes should match");
+    assert_eq!(
+        ts80.page_size(),
+        ts84.page_size(),
+        "page sizes should match"
+    );
     assert_eq!(
         ts80.page_count(),
         ts84.page_count(),
@@ -4672,7 +4699,10 @@ fn test_percona80_standard_recovery_assessment() {
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
-    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert_eq!(
+        parsed["total_pages"], 7,
+        "standard fixture should have 7 pages"
+    );
     assert!(
         parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"
@@ -4685,7 +4715,10 @@ fn test_percona84_standard_recovery_assessment() {
     assert!(parsed.get("summary").is_some());
     assert!(parsed.get("total_pages").is_some());
     assert!(parsed.get("recoverable_records").is_some());
-    assert_eq!(parsed["total_pages"], 7, "standard fixture should have 7 pages");
+    assert_eq!(
+        parsed["total_pages"], 7,
+        "standard fixture should have 7 pages"
+    );
     assert!(
         parsed["summary"].get("intact").is_some(),
         "summary should contain intact count"

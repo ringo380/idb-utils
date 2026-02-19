@@ -284,7 +284,7 @@ pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
         };
         let lob_header = if matches!(
             hdr.page_type,
-            PageType::ZBlob | PageType::ZBlob2 | PageType::Unknown
+            PageType::ZBlob | PageType::ZBlob2 | PageType::Unknown(_)
         ) {
             LobFirstPageHeader::parse(&page_data)
         } else {
@@ -883,8 +883,8 @@ pub fn inspect_index_records(data: &[u8], page_num: u64) -> Result<String, JsVal
     let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
     let page_data = ts.read_page(page_num).map_err(to_js_err)?;
 
-    let hdr = FilHeader::parse(&page_data)
-        .ok_or_else(|| JsValue::from_str("Cannot parse FIL header"))?;
+    let hdr =
+        FilHeader::parse(&page_data).ok_or_else(|| JsValue::from_str("Cannot parse FIL header"))?;
 
     if hdr.page_type != PageType::Index {
         return Err(JsValue::from_str(&format!(

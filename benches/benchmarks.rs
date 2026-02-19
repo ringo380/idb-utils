@@ -158,11 +158,7 @@ fn bench_checksum_single_page(c: &mut Criterion) {
     let crc32c_page = build_index_page(1, 1, 5000);
     group.bench_function("crc32c", |b| {
         b.iter(|| {
-            black_box(validate_checksum(
-                black_box(&crc32c_page),
-                PAGE_SIZE,
-                None,
-            ));
+            black_box(validate_checksum(black_box(&crc32c_page), PAGE_SIZE, None));
         });
     });
 
@@ -176,11 +172,7 @@ fn bench_checksum_single_page(c: &mut Criterion) {
         // This exercises the full validation path
         BigEndian::write_u32(&mut legacy_page[FIL_PAGE_SPACE_OR_CHKSUM..], 0x12345678);
         b.iter(|| {
-            black_box(validate_checksum(
-                black_box(&legacy_page),
-                PAGE_SIZE,
-                None,
-            ));
+            black_box(validate_checksum(black_box(&legacy_page), PAGE_SIZE, None));
         });
     });
 
@@ -244,14 +236,18 @@ fn bench_tablespace_scan(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("{num_pages}_pages")),
             &data,
             |b, data| {
-                b.iter(|| {
-                    let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
-                    ts.for_each_page(|_num, page_data| {
-                        black_box(FilHeader::parse(page_data));
-                        Ok(())
-                    })
-                    .unwrap();
-                });
+                b.iter_batched(
+                    || data.clone(),
+                    |data| {
+                        let mut ts = Tablespace::from_bytes(data).unwrap();
+                        ts.for_each_page(|_num, page_data| {
+                            black_box(FilHeader::parse(page_data));
+                            Ok(())
+                        })
+                        .unwrap();
+                    },
+                    criterion::BatchSize::LargeInput,
+                );
             },
         );
     }
@@ -270,15 +266,19 @@ fn bench_tablespace_scan_with_checksum(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("{num_pages}_pages")),
             &data,
             |b, data| {
-                b.iter(|| {
-                    let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
-                    ts.for_each_page(|_num, page_data| {
-                        black_box(FilHeader::parse(page_data));
-                        black_box(validate_checksum(page_data, PAGE_SIZE, None));
-                        Ok(())
-                    })
-                    .unwrap();
-                });
+                b.iter_batched(
+                    || data.clone(),
+                    |data| {
+                        let mut ts = Tablespace::from_bytes(data).unwrap();
+                        ts.for_each_page(|_num, page_data| {
+                            black_box(FilHeader::parse(page_data));
+                            black_box(validate_checksum(page_data, PAGE_SIZE, None));
+                            Ok(())
+                        })
+                        .unwrap();
+                    },
+                    criterion::BatchSize::LargeInput,
+                );
             },
         );
     }
@@ -306,48 +306,51 @@ fn bench_real_fixture_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("real_fixture");
     group.throughput(Throughput::Bytes(data.len() as u64));
 
-    group.bench_function(
-        format!("parse_{page_count}_page_tablespace"),
-        |b| {
-            b.iter(|| {
-                let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
+    group.bench_function(format!("parse_{page_count}_page_tablespace"), |b| {
+        b.iter_batched(
+            || data.clone(),
+            |data| {
+                let mut ts = Tablespace::from_bytes(data).unwrap();
                 ts.for_each_page(|_num, page_data| {
                     black_box(FilHeader::parse(page_data));
                     Ok(())
                 })
                 .unwrap();
-            });
-        },
-    );
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
 
-    group.bench_function(
-        format!("checksum_{page_count}_page_tablespace"),
-        |b| {
-            b.iter(|| {
-                let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
+    group.bench_function(format!("checksum_{page_count}_page_tablespace"), |b| {
+        b.iter_batched(
+            || data.clone(),
+            |data| {
+                let mut ts = Tablespace::from_bytes(data).unwrap();
                 ts.for_each_page(|_num, page_data| {
                     black_box(validate_checksum(page_data, PAGE_SIZE, None));
                     Ok(())
                 })
                 .unwrap();
-            });
-        },
-    );
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
 
-    group.bench_function(
-        format!("full_analysis_{page_count}_page_tablespace"),
-        |b| {
-            b.iter(|| {
-                let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
+    group.bench_function(format!("full_analysis_{page_count}_page_tablespace"), |b| {
+        b.iter_batched(
+            || data.clone(),
+            |data| {
+                let mut ts = Tablespace::from_bytes(data).unwrap();
                 ts.for_each_page(|_num, page_data| {
                     black_box(FilHeader::parse(page_data));
                     black_box(validate_checksum(page_data, PAGE_SIZE, None));
                     Ok(())
                 })
                 .unwrap();
-            });
-        },
-    );
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
 
     group.finish();
 }
@@ -373,18 +376,26 @@ fn bench_sdi_extraction(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(data.len() as u64));
 
     group.bench_function("find_sdi_pages", |b| {
-        b.iter(|| {
-            let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
-            black_box(find_sdi_pages(&mut ts).unwrap());
-        });
+        b.iter_batched(
+            || data.clone(),
+            |data| {
+                let mut ts = Tablespace::from_bytes(data).unwrap();
+                black_box(find_sdi_pages(&mut ts).unwrap());
+            },
+            criterion::BatchSize::LargeInput,
+        );
     });
 
     group.bench_function("find_and_extract_sdi", |b| {
-        b.iter(|| {
-            let mut ts = Tablespace::from_bytes(data.clone()).unwrap();
-            let sdi_pages = find_sdi_pages(&mut ts).unwrap();
-            black_box(extract_sdi_from_pages(&mut ts, &sdi_pages).unwrap());
-        });
+        b.iter_batched(
+            || data.clone(),
+            |data| {
+                let mut ts = Tablespace::from_bytes(data).unwrap();
+                let sdi_pages = find_sdi_pages(&mut ts).unwrap();
+                black_box(extract_sdi_from_pages(&mut ts, &sdi_pages).unwrap());
+            },
+            criterion::BatchSize::LargeInput,
+        );
     });
 
     group.finish();

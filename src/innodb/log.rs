@@ -150,8 +150,10 @@ impl LogFileHeader {
     /// Parse a log file header from the first 512-byte block.
     ///
     /// Handles both pre-8.0.30 and 8.0.30+ header layouts. The format is
-    /// auto-detected: format versions 1-6 indicate the 8.0.30+ layout
+    /// auto-detected: format version >= 6 indicates the 8.0.30+ layout
     /// where offset 4 is the log UUID and offset 8 is the start LSN.
+    /// Versions 1-5 use the pre-8.0.30 layout where offset 4 is the
+    /// start LSN (u64) and offset 12 is the file number.
     ///
     /// # Examples
     ///
@@ -181,8 +183,17 @@ impl LogFileHeader {
         }
 
         let format_version = BigEndian::read_u32(&block[LOG_HEADER_FORMAT..]);
-        let log_uuid = BigEndian::read_u32(&block[LOG_HEADER_LOG_UUID..]);
-        let start_lsn = BigEndian::read_u64(&block[LOG_HEADER_START_LSN..]);
+
+        let (log_uuid, start_lsn) = if format_version >= 6 {
+            // 8.0.30+ layout: log_uuid at offset 4, start_lsn at offset 8
+            (
+                BigEndian::read_u32(&block[LOG_HEADER_LOG_UUID..]),
+                BigEndian::read_u64(&block[LOG_HEADER_START_LSN..]),
+            )
+        } else {
+            // Pre-8.0.30 layout: start_lsn at offset 4 (u64), file_no at offset 12
+            (0u32, BigEndian::read_u64(&block[4..]))
+        };
 
         let created_bytes =
             &block[LOG_HEADER_CREATED_BY..LOG_HEADER_CREATED_BY + LOG_HEADER_CREATED_BY_LEN];
@@ -700,9 +711,7 @@ impl MlogRecordType {
                 "MLOG_COMP_REC_CLUST_DELETE_MARK_8027"
             }
             MlogRecordType::MlogCompRecSecDeleteMark => "MLOG_COMP_REC_SEC_DELETE_MARK",
-            MlogRecordType::MlogCompRecUpdateInPlace8027 => {
-                "MLOG_COMP_REC_UPDATE_IN_PLACE_8027"
-            }
+            MlogRecordType::MlogCompRecUpdateInPlace8027 => "MLOG_COMP_REC_UPDATE_IN_PLACE_8027",
             MlogRecordType::MlogCompRecDelete8027 => "MLOG_COMP_REC_DELETE_8027",
             MlogRecordType::MlogCompListEndDelete8027 => "MLOG_COMP_LIST_END_DELETE_8027",
             MlogRecordType::MlogCompListStartDelete8027 => "MLOG_COMP_LIST_START_DELETE_8027",
@@ -714,9 +723,7 @@ impl MlogRecordType {
             MlogRecordType::MlogZipWriteBlobPtr => "MLOG_ZIP_WRITE_BLOB_PTR",
             MlogRecordType::MlogZipWriteHeader => "MLOG_ZIP_WRITE_HEADER",
             MlogRecordType::MlogZipPageCompress => "MLOG_ZIP_PAGE_COMPRESS",
-            MlogRecordType::MlogZipPageCompressNoData8027 => {
-                "MLOG_ZIP_PAGE_COMPRESS_NO_DATA_8027"
-            }
+            MlogRecordType::MlogZipPageCompressNoData8027 => "MLOG_ZIP_PAGE_COMPRESS_NO_DATA_8027",
             MlogRecordType::MlogZipPageReorganize8027 => "MLOG_ZIP_PAGE_REORGANIZE_8027",
             MlogRecordType::MlogPageCreateRTree => "MLOG_PAGE_CREATE_RTREE",
             MlogRecordType::MlogCompPageCreateRTree => "MLOG_COMP_PAGE_CREATE_RTREE",
@@ -956,6 +963,40 @@ mod tests {
     }
 
     #[test]
+    fn test_log_file_header_pre_8030() {
+        let mut block = make_block();
+        // Pre-8.0.30: format_version=1, start_lsn at offset 4
+        BigEndian::write_u32(&mut block[LOG_HEADER_FORMAT..], 1);
+        BigEndian::write_u64(&mut block[4..], 0x00000000001A2B3C); // start_lsn at offset 4
+        let creator = b"MySQL 5.7.44";
+        block[LOG_HEADER_CREATED_BY..LOG_HEADER_CREATED_BY + creator.len()]
+            .copy_from_slice(creator);
+
+        let hdr = LogFileHeader::parse(&block).unwrap();
+        assert_eq!(hdr.format_version, 1);
+        assert_eq!(hdr.start_lsn, 0x1A2B3C);
+        assert_eq!(hdr.log_uuid, 0); // no log_uuid in pre-8.0.30
+        assert_eq!(hdr.created_by, "MySQL 5.7.44");
+    }
+
+    #[test]
+    fn test_log_file_header_format_v5() {
+        let mut block = make_block();
+        // Format version 5 (MySQL 8.0.28): pre-8.0.30 layout
+        BigEndian::write_u32(&mut block[LOG_HEADER_FORMAT..], 5);
+        BigEndian::write_u64(&mut block[4..], 0x00000000DEADBEEF);
+        let creator = b"MySQL 8.0.28";
+        block[LOG_HEADER_CREATED_BY..LOG_HEADER_CREATED_BY + creator.len()]
+            .copy_from_slice(creator);
+
+        let hdr = LogFileHeader::parse(&block).unwrap();
+        assert_eq!(hdr.format_version, 5);
+        assert_eq!(hdr.start_lsn, 0xDEADBEEF);
+        assert_eq!(hdr.log_uuid, 0);
+        assert_eq!(hdr.created_by, "MySQL 8.0.28");
+    }
+
+    #[test]
     fn test_log_file_header_empty_created_by() {
         let block = make_block();
         let hdr = LogFileHeader::parse(&block).unwrap();
@@ -1040,10 +1081,7 @@ mod tests {
             MlogRecordType::from_u8(25),
             MlogRecordType::MlogUndoHdrCreate
         );
-        assert_eq!(
-            MlogRecordType::from_u8(26),
-            MlogRecordType::MlogRecMinMark
-        );
+        assert_eq!(MlogRecordType::from_u8(26), MlogRecordType::MlogRecMinMark);
         assert_eq!(
             MlogRecordType::from_u8(27),
             MlogRecordType::MlogIbufBitmapInit
@@ -1053,30 +1091,12 @@ mod tests {
             MlogRecordType::from_u8(29),
             MlogRecordType::MlogInitFilePage
         );
-        assert_eq!(
-            MlogRecordType::from_u8(30),
-            MlogRecordType::MlogWriteString
-        );
-        assert_eq!(
-            MlogRecordType::from_u8(31),
-            MlogRecordType::MlogMultiRecEnd
-        );
-        assert_eq!(
-            MlogRecordType::from_u8(32),
-            MlogRecordType::MlogDummyRecord
-        );
-        assert_eq!(
-            MlogRecordType::from_u8(33),
-            MlogRecordType::MlogFileCreate
-        );
-        assert_eq!(
-            MlogRecordType::from_u8(34),
-            MlogRecordType::MlogFileRename
-        );
-        assert_eq!(
-            MlogRecordType::from_u8(35),
-            MlogRecordType::MlogFileDelete
-        );
+        assert_eq!(MlogRecordType::from_u8(30), MlogRecordType::MlogWriteString);
+        assert_eq!(MlogRecordType::from_u8(31), MlogRecordType::MlogMultiRecEnd);
+        assert_eq!(MlogRecordType::from_u8(32), MlogRecordType::MlogDummyRecord);
+        assert_eq!(MlogRecordType::from_u8(33), MlogRecordType::MlogFileCreate);
+        assert_eq!(MlogRecordType::from_u8(34), MlogRecordType::MlogFileRename);
+        assert_eq!(MlogRecordType::from_u8(35), MlogRecordType::MlogFileDelete);
         assert_eq!(
             MlogRecordType::from_u8(36),
             MlogRecordType::MlogCompRecMinMark
@@ -1090,18 +1110,12 @@ mod tests {
     #[test]
     fn test_mlog_record_type_post_8028() {
         // New types added in MySQL 8.0.28+
-        assert_eq!(
-            MlogRecordType::from_u8(67),
-            MlogRecordType::MlogRecInsert
-        );
+        assert_eq!(MlogRecordType::from_u8(67), MlogRecordType::MlogRecInsert);
         assert_eq!(
             MlogRecordType::from_u8(68),
             MlogRecordType::MlogRecClustDeleteMark
         );
-        assert_eq!(
-            MlogRecordType::from_u8(69),
-            MlogRecordType::MlogRecDelete
-        );
+        assert_eq!(MlogRecordType::from_u8(69), MlogRecordType::MlogRecDelete);
         assert_eq!(
             MlogRecordType::from_u8(70),
             MlogRecordType::MlogRecUpdateInPlace
@@ -1143,10 +1157,7 @@ mod tests {
             MlogRecordType::from_u8(59),
             MlogRecordType::MlogInitFilePage2
         );
-        assert_eq!(
-            MlogRecordType::from_u8(61),
-            MlogRecordType::MlogIndexLoad
-        );
+        assert_eq!(MlogRecordType::from_u8(61), MlogRecordType::MlogIndexLoad);
         assert_eq!(
             MlogRecordType::from_u8(62),
             MlogRecordType::MlogTableDynamicMeta
@@ -1159,10 +1170,7 @@ mod tests {
             MlogRecordType::from_u8(64),
             MlogRecordType::MlogCompPageCreateSdi
         );
-        assert_eq!(
-            MlogRecordType::from_u8(65),
-            MlogRecordType::MlogFileExtend
-        );
+        assert_eq!(MlogRecordType::from_u8(65), MlogRecordType::MlogFileExtend);
         assert_eq!(MlogRecordType::from_u8(66), MlogRecordType::MlogTest);
     }
 

@@ -192,7 +192,7 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     let all_results: Vec<(Vec<FindMatchJson>, bool)> = ibd_files
         .par_iter()
         .map(|ibd_path| {
-            search_file(
+            let result = search_file(
                 ibd_path,
                 datadir,
                 target_page,
@@ -201,23 +201,23 @@ pub fn execute(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbErro
                 page_size_override,
                 first,
                 use_mmap,
-            )
+            );
+            if let Some(ref pb) = pb {
+                pb.inc(1);
+            }
+            result
         })
         .collect();
 
     if let Some(ref pb) = pb {
-        pb.set_position(ibd_files.len() as u64);
         pb.finish_and_clear();
     }
 
-    // Collect results
+    // Collect results — count all opened files (all were searched in parallel)
     let mut matches: Vec<FindMatchJson> = Vec::new();
-    let mut files_searched = 0usize;
+    let files_searched: usize = all_results.iter().filter(|(_, opened)| *opened).count();
 
-    for (file_matches, opened) in &all_results {
-        if *opened {
-            files_searched += 1;
-        }
+    for (file_matches, _opened) in &all_results {
         for m in file_matches {
             if !opts.json {
                 wprintln!(

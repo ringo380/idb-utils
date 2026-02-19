@@ -385,6 +385,12 @@ impl Tablespace {
     ///
     /// If a decryption context is set, each page is decrypted after reading.
     ///
+    /// **Note on mmap**: When the tablespace was opened with [`open_mmap`],
+    /// this method still copies all data into a new `Vec<u8>` because the
+    /// type-erased reader cannot expose the underlying mmap buffer directly.
+    /// For memory-sensitive workloads on large files, consider using
+    /// [`for_each_page`] instead, which reuses a single page-sized buffer.
+    ///
     /// # Examples
     ///
     /// ```no_run

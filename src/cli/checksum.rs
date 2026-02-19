@@ -66,7 +66,11 @@ enum PageResult {
 }
 
 /// Validate a single page's checksum and LSN. Pure function safe for parallel execution.
-fn validate_page(page_data: &[u8], page_size: u32, vendor_info: &crate::innodb::vendor::VendorInfo) -> PageResult {
+fn validate_page(
+    page_data: &[u8],
+    page_size: u32,
+    vendor_info: &crate::innodb::vendor::VendorInfo,
+) -> PageResult {
     let header = match FilHeader::parse(page_data) {
         Some(h) => h,
         None => return PageResult::ParseError,
@@ -107,6 +111,9 @@ fn validate_page(page_data: &[u8], page_size: u32, vendor_info: &crate::innodb::
 /// stored and calculated checksum values, and LSN status. The process exits
 /// with code 1 if any page has an invalid checksum, making this suitable for
 /// scripted integrity checks.
+///
+/// **Note**: When `--streaming` is combined with `--json`, the output uses
+/// NDJSON (one JSON object per line) rather than a single JSON document.
 pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
@@ -128,7 +135,15 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     let ps = page_size as usize;
 
     if opts.json {
-        return execute_json_parallel(opts, &all_data, ps, page_size, page_count, &vendor_info, writer);
+        return execute_json_parallel(
+            opts,
+            &all_data,
+            ps,
+            page_size,
+            page_count,
+            &vendor_info,
+            writer,
+        );
     }
 
     wprintln!(
@@ -140,15 +155,26 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     )?;
     wprintln!(writer)?;
 
+    // Create progress bar before parallel work so it tracks real progress
+    let pb = create_progress_bar(page_count, "pages");
+
     // Process all pages in parallel
     let results: Vec<(u64, PageResult)> = (0..page_count)
         .into_par_iter()
         .map(|page_num| {
             let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                pb.inc(1);
+                return (page_num, PageResult::ParseError);
+            }
             let page_data = &all_data[offset..offset + ps];
-            (page_num, validate_page(page_data, page_size, &vendor_info))
+            let result = validate_page(page_data, page_size, &vendor_info);
+            pb.inc(1);
+            (page_num, result)
         })
         .collect();
+
+    pb.finish_and_clear();
 
     // Output results sequentially in page order (rayon collect preserves order)
     let mut valid_count = 0u64;
@@ -156,10 +182,7 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
     let mut empty_count = 0u64;
     let mut lsn_mismatch_count = 0u64;
 
-    let pb = create_progress_bar(page_count, "pages");
-
     for (page_num, result) in &results {
-        pb.inc(1);
         match result {
             PageResult::ParseError => {
                 eprintln!("Page {}: Could not parse FIL header", page_num);
@@ -215,8 +238,6 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
             }
         }
     }
-
-    pb.finish_and_clear();
 
     wprintln!(writer)?;
     wprintln!(writer, "Summary:")?;
@@ -442,6 +463,9 @@ fn execute_json_parallel(
         .into_par_iter()
         .map(|page_num| {
             let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                return (page_num, PageResult::ParseError);
+            }
             let page_data = &all_data[offset..offset + ps];
             (page_num, validate_page(page_data, page_size, vendor_info))
         })

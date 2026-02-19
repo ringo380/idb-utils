@@ -197,6 +197,7 @@ fn analyze_page(
     page_size: u32,
     force: bool,
     verbose_json: bool,
+    vendor_info: Option<&crate::innodb::vendor::VendorInfo>,
 ) -> PageAnalysis {
     // Check all-zeros (empty/allocated page)
     if page_data.iter().all(|&b| b == 0) {
@@ -219,7 +220,7 @@ fn analyze_page(
             return PageAnalysis {
                 page_number: page_num,
                 status: PageStatus::Unreadable,
-                page_type: PageType::Unknown,
+                page_type: PageType::Unknown(0),
                 checksum_valid: false,
                 lsn_valid: false,
                 lsn: 0,
@@ -229,7 +230,7 @@ fn analyze_page(
         }
     };
 
-    let csum_result = validate_checksum(page_data, page_size, None);
+    let csum_result = validate_checksum(page_data, page_size, vendor_info);
     let lsn_valid = validate_lsn(page_data, page_size);
     let status = if csum_result.valid && lsn_valid {
         PageStatus::Intact
@@ -314,7 +315,8 @@ fn extract_records(
 
 /// Run the recovery analysis and output results.
 pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let (mut ts, page_size_source) = open_tablespace(&opts.file, opts.page_size, opts.mmap, writer)?;
+    let (mut ts, page_size_source) =
+        open_tablespace(&opts.file, opts.page_size, opts.mmap, writer)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;
@@ -343,12 +345,22 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
 
     // Streaming mode: process one page at a time, output immediately
     if opts.streaming && opts.page.is_none() {
-        return execute_streaming(opts, &mut ts, page_size, file_size, page_size_source, scan_count, verbose_json, writer);
+        return execute_streaming(
+            opts,
+            &mut ts,
+            page_size,
+            file_size,
+            page_size_source,
+            scan_count,
+            verbose_json,
+            writer,
+        );
     }
 
     // Read all pages into memory for parallel processing
     let all_data = ts.read_all_pages()?;
     let ps = page_size as usize;
+    let vendor_info = ts.vendor_info().clone();
 
     let pb = if !opts.json && scan_count > 1 {
         Some(create_progress_bar(scan_count, "pages"))
@@ -366,7 +378,7 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
                 return PageAnalysis {
                     page_number: page_num,
                     status: PageStatus::Unreadable,
-                    page_type: PageType::Unknown,
+                    page_type: PageType::Unknown(0),
                     checksum_valid: false,
                     lsn_valid: false,
                     lsn: 0,
@@ -375,7 +387,14 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
                 };
             }
             let page_data = &all_data[offset..offset + ps];
-            analyze_page(page_data, page_num, page_size, force, verbose_json)
+            analyze_page(
+                page_data,
+                page_num,
+                page_size,
+                force,
+                verbose_json,
+                Some(&vendor_info),
+            )
         })
         .collect();
 
@@ -471,6 +490,7 @@ fn execute_streaming(
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let force = opts.force;
+    let vendor_info = ts.vendor_info().clone();
 
     // Running counters
     let mut intact = 0u64;
@@ -501,7 +521,14 @@ fn execute_streaming(
     }
 
     ts.for_each_page(|page_num, page_data| {
-        let a = analyze_page(page_data, page_num, page_size, force, verbose_json);
+        let a = analyze_page(
+            page_data,
+            page_num,
+            page_size,
+            force,
+            verbose_json,
+            Some(&vendor_info),
+        );
 
         // Update running counters
         match a.status {
@@ -855,7 +882,7 @@ mod tests {
     #[test]
     fn test_analyze_empty_page() {
         let page = vec![0u8; 16384];
-        let result = analyze_page(&page, 0, 16384, false, false);
+        let result = analyze_page(&page, 0, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Empty);
         assert_eq!(result.page_type, PageType::Allocated);
     }
@@ -863,7 +890,7 @@ mod tests {
     #[test]
     fn test_analyze_short_page_is_unreadable() {
         let page = vec![0xFF; 10];
-        let result = analyze_page(&page, 0, 16384, false, false);
+        let result = analyze_page(&page, 0, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Unreadable);
     }
 
@@ -889,7 +916,7 @@ mod tests {
         let crc2 = crc32c::crc32c(&page[FIL_PAGE_DATA..end]);
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc1 ^ crc2);
 
-        let result = analyze_page(&page, 1, 16384, false, false);
+        let result = analyze_page(&page, 1, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Intact);
         assert_eq!(result.page_type, PageType::Index);
         assert!(result.record_count.is_some());
@@ -907,7 +934,7 @@ mod tests {
         // Bad checksum — leave it as 0 while page has data
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
 
-        let result = analyze_page(&page, 1, 16384, false, false);
+        let result = analyze_page(&page, 1, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Corrupt);
         // Without --force, no record count on corrupt pages
         assert!(result.record_count.is_none());
@@ -924,7 +951,7 @@ mod tests {
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], 1);
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
 
-        let result = analyze_page(&page, 1, 16384, true, false);
+        let result = analyze_page(&page, 1, 16384, true, false, None);
         assert_eq!(result.status, PageStatus::Corrupt);
         // With --force, records are counted even on corrupt pages
         assert!(result.record_count.is_some());

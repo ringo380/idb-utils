@@ -53,8 +53,12 @@ pub enum PageType {
     ZBlob,
     /// Subsequent compressed BLOB page (FIL_PAGE_TYPE_ZBLOB2 = 12)
     ZBlob2,
-    /// Unknown/reserved (FIL_PAGE_TYPE_UNKNOWN = 13)
-    Unknown,
+    /// Unknown/reserved page type.
+    ///
+    /// Value 13 is `FIL_PAGE_TYPE_UNKNOWN` in MySQL source. The wrapped `u16`
+    /// preserves the original on-disk value so that truly unrecognized type
+    /// codes (e.g. from future MySQL versions) are not conflated with 13.
+    Unknown(u16),
     /// Compressed page (FIL_PAGE_COMPRESSED = 14)
     Compressed,
     /// Encrypted page (FIL_PAGE_ENCRYPTED = 15)
@@ -121,9 +125,9 @@ impl PageType {
     /// let fsp = PageType::from_u16(8);
     /// assert_eq!(fsp, PageType::FspHdr);
     ///
-    /// // Unrecognized values map to Unknown
+    /// // Unrecognized values map to Unknown, preserving the original code
     /// let unknown = PageType::from_u16(9999);
-    /// assert_eq!(unknown, PageType::Unknown);
+    /// assert_eq!(unknown, PageType::Unknown(9999));
     /// ```
     pub fn from_u16(value: u16) -> Self {
         match value {
@@ -140,7 +144,7 @@ impl PageType {
             10 => PageType::Blob,
             11 => PageType::ZBlob,
             12 => PageType::ZBlob2,
-            13 => PageType::Unknown,
+            13 => PageType::Unknown(13),
             14 => PageType::Compressed,
             15 => PageType::Encrypted,
             16 => PageType::CompressedEncrypted,
@@ -162,7 +166,7 @@ impl PageType {
             17855 => PageType::Index,
             34354 => PageType::PageCompressed,
             37401 => PageType::PageCompressedEncrypted,
-            _ => PageType::Unknown,
+            _ => PageType::Unknown(value),
         }
     }
 
@@ -217,7 +221,7 @@ impl PageType {
             PageType::Blob => 10,
             PageType::ZBlob => 11,
             PageType::ZBlob2 => 12,
-            PageType::Unknown => 13,
+            PageType::Unknown(v) => v,
             PageType::Compressed => 14,
             PageType::Encrypted => 15,
             PageType::CompressedEncrypted => 16,
@@ -310,7 +314,7 @@ impl PageType {
                 "Subsequent compressed BLOB",
                 "Externally-stored compressed BLOB column data, subsequent page.",
             ),
-            PageType::Unknown => (
+            PageType::Unknown(_) => (
                 "UNKNOWN",
                 "Unknown page type",
                 "Unknown or unrecognized page type.",
@@ -457,7 +461,10 @@ impl PageType {
 
 impl fmt::Display for PageType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
+        match self {
+            PageType::Unknown(v) if *v != 13 => write!(f, "UNKNOWN({})", v),
+            _ => write!(f, "{}", self.name()),
+        }
     }
 }
 
@@ -474,7 +481,7 @@ mod tests {
         assert_eq!(PageType::from_u16(8), PageType::FspHdr);
         assert_eq!(PageType::from_u16(17855), PageType::Index);
         assert_eq!(PageType::from_u16(17853), PageType::Sdi);
-        assert_eq!(PageType::from_u16(9999), PageType::Unknown);
+        assert_eq!(PageType::from_u16(9999), PageType::Unknown(9999));
     }
 
     #[test]
@@ -526,7 +533,7 @@ mod tests {
             PageType::Blob,
             PageType::ZBlob,
             PageType::ZBlob2,
-            PageType::Unknown,
+            PageType::Unknown(13),
             PageType::Compressed,
             PageType::Encrypted,
             PageType::CompressedEncrypted,
@@ -579,39 +586,39 @@ mod tests {
     #[test]
     fn test_mysql_source_page_type_values() {
         // fil0fil.h constants
-        assert_eq!(PageType::from_u16(0), PageType::Allocated);       // FIL_PAGE_TYPE_ALLOCATED
-        assert_eq!(PageType::from_u16(1), PageType::Unused);          // FIL_PAGE_TYPE_UNUSED
-        assert_eq!(PageType::from_u16(2), PageType::UndoLog);         // FIL_PAGE_UNDO_LOG
-        assert_eq!(PageType::from_u16(3), PageType::Inode);           // FIL_PAGE_INODE
-        assert_eq!(PageType::from_u16(4), PageType::IbufFreeList);    // FIL_PAGE_IBUF_FREE_LIST
-        assert_eq!(PageType::from_u16(5), PageType::IbufBitmap);      // FIL_PAGE_IBUF_BITMAP
-        assert_eq!(PageType::from_u16(6), PageType::Sys);             // FIL_PAGE_TYPE_SYS
-        assert_eq!(PageType::from_u16(7), PageType::TrxSys);          // FIL_PAGE_TYPE_TRX_SYS
-        assert_eq!(PageType::from_u16(8), PageType::FspHdr);          // FIL_PAGE_TYPE_FSP_HDR
-        assert_eq!(PageType::from_u16(9), PageType::Xdes);            // FIL_PAGE_TYPE_XDES
-        assert_eq!(PageType::from_u16(10), PageType::Blob);           // FIL_PAGE_TYPE_BLOB
-        assert_eq!(PageType::from_u16(11), PageType::ZBlob);          // FIL_PAGE_TYPE_ZBLOB
-        assert_eq!(PageType::from_u16(12), PageType::ZBlob2);         // FIL_PAGE_TYPE_ZBLOB2
-        assert_eq!(PageType::from_u16(13), PageType::Unknown);        // FIL_PAGE_TYPE_UNKNOWN
-        assert_eq!(PageType::from_u16(14), PageType::Compressed);     // FIL_PAGE_COMPRESSED
-        assert_eq!(PageType::from_u16(15), PageType::Encrypted);      // FIL_PAGE_ENCRYPTED
+        assert_eq!(PageType::from_u16(0), PageType::Allocated); // FIL_PAGE_TYPE_ALLOCATED
+        assert_eq!(PageType::from_u16(1), PageType::Unused); // FIL_PAGE_TYPE_UNUSED
+        assert_eq!(PageType::from_u16(2), PageType::UndoLog); // FIL_PAGE_UNDO_LOG
+        assert_eq!(PageType::from_u16(3), PageType::Inode); // FIL_PAGE_INODE
+        assert_eq!(PageType::from_u16(4), PageType::IbufFreeList); // FIL_PAGE_IBUF_FREE_LIST
+        assert_eq!(PageType::from_u16(5), PageType::IbufBitmap); // FIL_PAGE_IBUF_BITMAP
+        assert_eq!(PageType::from_u16(6), PageType::Sys); // FIL_PAGE_TYPE_SYS
+        assert_eq!(PageType::from_u16(7), PageType::TrxSys); // FIL_PAGE_TYPE_TRX_SYS
+        assert_eq!(PageType::from_u16(8), PageType::FspHdr); // FIL_PAGE_TYPE_FSP_HDR
+        assert_eq!(PageType::from_u16(9), PageType::Xdes); // FIL_PAGE_TYPE_XDES
+        assert_eq!(PageType::from_u16(10), PageType::Blob); // FIL_PAGE_TYPE_BLOB
+        assert_eq!(PageType::from_u16(11), PageType::ZBlob); // FIL_PAGE_TYPE_ZBLOB
+        assert_eq!(PageType::from_u16(12), PageType::ZBlob2); // FIL_PAGE_TYPE_ZBLOB2
+        assert_eq!(PageType::from_u16(13), PageType::Unknown(13)); // FIL_PAGE_TYPE_UNKNOWN
+        assert_eq!(PageType::from_u16(14), PageType::Compressed); // FIL_PAGE_COMPRESSED
+        assert_eq!(PageType::from_u16(15), PageType::Encrypted); // FIL_PAGE_ENCRYPTED
         assert_eq!(PageType::from_u16(16), PageType::CompressedEncrypted); // FIL_PAGE_COMPRESSED_AND_ENCRYPTED
         assert_eq!(PageType::from_u16(17), PageType::EncryptedRtree); // FIL_PAGE_ENCRYPTED_RTREE
-        assert_eq!(PageType::from_u16(18), PageType::SdiBlob);        // FIL_PAGE_SDI_BLOB
-        assert_eq!(PageType::from_u16(19), PageType::SdiZblob);       // FIL_PAGE_SDI_ZBLOB
-        assert_eq!(PageType::from_u16(20), PageType::LegacyDblwr);    // FIL_PAGE_TYPE_LEGACY_DBLWR
-        assert_eq!(PageType::from_u16(21), PageType::RsegArray);      // FIL_PAGE_TYPE_RSEG_ARRAY
-        assert_eq!(PageType::from_u16(22), PageType::LobIndex);       // FIL_PAGE_TYPE_LOB_INDEX
-        assert_eq!(PageType::from_u16(23), PageType::LobData);        // FIL_PAGE_TYPE_LOB_DATA
-        assert_eq!(PageType::from_u16(24), PageType::LobFirst);       // FIL_PAGE_TYPE_LOB_FIRST
-        assert_eq!(PageType::from_u16(25), PageType::ZlobFirst);      // FIL_PAGE_TYPE_ZLOB_FIRST
-        assert_eq!(PageType::from_u16(26), PageType::ZlobData);       // FIL_PAGE_TYPE_ZLOB_DATA
-        assert_eq!(PageType::from_u16(27), PageType::ZlobIndex);      // FIL_PAGE_TYPE_ZLOB_INDEX
-        assert_eq!(PageType::from_u16(28), PageType::ZlobFrag);       // FIL_PAGE_TYPE_ZLOB_FRAG
-        assert_eq!(PageType::from_u16(29), PageType::ZlobFragEntry);  // FIL_PAGE_TYPE_ZLOB_FRAG_ENTRY
-        assert_eq!(PageType::from_u16(17853), PageType::Sdi);         // FIL_PAGE_SDI
-        assert_eq!(PageType::from_u16(17854), PageType::Rtree);       // FIL_PAGE_RTREE
-        assert_eq!(PageType::from_u16(17855), PageType::Index);       // FIL_PAGE_INDEX
+        assert_eq!(PageType::from_u16(18), PageType::SdiBlob); // FIL_PAGE_SDI_BLOB
+        assert_eq!(PageType::from_u16(19), PageType::SdiZblob); // FIL_PAGE_SDI_ZBLOB
+        assert_eq!(PageType::from_u16(20), PageType::LegacyDblwr); // FIL_PAGE_TYPE_LEGACY_DBLWR
+        assert_eq!(PageType::from_u16(21), PageType::RsegArray); // FIL_PAGE_TYPE_RSEG_ARRAY
+        assert_eq!(PageType::from_u16(22), PageType::LobIndex); // FIL_PAGE_TYPE_LOB_INDEX
+        assert_eq!(PageType::from_u16(23), PageType::LobData); // FIL_PAGE_TYPE_LOB_DATA
+        assert_eq!(PageType::from_u16(24), PageType::LobFirst); // FIL_PAGE_TYPE_LOB_FIRST
+        assert_eq!(PageType::from_u16(25), PageType::ZlobFirst); // FIL_PAGE_TYPE_ZLOB_FIRST
+        assert_eq!(PageType::from_u16(26), PageType::ZlobData); // FIL_PAGE_TYPE_ZLOB_DATA
+        assert_eq!(PageType::from_u16(27), PageType::ZlobIndex); // FIL_PAGE_TYPE_ZLOB_INDEX
+        assert_eq!(PageType::from_u16(28), PageType::ZlobFrag); // FIL_PAGE_TYPE_ZLOB_FRAG
+        assert_eq!(PageType::from_u16(29), PageType::ZlobFragEntry); // FIL_PAGE_TYPE_ZLOB_FRAG_ENTRY
+        assert_eq!(PageType::from_u16(17853), PageType::Sdi); // FIL_PAGE_SDI
+        assert_eq!(PageType::from_u16(17854), PageType::Rtree); // FIL_PAGE_RTREE
+        assert_eq!(PageType::from_u16(17855), PageType::Index); // FIL_PAGE_INDEX
     }
 
     /// Verify as_u16() values match MySQL source constants.
@@ -630,7 +637,7 @@ mod tests {
         assert_eq!(PageType::Blob.as_u16(), 10);
         assert_eq!(PageType::ZBlob.as_u16(), 11);
         assert_eq!(PageType::ZBlob2.as_u16(), 12);
-        assert_eq!(PageType::Unknown.as_u16(), 13);
+        assert_eq!(PageType::Unknown(13).as_u16(), 13);
         assert_eq!(PageType::Compressed.as_u16(), 14);
         assert_eq!(PageType::Encrypted.as_u16(), 15);
         assert_eq!(PageType::CompressedEncrypted.as_u16(), 16);
@@ -662,7 +669,7 @@ mod tests {
         // FIL_PAGE_TYPE_LAST = FIL_PAGE_TYPE_ZLOB_FRAG_ENTRY = 29
         assert_eq!(PageType::ZlobFragEntry.as_u16(), 29);
         // Values 30 and above (below index range) should be Unknown
-        assert_eq!(PageType::from_u16(30), PageType::Unknown);
-        assert_eq!(PageType::from_u16(100), PageType::Unknown);
+        assert_eq!(PageType::from_u16(30), PageType::Unknown(30));
+        assert_eq!(PageType::from_u16(100), PageType::Unknown(100));
     }
 }
