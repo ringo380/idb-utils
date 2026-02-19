@@ -2,7 +2,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 
 use colored::Colorize;
-use rand::Rng;
+
 use serde::Serialize;
 
 use crate::cli::wprintln;
@@ -95,8 +95,6 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     let page_size = ts.page_size() as usize;
     let page_count = ts.page_count();
 
-    let mut rng = rand::rng();
-
     // Choose page
     let page_num = match opts.page {
         Some(p) => {
@@ -109,7 +107,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
             p
         }
         None => {
-            let p = rng.random_range(0..page_count);
+            let p = rand::random_range(0..page_count);
             if !opts.json {
                 wprintln!(
                     writer,
@@ -126,13 +124,13 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     // Calculate the offset to corrupt within the page
     let corrupt_offset = if opts.header {
         // Corrupt within the FIL header area (first 38 bytes)
-        let header_offset = rng.random_range(0..SIZE_FIL_HEAD as u64);
+        let header_offset = rand::random_range(0..SIZE_FIL_HEAD as u64);
         byte_start + header_offset
     } else if opts.records {
         // Corrupt within the record data area (after page header, before trailer)
         let user_data_start = 120u64; // matches Perl USER_DATA_START
         let max_offset = page_size as u64 - user_data_start - SIZE_FIL_TRAILER as u64;
-        let record_offset = rng.random_range(0..max_offset);
+        let record_offset = rand::random_range(0..max_offset);
         byte_start + user_data_start + record_offset
     } else {
         // Default: corrupt at page start
@@ -140,7 +138,7 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     };
 
     // Generate random bytes (full bytes, not nibbles like the Perl version)
-    let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
+    let random_data: Vec<u8> = (0..opts.bytes).map(|_| rand::random::<u8>()).collect();
 
     // Read pre-corruption page data for --verify
     let pre_checksum = if opts.verify {
@@ -244,8 +242,7 @@ fn corrupt_at_offset(
         )));
     }
 
-    let mut rng = rand::rng();
-    let random_data: Vec<u8> = (0..opts.bytes).map(|_| rng.random::<u8>()).collect();
+    let random_data: Vec<u8> = (0..opts.bytes).map(|_| rand::random::<u8>()).collect();
 
     // Write the corruption
     write_corruption(&opts.file, abs_offset, &random_data)?;
