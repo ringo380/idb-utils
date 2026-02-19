@@ -78,6 +78,7 @@ fn default_opts(file: &str) -> WatchOptions {
         json: false,
         page_size: None,
         keyring: None,
+        mmap: false,
     }
 }
 
@@ -145,6 +146,7 @@ fn test_watch_file_deleted_during_poll_text() {
         json: false,
         page_size: None,
         keyring: None,
+        mmap: false,
     };
 
     // Since file is deleted, open should fail
@@ -163,6 +165,7 @@ fn test_watch_json_opts_construction() {
         json: true,
         page_size: Some(16384),
         keyring: None,
+        mmap: false,
     };
     assert_eq!(opts.interval, 500);
     assert!(opts.verbose);
@@ -188,6 +191,7 @@ fn test_watch_page_size_override() {
         json: false,
         page_size: Some(16384),
         keyring: None,
+        mmap: false,
     };
     // Just verify the options are accepted (initial open succeeds)
     // We can't run the full loop but we can verify construction is valid

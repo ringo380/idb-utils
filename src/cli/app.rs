@@ -14,6 +14,14 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub output: Option<String>,
 
+    /// Number of threads for parallel page processing (0 = auto-detect CPU count)
+    #[arg(long, default_value = "0", global = true)]
+    pub threads: usize,
+
+    /// Use memory-mapped I/O for file access (can be faster for large files)
+    #[arg(long, global = true)]
+    pub mmap: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -66,6 +74,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Detailed page structure analysis
@@ -434,6 +446,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Validate page checksums
@@ -465,6 +481,10 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+
+        /// Stream results incrementally for lower memory usage (disables parallel processing)
+        #[arg(long)]
+        streaming: bool,
     },
 
     /// Monitor a tablespace file for page-level changes

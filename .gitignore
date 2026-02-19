@@ -6,6 +6,10 @@ CLAUDE.md
 docs/book/
 
 
+# Generated WASM output
+npm/pkg/
+npm/*.tgz
+
 # Added by cargo
 
 /target

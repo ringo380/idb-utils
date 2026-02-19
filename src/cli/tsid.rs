@@ -7,7 +7,6 @@ use serde::Serialize;
 
 use crate::cli::wprintln;
 use crate::innodb::constants::FIL_PAGE_DATA;
-use crate::innodb::tablespace::Tablespace;
 use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
@@ -23,6 +22,8 @@ pub struct TsidOptions {
     pub json: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 #[derive(Serialize)]
@@ -85,10 +86,8 @@ pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     let mut results: BTreeMap<String, u32> = BTreeMap::new();
 
     for ibd_path in &ibd_files {
-        let mut ts = match match opts.page_size {
-            Some(ps) => Tablespace::open_with_page_size(ibd_path, ps),
-            None => Tablespace::open(ibd_path),
-        } {
+        let path_str = ibd_path.to_string_lossy();
+        let mut ts = match crate::cli::open_tablespace(&path_str, opts.page_size, opts.mmap) {
             Ok(t) => t,
             Err(_) => continue,
         };

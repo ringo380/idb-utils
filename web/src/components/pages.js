@@ -9,7 +9,7 @@ export function createPages(container, fileData) {
   // Initial render: page selector + all-pages summary
   let analysisAll;
   try {
-    analysisAll = JSON.parse(wasm.analyze_pages(fileData, -1));
+    analysisAll = JSON.parse(wasm.analyze_pages(fileData, -1n));
   } catch (e) {
     container.innerHTML = `<div class="p-6 text-red-400">Error analyzing pages: ${esc(e)}</div>`;
     return;
@@ -75,7 +75,7 @@ export function createPages(container, fileData) {
           return;
         }
         try {
-          const report = JSON.parse(wasm.inspect_index_records(fileData, num));
+          const report = JSON.parse(wasm.inspect_index_records(fileData, BigInt(num)));
           recsDiv.dataset.loaded = 'true';
           recsDiv.classList.remove('hidden');
           viewRecsBtn.textContent = 'Hide Records';

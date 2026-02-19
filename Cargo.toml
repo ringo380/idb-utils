@@ -40,6 +40,8 @@ indicatif = { version = "0.18", optional = true }
 ctrlc = { version = "3", optional = true }
 chrono = { version = "0.4", optional = true }
 rand = { version = "0.9", optional = true }
+rayon = { version = "1", optional = true }
+memmap2 = { version = "0.9", optional = true }
 
 # MySQL query support (requires CLI)
 mysql_async = { version = "0.36", optional = true }
@@ -51,6 +53,14 @@ clap_mangen = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+byteorder = "1"
+crc32c = "0.6"
+criterion = { version = "0.5", features = ["html_reports"] }
+rayon = "1"
+
+[[bench]]
+name = "benchmarks"
+harness = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -58,11 +68,30 @@ js-sys = "0.3"
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand"]
+cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand", "dep:rayon", "dep:memmap2"]
 mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[package.metadata.deb]
+maintainer = "Ryan Robson <ryan@ringo380.com>"
+copyright = "2026, Ryan Robson"
+extended-description = "InnoDB file analysis toolkit for parsing, validating, and inspecting MySQL/InnoDB tablespace files (.ibd), redo logs, and system tablespaces."
+section = "database"
+priority = "optional"
+assets = [
+    ["target/release/inno", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/innodb-utils/", "644"],
+    ["LICENSE", "usr/share/doc/innodb-utils/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/inno", dest = "/usr/bin/inno", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/innodb-utils/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/innodb-utils/LICENSE", mode = "644" },
+]
 
 [package.metadata.docs.rs]
 all-features = true

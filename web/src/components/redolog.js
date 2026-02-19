@@ -46,9 +46,9 @@ export function createRedoLog(container, fileData) {
         <h3 class="text-md font-semibold text-gray-300">File Header</h3>
         <div class="bg-surface-2 rounded-lg p-4">
           <table class="text-sm">
-            <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Format</td><td class="py-0.5 text-sm">${esc(String(report.header.format ?? 'N/A'))}</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Format</td><td class="py-0.5 text-sm">${esc(String(report.header.format_version ?? 'N/A'))}</td></tr>
             <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Start LSN</td><td class="py-0.5 text-sm">${report.header.start_lsn ?? 'N/A'}</td></tr>
-            <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Creator</td><td class="py-0.5 text-sm">${esc(String(report.header.creator ?? 'N/A'))}</td></tr>
+            <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Creator</td><td class="py-0.5 text-sm">${esc(String(report.header.created_by ?? 'N/A'))}</td></tr>
           </table>
         </div>
       ` : ''}
@@ -151,9 +151,9 @@ function checkpointCard(title, cp) {
     <div class="bg-surface-2 rounded-lg p-4">
       <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">${esc(title)}</div>
       <table class="text-sm">
-        <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Number</td><td class="py-0.5 text-sm">${cp.checkpoint_no ?? 'N/A'}</td></tr>
-        <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">LSN</td><td class="py-0.5 text-sm">${cp.checkpoint_lsn ?? 'N/A'}</td></tr>
-        <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Offset</td><td class="py-0.5 text-sm">${cp.checkpoint_offset ?? 'N/A'}</td></tr>
+        ${cp.number ? `<tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Number</td><td class="py-0.5 text-sm">${cp.number}</td></tr>` : ''}
+        <tr><td class="pr-4 py-0.5 text-gray-500 text-xs">LSN</td><td class="py-0.5 text-sm">${cp.lsn ?? 'N/A'}</td></tr>
+        ${cp.offset ? `<tr><td class="pr-4 py-0.5 text-gray-500 text-xs">Offset</td><td class="py-0.5 text-sm">${cp.offset}</td></tr>` : ''}
       </table>
     </div>`;
 }

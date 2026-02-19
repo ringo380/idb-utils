@@ -27,6 +27,8 @@ pub struct DiffOptions {
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 // ── JSON output structs ─────────────────────────────────────────────
@@ -209,14 +211,8 @@ fn find_diff_ranges(data1: &[u8], data2: &[u8]) -> Vec<ByteRange> {
 
 /// Compare two InnoDB tablespace files page-by-page.
 pub fn execute(opts: &DiffOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let mut ts1 = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file1, ps)?,
-        None => Tablespace::open(&opts.file1)?,
-    };
-    let mut ts2 = match opts.page_size {
-        Some(ps) => Tablespace::open_with_page_size(&opts.file2, ps)?,
-        None => Tablespace::open(&opts.file2)?,
-    };
+    let mut ts1 = crate::cli::open_tablespace(&opts.file1, opts.page_size, opts.mmap)?;
+    let mut ts2 = crate::cli::open_tablespace(&opts.file2, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts1, keyring_path)?;

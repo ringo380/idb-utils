@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use colored::Colorize;
+use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::cli::{create_progress_bar, wprintln};
@@ -28,6 +29,12 @@ pub struct RecoverOptions {
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
     pub keyring: Option<String>,
+    /// Number of threads for parallel processing (0 = auto-detect).
+    pub threads: usize,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
+    /// Stream results incrementally for lower memory usage.
+    pub streaming: bool,
 }
 
 /// Page integrity status.
@@ -134,14 +141,15 @@ struct PageAnalysis {
 fn open_tablespace(
     file: &str,
     page_size_override: Option<u32>,
+    use_mmap: bool,
     writer: &mut dyn Write,
 ) -> Result<(Tablespace, Option<String>), IdbError> {
     if let Some(ps) = page_size_override {
-        let ts = Tablespace::open_with_page_size(file, ps)?;
+        let ts = crate::cli::open_tablespace(file, Some(ps), use_mmap)?;
         return Ok((ts, Some("user-specified".to_string())));
     }
 
-    match Tablespace::open(file) {
+    match crate::cli::open_tablespace(file, None, use_mmap) {
         Ok(ts) => Ok((ts, None)),
         Err(_) => {
             // Page 0 may be corrupt — try common page sizes
@@ -159,7 +167,7 @@ fn open_tablespace(
 
             for &ps in &candidates {
                 if file_size >= ps as u64 && file_size % ps as u64 == 0 {
-                    if let Ok(ts) = Tablespace::open_with_page_size(file, ps) {
+                    if let Ok(ts) = crate::cli::open_tablespace(file, Some(ps), use_mmap) {
                         let _ = wprintln!(
                             writer,
                             "Warning: auto-detect failed, using page size {} (file size divisible)",
@@ -171,7 +179,7 @@ fn open_tablespace(
             }
 
             // Last resort: default 16K
-            let ts = Tablespace::open_with_page_size(file, SIZE_PAGE_DEFAULT)?;
+            let ts = crate::cli::open_tablespace(file, Some(SIZE_PAGE_DEFAULT), use_mmap)?;
             let _ = wprintln!(
                 writer,
                 "Warning: using default page size {} (no size divides evenly)",
@@ -189,6 +197,7 @@ fn analyze_page(
     page_size: u32,
     force: bool,
     verbose_json: bool,
+    vendor_info: Option<&crate::innodb::vendor::VendorInfo>,
 ) -> PageAnalysis {
     // Check all-zeros (empty/allocated page)
     if page_data.iter().all(|&b| b == 0) {
@@ -211,7 +220,7 @@ fn analyze_page(
             return PageAnalysis {
                 page_number: page_num,
                 status: PageStatus::Unreadable,
-                page_type: PageType::Unknown,
+                page_type: PageType::Unknown(0),
                 checksum_valid: false,
                 lsn_valid: false,
                 lsn: 0,
@@ -221,7 +230,7 @@ fn analyze_page(
         }
     };
 
-    let csum_result = validate_checksum(page_data, page_size, None);
+    let csum_result = validate_checksum(page_data, page_size, vendor_info);
     let lsn_valid = validate_lsn(page_data, page_size);
     let status = if csum_result.valid && lsn_valid {
         PageStatus::Intact
@@ -306,7 +315,8 @@ fn extract_records(
 
 /// Run the recovery analysis and output results.
 pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    let (mut ts, page_size_source) = open_tablespace(&opts.file, opts.page_size, writer)?;
+    let (mut ts, page_size_source) =
+        open_tablespace(&opts.file, opts.page_size, opts.mmap, writer)?;
 
     if let Some(ref keyring_path) = opts.keyring {
         crate::cli::setup_decryption(&mut ts, keyring_path)?;
@@ -333,46 +343,63 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     };
     let scan_count = end_page - start_page;
 
-    // Analyze pages
-    let mut analyses = Vec::with_capacity(scan_count as usize);
+    // Streaming mode: process one page at a time, output immediately
+    if opts.streaming && opts.page.is_none() {
+        return execute_streaming(
+            opts,
+            &mut ts,
+            page_size,
+            file_size,
+            page_size_source,
+            scan_count,
+            verbose_json,
+            writer,
+        );
+    }
+
+    // Read all pages into memory for parallel processing
+    let all_data = ts.read_all_pages()?;
+    let ps = page_size as usize;
+    let vendor_info = ts.vendor_info().clone();
+
     let pb = if !opts.json && scan_count > 1 {
         Some(create_progress_bar(scan_count, "pages"))
     } else {
         None
     };
 
-    for page_num in start_page..end_page {
-        if let Some(ref pb) = pb {
-            pb.inc(1);
-        }
-
-        let page_data = match ts.read_page(page_num) {
-            Ok(data) => data,
-            Err(_) => {
-                analyses.push(PageAnalysis {
+    // Analyze pages in parallel
+    let force = opts.force;
+    let analyses: Vec<PageAnalysis> = (start_page..end_page)
+        .into_par_iter()
+        .map(|page_num| {
+            let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                return PageAnalysis {
                     page_number: page_num,
                     status: PageStatus::Unreadable,
-                    page_type: PageType::Unknown,
+                    page_type: PageType::Unknown(0),
                     checksum_valid: false,
                     lsn_valid: false,
                     lsn: 0,
                     record_count: None,
                     records: Vec::new(),
-                });
-                continue;
+                };
             }
-        };
-
-        analyses.push(analyze_page(
-            &page_data,
-            page_num,
-            page_size,
-            opts.force,
-            verbose_json,
-        ));
-    }
+            let page_data = &all_data[offset..offset + ps];
+            analyze_page(
+                page_data,
+                page_num,
+                page_size,
+                force,
+                verbose_json,
+                Some(&vendor_info),
+            )
+        })
+        .collect();
 
     if let Some(pb) = pb {
+        pb.set_position(scan_count);
         pb.finish_and_clear();
     }
 
@@ -448,6 +475,198 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     }
 }
 
+/// Streaming mode: process pages one at a time via `for_each_page()`, writing
+/// per-page results immediately and accumulating running counters for the summary.
+/// JSON output uses NDJSON (one JSON object per line per page, plus a final summary line).
+#[allow(clippy::too_many_arguments)]
+fn execute_streaming(
+    opts: &RecoverOptions,
+    ts: &mut Tablespace,
+    page_size: u32,
+    file_size: u64,
+    page_size_source: Option<String>,
+    scan_count: u64,
+    verbose_json: bool,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let force = opts.force;
+    let vendor_info = ts.vendor_info().clone();
+
+    // Running counters
+    let mut intact = 0u64;
+    let mut corrupt = 0u64;
+    let mut empty = 0u64;
+    let mut unreadable = 0u64;
+    let mut total_records = 0u64;
+    let mut corrupt_records = 0u64;
+    let mut corrupt_page_numbers: Vec<u64> = Vec::new();
+    let mut index_pages_total = 0u64;
+    let mut index_pages_recoverable = 0u64;
+
+    if !opts.json {
+        wprintln!(writer, "Recovery Analysis: {}", opts.file)?;
+        wprintln!(
+            writer,
+            "File size: {} bytes ({} pages x {} bytes)",
+            file_size,
+            scan_count,
+            page_size
+        )?;
+        let source_note = match &page_size_source {
+            Some(s) => format!(" ({})", s),
+            None => " (auto-detected)".to_string(),
+        };
+        wprintln!(writer, "Page size: {}{}", page_size, source_note)?;
+        wprintln!(writer)?;
+    }
+
+    ts.for_each_page(|page_num, page_data| {
+        let a = analyze_page(
+            page_data,
+            page_num,
+            page_size,
+            force,
+            verbose_json,
+            Some(&vendor_info),
+        );
+
+        // Update running counters
+        match a.status {
+            PageStatus::Intact => intact += 1,
+            PageStatus::Corrupt => {
+                corrupt += 1;
+                corrupt_page_numbers.push(a.page_number);
+            }
+            PageStatus::Empty => empty += 1,
+            PageStatus::Unreadable => unreadable += 1,
+        }
+
+        if a.page_type == PageType::Index {
+            index_pages_total += 1;
+            if a.status == PageStatus::Intact {
+                index_pages_recoverable += 1;
+            }
+            if force && a.status == PageStatus::Corrupt && a.record_count.is_some() {
+                index_pages_recoverable += 1;
+            }
+            if let Some(count) = a.record_count {
+                if a.status == PageStatus::Intact {
+                    total_records += count as u64;
+                } else {
+                    corrupt_records += count as u64;
+                }
+            }
+        }
+
+        if opts.json {
+            // NDJSON: emit per-page info (always in streaming, or only verbose)
+            if opts.verbose {
+                let info = PageRecoveryInfo {
+                    page_number: a.page_number,
+                    status: a.status,
+                    page_type: a.page_type.name().to_string(),
+                    checksum_valid: a.checksum_valid,
+                    lsn_valid: a.lsn_valid,
+                    lsn: a.lsn,
+                    record_count: a.record_count,
+                    records: a.records,
+                };
+                let line = serde_json::to_string(&info)
+                    .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+                wprintln!(writer, "{}", line)?;
+            }
+        } else if opts.verbose {
+            // Text: per-page detail
+            let status_str = match a.status {
+                PageStatus::Intact => a.status.label().to_string(),
+                PageStatus::Corrupt => format!("{}", a.status.label().red()),
+                PageStatus::Empty => a.status.label().to_string(),
+                PageStatus::Unreadable => format!("{}", a.status.label().red()),
+            };
+
+            let mut line = format!(
+                "Page {:>4}: {:<14} {:<12} LSN={}",
+                a.page_number,
+                a.page_type.name(),
+                status_str,
+                a.lsn,
+            );
+
+            if let Some(count) = a.record_count {
+                line.push_str(&format!("  records={}", count));
+            }
+
+            if a.status == PageStatus::Corrupt {
+                if !a.checksum_valid {
+                    line.push_str("  checksum mismatch");
+                }
+                if !a.lsn_valid {
+                    line.push_str("  LSN mismatch");
+                }
+            }
+
+            wprintln!(writer, "{}", line)?;
+        }
+
+        Ok(())
+    })?;
+
+    // Output summary
+    let stats = RecoverStats {
+        file_size,
+        page_size,
+        page_size_source,
+        scan_count,
+        intact,
+        corrupt,
+        empty,
+        unreadable,
+        total_records,
+        corrupt_records,
+        corrupt_page_numbers,
+        index_pages_total,
+        index_pages_recoverable,
+    };
+
+    if opts.json {
+        // Emit a final summary line as NDJSON
+        let all_records = stats.total_records + if opts.force { stats.corrupt_records } else { 0 };
+        let force_recs = if stats.corrupt_records > 0 && !opts.force {
+            Some(stats.corrupt_records)
+        } else {
+            None
+        };
+
+        let summary = serde_json::json!({
+            "type": "summary",
+            "file": opts.file,
+            "file_size": stats.file_size,
+            "page_size": stats.page_size,
+            "page_size_source": stats.page_size_source,
+            "total_pages": stats.scan_count,
+            "summary": {
+                "intact": stats.intact,
+                "corrupt": stats.corrupt,
+                "empty": stats.empty,
+                "unreadable": stats.unreadable,
+            },
+            "recoverable_records": all_records,
+            "force_recoverable_records": force_recs,
+        });
+        let line = serde_json::to_string(&summary)
+            .map_err(|e| IdbError::Parse(format!("JSON error: {}", e)))?;
+        wprintln!(writer, "{}", line)?;
+    } else {
+        // Print text summary (verbose per-page was already output above)
+        if opts.verbose {
+            wprintln!(writer)?;
+        }
+        output_text_summary(opts, &stats, writer)?;
+    }
+
+    Ok(())
+}
+
 fn output_text(
     opts: &RecoverOptions,
     analyses: &[PageAnalysis],
@@ -506,7 +725,15 @@ fn output_text(
         wprintln!(writer)?;
     }
 
-    // Summary
+    output_text_summary(opts, stats, writer)
+}
+
+/// Print the text-mode recovery summary (shared by streaming and non-streaming paths).
+fn output_text_summary(
+    opts: &RecoverOptions,
+    stats: &RecoverStats,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
     wprintln!(writer, "Page Status Summary:")?;
     wprintln!(writer, "  Intact:      {:>4} pages", stats.intact)?;
     if stats.corrupt > 0 {
@@ -655,7 +882,7 @@ mod tests {
     #[test]
     fn test_analyze_empty_page() {
         let page = vec![0u8; 16384];
-        let result = analyze_page(&page, 0, 16384, false, false);
+        let result = analyze_page(&page, 0, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Empty);
         assert_eq!(result.page_type, PageType::Allocated);
     }
@@ -663,7 +890,7 @@ mod tests {
     #[test]
     fn test_analyze_short_page_is_unreadable() {
         let page = vec![0xFF; 10];
-        let result = analyze_page(&page, 0, 16384, false, false);
+        let result = analyze_page(&page, 0, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Unreadable);
     }
 
@@ -689,7 +916,7 @@ mod tests {
         let crc2 = crc32c::crc32c(&page[FIL_PAGE_DATA..end]);
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], crc1 ^ crc2);
 
-        let result = analyze_page(&page, 1, 16384, false, false);
+        let result = analyze_page(&page, 1, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Intact);
         assert_eq!(result.page_type, PageType::Index);
         assert!(result.record_count.is_some());
@@ -707,7 +934,7 @@ mod tests {
         // Bad checksum — leave it as 0 while page has data
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
 
-        let result = analyze_page(&page, 1, 16384, false, false);
+        let result = analyze_page(&page, 1, 16384, false, false, None);
         assert_eq!(result.status, PageStatus::Corrupt);
         // Without --force, no record count on corrupt pages
         assert!(result.record_count.is_none());
@@ -724,7 +951,7 @@ mod tests {
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], 1);
         BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
 
-        let result = analyze_page(&page, 1, 16384, true, false);
+        let result = analyze_page(&page, 1, 16384, true, false, None);
         assert_eq!(result.status, PageStatus::Corrupt);
         // With --force, records are counted even on corrupt pages
         assert!(result.record_count.is_some());
