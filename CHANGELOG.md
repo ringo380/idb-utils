@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-02-19
+
 ### Added
 
 - **Redo log analysis in web UI** — New "Redo Log" tab auto-detects redo log files (`ib_logfile*`, `#ib_redo*`) and displays file header, checkpoint slots, block-level analysis with filtering, and MLOG record type distribution. Uses the existing `parse_redo_log` WASM function. (Closes #21)
@@ -16,11 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Encrypted tablespace support in web UI** — Automatic encryption detection with keyring file upload banner. New `decrypt_tablespace` and `get_encryption_info` WASM functions. Decrypted data is transparently passed to all analysis tabs. (Closes #29)
 - **Redundant row format parsing** — New `RedundantRecordHeader` struct and `walk_redundant_records()` function in `innodb::record` for pre-MySQL 5.0 row format support. Parses 6-byte headers with n_fields, one_byte_offs flag, and absolute next-record offsets.
 - **Accessibility improvements** — ARIA `role="tablist"`/`role="tab"` attributes with arrow key navigation, `scope="col"` on all table headers, skip-to-content link, keyboard shortcuts panel (`?` key), `aria-live` announcements for tab changes, focus-visible outlines, reduced-motion and high-contrast media queries, visible theme toggle button. (Closes #32)
+- MySQL 9.0/9.1 test fixtures and integration tests (compressed, multipage, standard, redo logs)
+- Percona Server 8.0/8.4 test fixtures and integration tests
+- MySQL 9.x redo log format support (version-conditional parsing for pre/post-8.0.30 layouts)
+- Memory-mapped I/O (`--mmap` flag) for large tablespace analysis
+- Streaming analysis mode (`--streaming` flag) for memory-constrained environments
+- Criterion benchmarking infrastructure for core operations
+- Docker image with multi-arch support and GitHub Actions workflow
+- npm package for WASM module with TypeScript types
+- deb and rpm package generation in release workflow
+- AUR PKGBUILD for Arch Linux packaging
+- Reference Homebrew formula for homebrew-core submission
+- Git LFS tracking for binary test fixtures
+- LICENSE file (MIT)
 - 3 unit tests for redundant record header parsing and RecordHeader enum accessors
 
 ### Changed
 
 - **BREAKING**: `RecordInfo.header` changed from `CompactRecordHeader` to `RecordHeader` enum (wrapping `Compact` or `Redundant` variants). Direct field access (e.g. `rec.header.heap_no`) must be replaced with accessor methods (e.g. `rec.header.heap_no()`). This enables unified handling of both compact and redundant row formats.
+- `PageType::Unknown` now carries original type code as `Unknown(u16)`, preserving unrecognized page type values
+- Benchmarks use `iter_batched` instead of cloning data inside `b.iter()` for accurate timing
 - Web UI tab bar now includes Heatmap (key 7) and conditionally shows Diff (key 8) and Redo Log (key 9)
 - Diff view grid is now responsive (`grid-cols-1 md:grid-cols-2`)
 - Keyboard shortcuts no longer fire when a `<select>` element has focus
@@ -29,6 +46,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - XSS in heatmap tooltip — numeric values (`page_number`, `lsn`) are now escaped with `esc()`
 - Memory leak in heatmap — `mouseup` listener scoped to canvas instead of window, with `mouseleave` cleanup
+- `recover` now threads `vendor_info` to `validate_checksum()`, fixing MariaDB full_crc32 recovery assessment
+- Bounds checks in `checksum` and `parse` parallel paths prevent out-of-bounds access on truncated files
+- `find --first` files_searched counter correctly counts all opened files from parallel results
+- Progress bars in `checksum`, `parse`, and `find` display during parallel work instead of after
+- Corrected `PageType` enum values and added missing page types
+- `LogFileHeader::parse()` version-conditional layout for pre-8.0.30 redo logs
+- CI test job fetches Git LFS objects for binary fixture files
+
+### Dependencies
+
+- `rand` 0.9.2 → 0.10.0
+- `colored` 2.2.0 → 3.1.1
+- `indicatif` 0.18.3 → 0.18.4
+- `lz4_flex` 0.11.5 → 0.12.0
+- `ctrlc` 3.5.1 → 3.5.2
+- `actions/checkout` v4 → v6, `actions/setup-node` v4 → v6
+- `actions/upload-artifact` v4 → v6, `actions/download-artifact` v4 → v7
+- `actions/upload-pages-artifact` v3 → v4, `peter-evans/repository-dispatch` v3 → v4
 
 ## [2.0.0] - 2026-02-14
 
