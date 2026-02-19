@@ -1,0 +1,31 @@
+# Maintainer: Ryan Robson <ryan@ringo380.com>
+pkgname=inno
+pkgver=2.1.0
+pkgrel=1
+pkgdesc="InnoDB file analysis toolkit for MySQL tablespace files"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ringo380/idb-utils"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('rust' 'cargo')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ringo380/idb-utils/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "idb-utils-$pkgver"
+    cargo build --release --locked
+}
+
+package() {
+    cd "idb-utils-$pkgver"
+    install -Dm755 "target/release/inno" "$pkgdir/usr/bin/inno"
+    install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+    # Man pages (generated during build)
+    local _mandir
+    _mandir=$(find target/release/build/innodb-utils-*/out/man -maxdepth 0 2>/dev/null | head -1)
+    if [[ -d "$_mandir" ]]; then
+        install -Dm644 "$_mandir"/*.1 -t "$pkgdir/usr/share/man/man1/"
+    fi
+}

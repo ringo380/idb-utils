@@ -1,0 +1,15 @@
+{
+  "name": "@ringo380/innodb-utils",
+  "version": "2.1.0",
+  "description": "InnoDB file analysis toolkit - WebAssembly module",
+  "main": "pkg/idb.js",
+  "types": "pkg/idb.d.ts",
+  "files": ["pkg/"],
+  "keywords": ["innodb", "mysql", "database", "wasm", "forensics"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ringo380/idb-utils.git"
+  },
+  "license": "MIT",
+  "homepage": "https://ringo380.github.io/idb-utils/"
+}

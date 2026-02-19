@@ -13,6 +13,14 @@ use idb::IdbError;
 fn main() {
     let cli = Cli::parse();
 
+    // Configure rayon thread pool if --threads was specified
+    if cli.threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(cli.threads)
+            .build_global()
+            .ok(); // Ignore if already initialized
+    }
+
     match cli.color {
         ColorMode::Always => colored::control::set_override(true),
         ColorMode::Never => colored::control::set_override(false),
@@ -43,6 +51,7 @@ fn main() {
             json,
             page_size,
             keyring,
+            streaming,
         } => cli::parse::execute(
             &cli::parse::ParseOptions {
                 file,
@@ -52,6 +61,9 @@ fn main() {
                 page_size,
                 json,
                 keyring,
+                threads: cli.threads,
+                mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
@@ -77,6 +89,7 @@ fn main() {
                 page_size,
                 json,
                 keyring,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -100,6 +113,7 @@ fn main() {
                 page_size,
                 keyring,
                 decrypt,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -125,6 +139,7 @@ fn main() {
                 verify,
                 json,
                 page_size,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -146,6 +161,8 @@ fn main() {
                 first,
                 json,
                 page_size,
+                threads: cli.threads,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -163,6 +180,7 @@ fn main() {
                 tablespace_id,
                 json,
                 page_size,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -178,6 +196,7 @@ fn main() {
                 pretty,
                 page_size,
                 keyring,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -238,6 +257,7 @@ fn main() {
             force,
             page_size,
             keyring,
+            streaming,
         } => cli::recover::execute(
             &cli::recover::RecoverOptions {
                 file,
@@ -247,6 +267,9 @@ fn main() {
                 force,
                 page_size,
                 keyring,
+                threads: cli.threads,
+                mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
@@ -257,6 +280,7 @@ fn main() {
             json,
             page_size,
             keyring,
+            streaming,
         } => cli::checksum::execute(
             &cli::checksum::ChecksumOptions {
                 file,
@@ -264,6 +288,9 @@ fn main() {
                 json,
                 page_size,
                 keyring,
+                threads: cli.threads,
+                mmap: cli.mmap,
+                streaming,
             },
             &mut writer,
         ),
@@ -283,6 +310,7 @@ fn main() {
                 json,
                 page_size,
                 keyring,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),
@@ -306,6 +334,7 @@ fn main() {
                 json,
                 page_size,
                 keyring,
+                mmap: cli.mmap,
             },
             &mut writer,
         ),

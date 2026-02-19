@@ -393,6 +393,9 @@ fn test_parse_subcommand_with_encrypted_tablespace() {
             page_size: None,
             json: false,
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
+            threads: 0,
+            mmap: false,
+            streaming: false,
         },
         &mut buf,
     );
@@ -428,6 +431,9 @@ fn test_parse_subcommand_without_keyring_shows_encrypted() {
             page_size: None,
             json: false,
             keyring: None,
+            threads: 0,
+            mmap: false,
+            streaming: false,
         },
         &mut buf,
     );
@@ -462,6 +468,9 @@ fn test_checksum_subcommand_encrypted_with_keyring() {
             json: false,
             page_size: None,
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
+            threads: 0,
+            mmap: false,
+            streaming: false,
         },
         &mut buf,
     );
@@ -535,6 +544,7 @@ fn test_pages_subcommand_shows_encryption_info() {
             page_size: None,
             json: false,
             keyring: None,
+            mmap: false,
         },
         &mut buf,
     );
@@ -574,6 +584,7 @@ fn test_diff_subcommand_with_keyring() {
             json: false,
             page_size: None,
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
+            mmap: false,
         },
         &mut buf,
     );
@@ -611,6 +622,7 @@ fn test_dump_subcommand_decrypt_flag() {
             page_size: None,
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
             decrypt: true,
+            mmap: false,
         },
         &mut buf,
     );
@@ -654,6 +666,7 @@ fn test_dump_decrypt_without_keyring_errors() {
             page_size: None,
             keyring: None,
             decrypt: true,
+            mmap: false,
         },
         &mut buf,
     );

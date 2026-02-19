@@ -21,6 +21,61 @@ use crate::IdbError;
 pub(crate) trait ReadSeek: Read + Seek {}
 impl<T: Read + Seek> ReadSeek for T {}
 
+/// A memory-mapped file reader implementing `Read` and `Seek`.
+///
+/// Wraps a `memmap2::Mmap` with a cursor position so it can be used as a
+/// drop-in replacement for `File` or `Cursor<Vec<u8>>` via `Box<dyn ReadSeek>`.
+/// Unlike `Cursor<Vec<u8>>`, the data is not copied — it remains backed by
+/// the OS page cache and only faults in pages that are actually accessed.
+#[cfg(feature = "cli")]
+struct MmapReader {
+    mmap: memmap2::Mmap,
+    position: u64,
+}
+
+#[cfg(feature = "cli")]
+impl MmapReader {
+    fn new(mmap: memmap2::Mmap) -> Self {
+        Self { mmap, position: 0 }
+    }
+}
+
+#[cfg(feature = "cli")]
+impl Read for MmapReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.mmap.len() as u64;
+        if self.position >= len {
+            return Ok(0);
+        }
+        let available = (len - self.position) as usize;
+        let to_read = buf.len().min(available);
+        let start = self.position as usize;
+        buf[..to_read].copy_from_slice(&self.mmap[start..start + to_read]);
+        self.position += to_read as u64;
+        Ok(to_read)
+    }
+}
+
+#[cfg(feature = "cli")]
+impl Seek for MmapReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let len = self.mmap.len() as i64;
+        let new_pos = match pos {
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::End(offset) => len + offset,
+            SeekFrom::Current(offset) => self.position as i64 + offset,
+        };
+        if new_pos < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek to a negative position",
+            ));
+        }
+        self.position = new_pos as u64;
+        Ok(self.position)
+    }
+}
+
 /// Represents an open InnoDB tablespace file (.ibd) or in-memory tablespace.
 pub struct Tablespace {
     reader: Box<dyn ReadSeek>,
@@ -47,6 +102,64 @@ impl Tablespace {
             .len();
 
         Self::init(Box::new(file), file_size, None)
+    }
+
+    /// Open an InnoDB tablespace file using memory-mapped I/O.
+    ///
+    /// Maps the entire file into virtual memory using `mmap(2)`. The OS
+    /// manages page faults and caching, which can be more memory-efficient
+    /// than buffered I/O for large files since only accessed pages are loaded
+    /// into physical RAM. This is particularly beneficial when combined with
+    /// parallel processing (rayon) as it avoids seek contention.
+    ///
+    /// # Safety
+    ///
+    /// The underlying `mmap` call is marked `unsafe` because the mapped file
+    /// must not be modified by another process while the mapping is active.
+    /// For read-only analysis of `.ibd` files this is safe in practice (the
+    /// file should not be actively written to by MySQL while being analyzed).
+    #[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
+    pub fn open_mmap<P: AsRef<std::path::Path>>(path: P) -> Result<Self, IdbError> {
+        let path = path.as_ref();
+        let file = std::fs::File::open(path)
+            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
+
+        let file_size = file
+            .metadata()
+            .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path.display(), e)))?
+            .len();
+
+        let mmap = unsafe {
+            memmap2::Mmap::map(&file)
+                .map_err(|e| IdbError::Io(format!("Cannot mmap {}: {}", path.display(), e)))?
+        };
+
+        let reader = MmapReader::new(mmap);
+        Self::init(Box::new(reader), file_size, None)
+    }
+
+    /// Open with memory-mapped I/O and a specific page size (bypass auto-detection).
+    #[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
+    pub fn open_mmap_with_page_size<P: AsRef<std::path::Path>>(
+        path: P,
+        page_size: u32,
+    ) -> Result<Self, IdbError> {
+        let path = path.as_ref();
+        let file = std::fs::File::open(path)
+            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path.display(), e)))?;
+
+        let file_size = file
+            .metadata()
+            .map_err(|e| IdbError::Io(format!("Cannot stat {}: {}", path.display(), e)))?
+            .len();
+
+        let mmap = unsafe {
+            memmap2::Mmap::map(&file)
+                .map_err(|e| IdbError::Io(format!("Cannot mmap {}: {}", path.display(), e)))?
+        };
+
+        let reader = MmapReader::new(mmap);
+        Self::init(Box::new(reader), file_size, Some(page_size))
     }
 
     /// Open with a specific page size (bypass auto-detection).
@@ -260,6 +373,63 @@ impl Tablespace {
         }
         let trailer_offset = ps - SIZE_FIL_TRAILER;
         FilTrailer::parse(&page_data[trailer_offset..])
+    }
+
+    /// Read all pages into a contiguous in-memory buffer for parallel processing.
+    ///
+    /// Returns the entire tablespace contents as a single `Vec<u8>` where page N
+    /// starts at offset `N * page_size`. This enables parallel page processing
+    /// with libraries like `rayon` — since `Tablespace` holds a non-`Send` reader,
+    /// it cannot be shared across threads directly, but the returned buffer can be
+    /// sliced and processed in parallel.
+    ///
+    /// If a decryption context is set, each page is decrypted after reading.
+    ///
+    /// **Note on mmap**: When the tablespace was opened with [`open_mmap`],
+    /// this method still copies all data into a new `Vec<u8>` because the
+    /// type-erased reader cannot expose the underlying mmap buffer directly.
+    /// For memory-sensitive workloads on large files, consider using
+    /// [`for_each_page`] instead, which reuses a single page-sized buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use idb::innodb::tablespace::Tablespace;
+    /// use idb::innodb::page::FilHeader;
+    ///
+    /// let mut ts = Tablespace::open("table.ibd").unwrap();
+    /// let all_data = ts.read_all_pages().unwrap();
+    /// let page_size = ts.page_size() as usize;
+    ///
+    /// for page_num in 0..ts.page_count() as usize {
+    ///     let offset = page_num * page_size;
+    ///     let page_data = &all_data[offset..offset + page_size];
+    ///     if let Some(header) = FilHeader::parse(page_data) {
+    ///         println!("Page {}: type={}", page_num, header.page_type);
+    ///     }
+    /// }
+    /// ```
+    pub fn read_all_pages(&mut self) -> Result<Vec<u8>, IdbError> {
+        self.reader
+            .seek(SeekFrom::Start(0))
+            .map_err(|e| IdbError::Io(format!("Cannot seek to start: {}", e)))?;
+
+        let mut data = vec![0u8; self.file_size as usize];
+        self.reader
+            .read_exact(&mut data)
+            .map_err(|e| IdbError::Io(format!("Cannot read tablespace data: {}", e)))?;
+
+        // Decrypt pages if a decryption context is available
+        if let Some(ref ctx) = self.decryption_ctx {
+            let ps = self.page_size as usize;
+            for page_num in 0..self.page_count as usize {
+                let offset = page_num * ps;
+                let page_slice = &mut data[offset..offset + ps];
+                let _ = ctx.decrypt_page(page_slice, ps)?;
+            }
+        }
+
+        Ok(data)
     }
 
     /// Iterate over all pages, calling the callback with (page_number, page_data).
@@ -500,5 +670,156 @@ mod tests {
         })
         .unwrap();
         assert_eq!(visited, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_read_all_pages_returns_correct_data() {
+        let page0 = build_fsp_page(5, 3);
+        let page1 = build_index_page(1, 5, 2000);
+        let page2 = build_index_page(2, 5, 3000);
+        let tmp = write_pages(&[page0.clone(), page1.clone(), page2.clone()]);
+        let mut ts = Tablespace::open(tmp.path()).unwrap();
+
+        let all_data = ts.read_all_pages().unwrap();
+        assert_eq!(all_data.len(), PS * 3);
+
+        // Each page slice should match the individual page data
+        assert_eq!(&all_data[0..PS], &page0[..]);
+        assert_eq!(&all_data[PS..PS * 2], &page1[..]);
+        assert_eq!(&all_data[PS * 2..PS * 3], &page2[..]);
+    }
+
+    #[test]
+    fn test_read_all_pages_matches_read_page() {
+        let page0 = build_fsp_page(1, 3);
+        let page1 = build_index_page(1, 1, 2000);
+        let page2 = build_index_page(2, 1, 3000);
+        let tmp = write_pages(&[page0, page1, page2]);
+        let mut ts = Tablespace::open(tmp.path()).unwrap();
+
+        let all_data = ts.read_all_pages().unwrap();
+
+        // Verify each page matches read_page
+        for page_num in 0..3u64 {
+            let individual = ts.read_page(page_num).unwrap();
+            let offset = page_num as usize * PS;
+            assert_eq!(
+                &all_data[offset..offset + PS],
+                &individual[..],
+                "Page {} data mismatch",
+                page_num
+            );
+        }
+    }
+
+    #[test]
+    fn test_read_all_pages_from_bytes() {
+        let mut data = build_fsp_page(1, 2);
+        data.extend_from_slice(&build_index_page(1, 1, 5000));
+        let original = data.clone();
+
+        let mut ts = Tablespace::from_bytes(data).unwrap();
+        let all_data = ts.read_all_pages().unwrap();
+        assert_eq!(all_data, original);
+    }
+
+    // ── Mmap tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_mmap_detects_page_size() {
+        let tmp = write_pages(&[build_fsp_page(1, 2), build_index_page(1, 1, 2000)]);
+        let ts = Tablespace::open_mmap(tmp.path()).unwrap();
+        assert_eq!(ts.page_size(), SIZE_PAGE_DEFAULT);
+        assert_eq!(ts.page_count(), 2);
+    }
+
+    #[test]
+    fn test_open_mmap_with_page_size_override() {
+        let tmp = write_pages(&[build_fsp_page(1, 2), build_index_page(1, 1, 2000)]);
+        let ts = Tablespace::open_mmap_with_page_size(tmp.path(), SIZE_PAGE_DEFAULT).unwrap();
+        assert_eq!(ts.page_size(), SIZE_PAGE_DEFAULT);
+        assert_eq!(ts.page_count(), 2);
+    }
+
+    #[test]
+    fn test_open_mmap_read_page_matches_buffered() {
+        let tmp = write_pages(&[build_fsp_page(5, 2), build_index_page(1, 5, 9999)]);
+
+        let mut ts_buffered = Tablespace::open(tmp.path()).unwrap();
+        let mut ts_mmap = Tablespace::open_mmap(tmp.path()).unwrap();
+
+        for page_num in 0..2u64 {
+            let buf_page = ts_buffered.read_page(page_num).unwrap();
+            let mmap_page = ts_mmap.read_page(page_num).unwrap();
+            assert_eq!(
+                buf_page, mmap_page,
+                "Page {} data mismatch between buffered and mmap",
+                page_num
+            );
+        }
+    }
+
+    #[test]
+    fn test_open_mmap_read_all_pages_matches_buffered() {
+        let tmp = write_pages(&[
+            build_fsp_page(1, 3),
+            build_index_page(1, 1, 2000),
+            build_index_page(2, 1, 3000),
+        ]);
+
+        let mut ts_buffered = Tablespace::open(tmp.path()).unwrap();
+        let mut ts_mmap = Tablespace::open_mmap(tmp.path()).unwrap();
+
+        let buf_data = ts_buffered.read_all_pages().unwrap();
+        let mmap_data = ts_mmap.read_all_pages().unwrap();
+        assert_eq!(buf_data, mmap_data);
+    }
+
+    #[test]
+    fn test_open_mmap_for_each_page_visits_all() {
+        let tmp = write_pages(&[
+            build_fsp_page(1, 3),
+            build_index_page(1, 1, 2000),
+            build_index_page(2, 1, 3000),
+        ]);
+        let mut ts = Tablespace::open_mmap(tmp.path()).unwrap();
+        let mut visited = Vec::new();
+        ts.for_each_page(|num, _data| {
+            visited.push(num);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_open_mmap_rejects_too_small_file() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(&[0u8; 10]).unwrap();
+        tmp.flush().unwrap();
+        let result = Tablespace::open_mmap(tmp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_open_mmap_fsp_header_matches_buffered() {
+        let tmp = write_pages(&[build_fsp_page(42, 2), build_index_page(1, 42, 9000)]);
+
+        let ts_buffered = Tablespace::open(tmp.path()).unwrap();
+        let ts_mmap = Tablespace::open_mmap(tmp.path()).unwrap();
+
+        let fsp_buf = ts_buffered.fsp_header().unwrap();
+        let fsp_mmap = ts_mmap.fsp_header().unwrap();
+
+        assert_eq!(fsp_buf.space_id, fsp_mmap.space_id);
+        assert_eq!(fsp_buf.size, fsp_mmap.size);
+        assert_eq!(fsp_buf.flags, fsp_mmap.flags);
+    }
+
+    #[test]
+    fn test_open_mmap_page_out_of_range() {
+        let tmp = write_pages(&[build_fsp_page(1, 1)]);
+        let mut ts = Tablespace::open_mmap(tmp.path()).unwrap();
+        assert!(ts.read_page(99).is_err());
     }
 }

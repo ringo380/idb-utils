@@ -43,7 +43,7 @@ struct BlockJson {
     flush_flag: bool,
     data_len: u16,
     first_rec_group: u16,
-    checkpoint_no: u32,
+    epoch_no: u32,
     checksum_valid: bool,
     record_types: Vec<String>,
 }
@@ -51,15 +51,14 @@ struct BlockJson {
 /// Analyze the structure of an InnoDB redo log file.
 ///
 /// InnoDB redo logs are organized as a sequence of 512-byte blocks. The first
-/// four blocks are reserved: block 0 is the **log file header** (group ID,
-/// start LSN, file number, creator string), blocks 1 and 3 are **checkpoint
-/// records** (checkpoint number, LSN, offset, buffer size, archived LSN), and
-/// block 2 is reserved/unused. All remaining blocks are **data blocks**
-/// containing the actual redo log records.
+/// four blocks are reserved: block 0 is the **log file header** (format version,
+/// log UUID, start LSN, creator string), blocks 1 and 3 are **checkpoint
+/// records** (checkpoint LSN), and block 2 is reserved/unused. All remaining
+/// blocks are **data blocks** containing the actual redo log records.
 ///
 /// This command reads and displays all three sections. For data blocks, each
 /// block's header is decoded to show the block number, data length,
-/// first-record-group offset, checkpoint number, flush flag, and CRC-32C
+/// first-record-group offset, epoch number, flush flag, and CRC-32C
 /// checksum validation status.
 ///
 /// With `--verbose`, the payload bytes of each non-empty data block are
@@ -96,9 +95,11 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
 
     // Print header
     wprintln!(writer, "{}", "Log File Header (block 0)".bold())?;
-    wprintln!(writer, "  Group ID:   {}", header.group_id)?;
+    wprintln!(writer, "  Format:     {}", header.format_version)?;
     wprintln!(writer, "  Start LSN:  {}", header.start_lsn)?;
-    wprintln!(writer, "  File No:    {}", header.file_no)?;
+    if header.log_uuid != 0 {
+        wprintln!(writer, "  Log UUID:   0x{:08X}", header.log_uuid)?;
+    }
     if !header.created_by.is_empty() {
         wprintln!(writer, "  Created by: {}", header.created_by)?;
     }
@@ -153,12 +154,12 @@ pub fn execute(opts: &LogOptions, writer: &mut dyn Write) -> Result<(), IdbError
 
         wprintln!(
             writer,
-            "  Block {:>6}  no={:<10} len={:<5} first_rec={:<5} chk_no={:<10} csum={}{}",
+            "  Block {:>6}  no={:<10} len={:<5} first_rec={:<5} epoch={:<10} csum={}{}",
             block_idx,
             hdr.block_no,
             hdr.data_len,
             hdr.first_rec_group,
-            hdr.checkpoint_no,
+            hdr.epoch_no,
             checksum_str,
             flush_str,
         )?;
@@ -201,10 +202,16 @@ fn print_checkpoint(
     wprintln!(writer, "{}", label.bold())?;
     match cp {
         Some(cp) => {
-            wprintln!(writer, "  Number:       {}", cp.number)?;
+            if cp.number > 0 {
+                wprintln!(writer, "  Number:       {}", cp.number)?;
+            }
             wprintln!(writer, "  LSN:          {}", cp.lsn)?;
-            wprintln!(writer, "  Offset:       {}", cp.offset)?;
-            wprintln!(writer, "  Buffer size:  {}", cp.buf_size)?;
+            if cp.offset > 0 {
+                wprintln!(writer, "  Offset:       {}", cp.offset)?;
+            }
+            if cp.buf_size > 0 {
+                wprintln!(writer, "  Buffer size:  {}", cp.buf_size)?;
+            }
             if cp.archived_lsn > 0 {
                 wprintln!(writer, "  Archived LSN: {}", cp.archived_lsn)?;
             }
@@ -299,7 +306,7 @@ fn execute_json(
             flush_flag: hdr.flush_flag,
             data_len: hdr.data_len,
             first_rec_group: hdr.first_rec_group,
-            checkpoint_no: hdr.checkpoint_no,
+            epoch_no: hdr.epoch_no,
             checksum_valid: checksum_ok,
             record_types,
         });

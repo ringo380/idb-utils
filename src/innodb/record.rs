@@ -606,7 +606,7 @@ mod tests {
         // n_fields=5, one_byte_offs=false: (5 << 6) = 320 = 0x0140
         // But byte 2 is already set from the heap_no write, so we only set byte 3
         data[3] = 0x40; // lower byte: n_fields bits 1-0 shifted + one_byte_offs=0
-        // bytes 4-5: next_offset = 300 (absolute)
+                        // bytes 4-5: next_offset = 300 (absolute)
         BigEndian::write_u16(&mut data[4..6], 300);
 
         let hdr = RedundantRecordHeader::parse(&data).unwrap();
