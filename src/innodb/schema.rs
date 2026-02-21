@@ -81,9 +81,6 @@ pub struct DdTable {
     /// MySQL server version ID.
     #[serde(default)]
     pub mysql_version_id: u64,
-    /// Table visibility type: 1=visible (normal table), 2=hidden (system table).
-    #[serde(default)]
-    pub hidden: u64,
 }
 
 /// Data dictionary column definition.
@@ -579,11 +576,7 @@ fn format_char(col: &DdColumn) -> String {
     } else {
         col.char_length
     };
-    if char_len > 1 {
-        format!("char({})", char_len)
-    } else {
-        "char".to_string()
-    }
+    format!("char({})", char_len.max(1))
 }
 
 fn format_text(col: &DdColumn) -> String {
@@ -785,7 +778,13 @@ fn build_column_def(col: &DdColumn) -> ColumnDef {
         // default_option has expressions like "CURRENT_TIMESTAMP"
         Some(col.default_option.clone())
     } else if !col.has_no_default && !col.default_value_utf8_null {
-        Some(format!("'{}'", col.default_value_utf8.replace('\'', "''")))
+        // Numeric types should not be quoted in DDL
+        let is_numeric = matches!(col.dd_type, 1..=8);
+        if is_numeric {
+            Some(col.default_value_utf8.clone())
+        } else {
+            Some(format!("'{}'", col.default_value_utf8.replace('\'', "''")))
+        }
     } else if !col.has_no_default && col.is_nullable && col.default_value_utf8_null {
         Some("NULL".to_string())
     } else {

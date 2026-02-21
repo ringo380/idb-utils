@@ -175,7 +175,11 @@ fn print_verbose_text(writer: &mut dyn Write, schema: &TableSchema) -> Result<()
                 }
                 s
             }).collect();
-            wprintln!(writer, "  {} ({})", idx.index_type, cols.join(", "))?;
+            if idx.index_type == "PRIMARY KEY" {
+                wprintln!(writer, "  {} ({})", idx.index_type, cols.join(", "))?;
+            } else {
+                wprintln!(writer, "  {} {} ({})", idx.index_type, idx.name, cols.join(", "))?;
+            }
         }
     }
 
