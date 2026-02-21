@@ -101,7 +101,8 @@ pub struct DdColumn {
     /// Position in the column list (1-based).
     #[serde(default)]
     pub ordinal_position: u64,
-    /// Hidden flag: 1=visible, 2=SE-hidden (DB_TRX_ID, DB_ROLL_PTR, DB_ROW_ID).
+    /// Hidden flag: 1=visible, 2=SE-hidden (DB_TRX_ID, DB_ROLL_PTR, DB_ROW_ID),
+    /// 3=SQL-hidden (functional index backing columns), 4=user INVISIBLE (MySQL 8.0.23+).
     #[serde(default)]
     pub hidden: u64,
     /// Whether the column allows NULL.
@@ -843,15 +844,19 @@ fn build_index_def(idx: &DdIndex, columns: &HashMap<u64, &DdColumn>) -> IndexDef
                 .unwrap_or_else(|| format!("col_{}", e.column_opx));
 
             let prefix_length = if e.length < 4294967295 {
-                // Check if this is a prefix index (length < full column length)
-                let full_len = columns.get(&e.column_opx).map(|c| c.char_length).unwrap_or(0);
-                let max_bytes = columns
-                    .get(&e.column_opx)
+                // Detect prefix indexes: e.length is in bytes, char_length is in bytes
+                // for string types (but display width for numeric types). Convert to
+                // characters for comparison and DDL output.
+                let col = columns.get(&e.column_opx);
+                let full_len = col.map(|c| c.char_length).unwrap_or(0);
+                let max_bytes = col
                     .map(|c| charset_max_bytes(c.collation_id))
                     .unwrap_or(4);
                 let full_char_len = if max_bytes > 0 { full_len / max_bytes } else { full_len };
                 if e.length < full_char_len {
-                    Some(e.length)
+                    // Convert byte-based e.length to characters for DDL
+                    let prefix_chars = if max_bytes > 0 { e.length / max_bytes } else { e.length };
+                    if prefix_chars > 0 { Some(prefix_chars) } else { Some(e.length) }
                 } else {
                     None
                 }
