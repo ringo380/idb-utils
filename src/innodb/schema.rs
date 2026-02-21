@@ -311,6 +311,9 @@ pub struct ColumnDef {
     /// Whether the generated column is virtual (true) or stored (false).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_virtual: Option<bool>,
+    /// Whether the column is INVISIBLE (MySQL 8.0.23+).
+    #[serde(skip_serializing_if = "is_false")]
+    pub is_invisible: bool,
     /// Column comment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
@@ -413,7 +416,7 @@ pub struct InferredIndex {
 /// ```
 pub fn collation_name(id: u64) -> Option<&'static str> {
     match id {
-        2 => Some("latin1_swedish_ci"),
+        2 => Some("latin2_czech_cs"),
         8 => Some("latin1_swedish_ci"),
         11 => Some("ascii_general_ci"),
         33 => Some("utf8mb3_general_ci"),
@@ -443,7 +446,8 @@ pub fn collation_name(id: u64) -> Option<&'static str> {
 /// ```
 pub fn charset_from_collation(id: u64) -> Option<&'static str> {
     match id {
-        2 | 8 | 47 | 48 => Some("latin1"),
+        2 => Some("latin2"),
+        8 | 47 | 48 => Some("latin1"),
         11 => Some("ascii"),
         33 | 83 => Some("utf8mb3"),
         45 | 46 | 224 | 255 => Some("utf8mb4"),
@@ -593,7 +597,7 @@ fn format_text(col: &DdColumn) -> String {
 /// Returns max bytes per character for a collation ID.
 fn charset_max_bytes(collation_id: u64) -> u64 {
     match collation_id {
-        2 | 8 | 11 | 47 | 48 => 1,   // latin1, ascii
+        2 | 8 | 11 | 47 | 48 => 1,   // latin1, latin2, ascii
         33 | 83 => 3,                   // utf8mb3
         45 | 46 | 224 | 255 => 4,      // utf8mb4
         63 => 1,                        // binary
@@ -700,9 +704,13 @@ pub fn extract_schema_from_sdi(sdi_json: &str) -> Result<TableSchema, IdbError> 
         .map(|(i, c)| (i as u64, c))
         .collect();
 
-    // Filter visible columns (hidden == 1 means visible in MySQL's dd enum)
+    // Filter user-facing columns:
+    //   hidden=1 (HT_VISIBLE) — normal visible columns
+    //   hidden=4 (HT_HIDDEN_USER) — user INVISIBLE columns (MySQL 8.0.23+)
+    // Excludes hidden=2 (HT_HIDDEN_SE: DB_TRX_ID, DB_ROLL_PTR, DB_ROW_ID)
+    //      and hidden=3 (HT_HIDDEN_SQL: functional index backing columns)
     let visible_columns: Vec<&DdColumn> = {
-        let mut cols: Vec<&DdColumn> = all_columns.iter().copied().filter(|c| c.hidden == 1).collect();
+        let mut cols: Vec<&DdColumn> = all_columns.iter().copied().filter(|c| c.hidden == 1 || c.hidden == 4).collect();
         cols.sort_by_key(|c| c.ordinal_position);
         cols
     };
@@ -775,7 +783,7 @@ fn build_column_def(col: &DdColumn) -> ColumnDef {
     let default_value = if !col.default_option.is_empty() {
         // default_option has expressions like "CURRENT_TIMESTAMP"
         Some(col.default_option.clone())
-    } else if !col.has_no_default && !col.default_value_utf8_null && !col.default_value_utf8.is_empty() {
+    } else if !col.has_no_default && !col.default_value_utf8_null {
         Some(format!("'{}'", col.default_value_utf8.replace('\'', "''")))
     } else if !col.has_no_default && col.is_nullable && col.default_value_utf8_null {
         Some("NULL".to_string())
@@ -808,6 +816,7 @@ fn build_column_def(col: &DdColumn) -> ColumnDef {
         default_value,
         is_auto_increment: col.is_auto_increment,
         generation_expression,
+        is_invisible: col.hidden == 4,
         is_virtual,
         comment,
     }
@@ -996,6 +1005,10 @@ fn format_column_ddl(col: &ColumnDef) -> String {
             "STORED"
         };
         parts.push(format!("GENERATED ALWAYS AS ({}) {}", expr, stored_or_virtual));
+    }
+
+    if col.is_invisible {
+        parts.push("/*!80023 INVISIBLE */".to_string());
     }
 
     if let Some(ref comment) = col.comment {
@@ -1263,7 +1276,8 @@ mod tests {
                         "ordinal_position": 1,
                         "hidden": 1,
                         "is_nullable": false,
-                        "is_auto_increment": true
+                        "is_auto_increment": true,
+                        "has_no_default": true
                     },
                     {
                         "name": "email",
@@ -1271,7 +1285,8 @@ mod tests {
                         "column_type_utf8": "varchar(255)",
                         "ordinal_position": 2,
                         "hidden": 1,
-                        "is_nullable": false
+                        "is_nullable": false,
+                        "has_no_default": true
                     },
                     {
                         "name": "DB_TRX_ID",
@@ -1466,6 +1481,7 @@ mod tests {
                 default_value: None,
                 is_auto_increment: true,
                 generation_expression: None,
+                is_invisible: false,
                 is_virtual: None,
                 comment: None,
             }],
@@ -1550,6 +1566,96 @@ mod tests {
         let schema = extract_schema_from_sdi(json).unwrap();
         assert_eq!(schema.columns[0].default_value, Some("NULL".to_string()));
         assert!(schema.ddl.contains("DEFAULT NULL"));
+    }
+
+    #[test]
+    fn test_empty_string_default() {
+        let json = r#"{
+            "mysqld_version_id": 90001,
+            "dd_object_type": "Table",
+            "dd_object": {
+                "name": "t",
+                "engine": "InnoDB",
+                "collation_id": 255,
+                "row_format": 2,
+                "columns": [
+                    {
+                        "name": "tag",
+                        "type": 16,
+                        "column_type_utf8": "varchar(50)",
+                        "ordinal_position": 1,
+                        "hidden": 1,
+                        "is_nullable": false,
+                        "has_no_default": false,
+                        "default_value_utf8": "",
+                        "default_value_utf8_null": false
+                    }
+                ],
+                "indexes": [],
+                "foreign_keys": []
+            }
+        }"#;
+
+        let schema = extract_schema_from_sdi(json).unwrap();
+        assert_eq!(schema.columns[0].default_value, Some("''".to_string()));
+        assert!(schema.ddl.contains("DEFAULT ''"));
+    }
+
+    #[test]
+    fn test_invisible_column() {
+        let json = r#"{
+            "mysqld_version_id": 80040,
+            "dd_object_type": "Table",
+            "dd_object": {
+                "name": "t",
+                "engine": "InnoDB",
+                "collation_id": 255,
+                "row_format": 2,
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": 4,
+                        "column_type_utf8": "int",
+                        "ordinal_position": 1,
+                        "hidden": 1,
+                        "is_nullable": false,
+                        "is_auto_increment": true,
+                        "has_no_default": true
+                    },
+                    {
+                        "name": "secret",
+                        "type": 16,
+                        "column_type_utf8": "varchar(100)",
+                        "ordinal_position": 2,
+                        "hidden": 4,
+                        "is_nullable": true,
+                        "has_no_default": false,
+                        "default_value_utf8_null": true
+                    },
+                    {
+                        "name": "DB_TRX_ID",
+                        "type": 10,
+                        "column_type_utf8": "",
+                        "ordinal_position": 3,
+                        "hidden": 2
+                    }
+                ],
+                "indexes": [],
+                "foreign_keys": []
+            }
+        }"#;
+
+        let schema = extract_schema_from_sdi(json).unwrap();
+        // Should include both visible (hidden=1) and invisible (hidden=4), skip SE-hidden (hidden=2)
+        assert_eq!(schema.columns.len(), 2);
+        assert_eq!(schema.columns[0].name, "id");
+        assert!(!schema.columns[0].is_invisible);
+        assert_eq!(schema.columns[1].name, "secret");
+        assert!(schema.columns[1].is_invisible);
+        // DDL should contain INVISIBLE marker
+        assert!(schema.ddl.contains("/*!80023 INVISIBLE */"));
+        // DDL should not contain the SE-hidden column
+        assert!(!schema.ddl.contains("DB_TRX_ID"));
     }
 
     #[test]

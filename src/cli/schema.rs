@@ -154,6 +154,9 @@ fn print_verbose_text(writer: &mut dyn Write, schema: &TableSchema) -> Result<()
             let kind = if col.is_virtual == Some(true) { "VIRTUAL" } else { "STORED" };
             parts.push(format!("AS ({}) {}", expr, kind));
         }
+        if col.is_invisible {
+            parts.push("INVISIBLE".to_string());
+        }
         wprintln!(writer, "{}", parts.join("  "))?;
     }
 
