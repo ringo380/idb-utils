@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-02-20
+
 ### Added
 
 - **`inno repair`** — New subcommand to recalculate and fix corrupt page checksums in-place. Auto-detects the checksum algorithm from page 0 (or accepts `--algorithm crc32c|innodb|full_crc32`). Creates a `.bak` backup by default. Supports `--dry-run` to preview repairs, `--page N` to target a single page, and `--json` for machine-readable output. (Closes #33)
