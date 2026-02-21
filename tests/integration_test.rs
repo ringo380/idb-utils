@@ -853,6 +853,7 @@ fn test_recover_all_intact() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -885,6 +886,7 @@ fn test_recover_with_corrupt_page() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -914,6 +916,7 @@ fn test_recover_with_empty_page() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -941,6 +944,7 @@ fn test_recover_single_page() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -969,6 +973,7 @@ fn test_recover_json_output() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -1002,6 +1007,7 @@ fn test_recover_json_verbose_includes_pages() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -1035,6 +1041,7 @@ fn test_recover_force_extracts_corrupt_records() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out).unwrap();
@@ -1057,6 +1064,7 @@ fn test_recover_force_extracts_corrupt_records() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
     let mut out2 = Vec::new();
     idb::cli::recover::execute(&opts_force, &mut out2).unwrap();
@@ -1084,6 +1092,7 @@ fn test_recover_page_size_override() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -1113,6 +1122,7 @@ fn test_recover_verbose_text_output() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -2494,6 +2504,7 @@ fn test_recover_nonexistent_file() {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -3566,6 +3577,7 @@ fn run_mysql9_recovery_json(fixture_path: &str) -> serde_json::Value {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out)
@@ -4685,6 +4697,7 @@ fn run_percona_recovery_json(fixture_path: &str) -> serde_json::Value {
         threads: 0,
         mmap: false,
         streaming: false,
+        rebuild: None,
     };
     let mut out = Vec::new();
     idb::cli::recover::execute(&opts, &mut out)
@@ -5066,6 +5079,7 @@ fn test_streaming_recover_text_produces_summary() {
         threads: 0,
         mmap: false,
         streaming: true,
+        rebuild: None,
     };
 
     let mut out = Vec::new();
@@ -5101,6 +5115,7 @@ fn test_streaming_recover_json_is_valid_ndjson() {
         threads: 0,
         mmap: false,
         streaming: true,
+        rebuild: None,
     };
 
     let mut out = Vec::new();

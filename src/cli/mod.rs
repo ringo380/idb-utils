@@ -48,6 +48,7 @@
 pub mod app;
 pub mod checksum;
 pub mod corrupt;
+pub mod defrag;
 pub mod diff;
 pub mod dump;
 pub mod find;
@@ -56,6 +57,8 @@ pub mod log;
 pub mod pages;
 pub mod parse;
 pub mod recover;
+pub mod repair;
+pub mod transplant;
 pub mod sdi;
 pub mod tsid;
 pub mod watch;

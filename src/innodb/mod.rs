@@ -45,3 +45,5 @@ pub mod sdi;
 pub mod tablespace;
 pub mod undo;
 pub mod vendor;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod write;

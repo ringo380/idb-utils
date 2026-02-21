@@ -1,16 +1,18 @@
 use std::io::Write;
 
+use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
 use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::cli::{create_progress_bar, wprintln};
-use crate::innodb::checksum::{validate_checksum, validate_lsn};
+use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::constants::*;
 use crate::innodb::page::FilHeader;
 use crate::innodb::page_types::PageType;
 use crate::innodb::record::walk_compact_records;
 use crate::innodb::tablespace::Tablespace;
+use crate::innodb::write;
 use crate::IdbError;
 
 /// Options for the `inno recover` subcommand.
@@ -35,6 +37,8 @@ pub struct RecoverOptions {
     pub mmap: bool,
     /// Stream results incrementally for lower memory usage.
     pub streaming: bool,
+    /// Path to write a new tablespace from recoverable pages.
+    pub rebuild: Option<String>,
 }
 
 /// Page integrity status.
@@ -468,6 +472,20 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
         index_pages_recoverable,
     };
 
+    // Execute rebuild if requested
+    if let Some(ref rebuild_path) = opts.rebuild {
+        execute_rebuild(
+            rebuild_path,
+            &all_data,
+            &analyses,
+            page_size,
+            opts.force,
+            &vendor_info,
+            writer,
+            opts.json,
+        )?;
+    }
+
     if opts.json {
         output_json(opts, &analyses, &stats, writer)
     } else {
@@ -665,6 +683,148 @@ fn execute_streaming(
     }
 
     Ok(())
+}
+
+/// Rebuild a new tablespace from recoverable pages.
+///
+/// Collects intact pages (and corrupt pages if `--force`), renumbers them
+/// sequentially, builds a new page 0, recalculates all checksums, and writes
+/// to the output path. Returns (pages_written, pages_skipped).
+#[allow(clippy::too_many_arguments)]
+fn execute_rebuild(
+    output_path: &str,
+    all_data: &[u8],
+    analyses: &[PageAnalysis],
+    page_size: u32,
+    force: bool,
+    vendor_info: &crate::innodb::vendor::VendorInfo,
+    writer: &mut dyn Write,
+    json: bool,
+) -> Result<(u64, u64), IdbError> {
+    let ps = page_size as usize;
+    let mut collected_pages: Vec<Vec<u8>> = Vec::new();
+    let mut skipped = 0u64;
+
+    // Infer space_id and flags from page 0 if intact, else from first intact page
+    let mut space_id = 0u32;
+    let mut flags = 0u32;
+    let mut max_lsn = 0u64;
+    let mut found_metadata = false;
+
+    for a in analyses {
+        if a.status == PageStatus::Intact || (force && a.status == PageStatus::Corrupt) {
+            if !found_metadata {
+                let offset = a.page_number as usize * ps;
+                if offset + ps <= all_data.len() {
+                    let page_data = &all_data[offset..offset + ps];
+                    space_id = BigEndian::read_u32(
+                        &page_data[FIL_PAGE_SPACE_ID..],
+                    );
+                    // Read flags from page 0 if this is page 0
+                    if a.page_number == 0 {
+                        let fsp = FIL_PAGE_DATA;
+                        if page_data.len() > fsp + FSP_SPACE_FLAGS + 4 {
+                            flags = BigEndian::read_u32(
+                                &page_data[fsp + FSP_SPACE_FLAGS..],
+                            );
+                        }
+                    }
+                    found_metadata = true;
+                }
+            }
+            if a.lsn > max_lsn {
+                max_lsn = a.lsn;
+            }
+        }
+    }
+
+    // Collect recoverable pages (skip page 0 — we'll build a new one)
+    for a in analyses {
+        let include = match a.status {
+            PageStatus::Intact => true,
+            PageStatus::Corrupt if force => true,
+            _ => false,
+        };
+
+        if !include || a.page_number == 0 {
+            if a.status != PageStatus::Empty && a.page_number != 0 {
+                skipped += 1;
+            }
+            continue;
+        }
+
+        let offset = a.page_number as usize * ps;
+        if offset + ps > all_data.len() {
+            skipped += 1;
+            continue;
+        }
+
+        collected_pages.push(all_data[offset..offset + ps].to_vec());
+    }
+
+    // Detect algorithm
+    let algorithm = write::detect_algorithm(
+        if !all_data.is_empty() && all_data.len() >= ps {
+            &all_data[..ps]
+        } else {
+            &[]
+        },
+        page_size,
+        Some(vendor_info),
+    );
+    // Use CRC-32C as fallback if detection returned None
+    let algorithm = if algorithm == ChecksumAlgorithm::None {
+        ChecksumAlgorithm::Crc32c
+    } else {
+        algorithm
+    };
+
+    let total_pages = (collected_pages.len() + 1) as u32; // +1 for new page 0
+
+    // Build new page 0
+    let page0 = write::build_fsp_page(space_id, total_pages, flags, max_lsn, page_size, algorithm);
+
+    // Renumber collected pages and fix checksums
+    let mut output_pages: Vec<Vec<u8>> = Vec::with_capacity(total_pages as usize);
+    output_pages.push(page0);
+
+    for (i, mut page) in collected_pages.into_iter().enumerate() {
+        let new_page_num = (i + 1) as u32;
+        // Update FIL_PAGE_OFFSET (page number)
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], new_page_num);
+        // Recalculate checksum
+        write::fix_page_checksum(&mut page, page_size, algorithm);
+        output_pages.push(page);
+    }
+
+    // Write output
+    write::write_tablespace(output_path, &output_pages)?;
+
+    // Post-validate
+    let ts = Tablespace::open(output_path)?;
+    let output_count = ts.page_count();
+    let mut valid_count = 0u64;
+    for i in 0..output_count {
+        let page = write::read_page_raw(output_path, i, page_size)?;
+        if validate_checksum(&page, page_size, Some(vendor_info)).valid {
+            valid_count += 1;
+        }
+    }
+
+    let pages_written = output_pages.len() as u64;
+
+    if !json {
+        wprintln!(writer)?;
+        wprintln!(writer, "Rebuild Output: {}", output_path)?;
+        wprintln!(writer, "  Pages written:    {}", pages_written)?;
+        wprintln!(writer, "  Pages skipped:    {}", skipped)?;
+        wprintln!(writer, "  Post-validation:  {}/{} valid checksums", valid_count, output_count)?;
+        if valid_count < output_count {
+            wprintln!(writer, "  Warning: some pages still have invalid checksums")?;
+        }
+    }
+
+    Ok((pages_written, skipped))
 }
 
 fn output_text(

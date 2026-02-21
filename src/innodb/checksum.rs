@@ -18,6 +18,7 @@
 use crate::innodb::constants::*;
 use crate::innodb::vendor::VendorInfo;
 use byteorder::{BigEndian, ByteOrder};
+use serde::Serialize;
 
 /// Checksum algorithms used by InnoDB.
 ///
@@ -35,7 +36,7 @@ use byteorder::{BigEndian, ByteOrder};
 /// let _maria = ChecksumAlgorithm::MariaDbFullCrc32;
 /// let _none = ChecksumAlgorithm::None;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ChecksumAlgorithm {
     /// CRC-32C (hardware accelerated, MySQL 5.7.7+ default)
     Crc32c,
@@ -205,7 +206,7 @@ pub struct ChecksumResult {
 /// MariaDB 10.5+ uses a single CRC-32C over bytes `[0..page_size-4)`.
 /// The checksum is stored in the last 4 bytes of the page (NOT in the
 /// FIL header at bytes 0-3 like MySQL).
-fn calculate_mariadb_full_crc32(page_data: &[u8], page_size: usize) -> u32 {
+pub fn calculate_mariadb_full_crc32(page_data: &[u8], page_size: usize) -> u32 {
     crc32c::crc32c(&page_data[0..page_size - 4])
 }
 
@@ -219,7 +220,7 @@ fn calculate_mariadb_full_crc32(page_data: &[u8], page_size: usize) -> u32 {
 ///
 /// Range 1: bytes 4..26 (FIL_PAGE_OFFSET to FIL_PAGE_FILE_FLUSH_LSN)
 /// Range 2: bytes 38..(page_size-8) (FIL_PAGE_DATA to end before trailer)
-fn calculate_crc32c(page_data: &[u8], page_size: usize) -> u32 {
+pub fn calculate_crc32c(page_data: &[u8], page_size: usize) -> u32 {
     let end = page_size - SIZE_FIL_TRAILER;
 
     // CRC-32C of range 1: bytes 4..26
@@ -264,7 +265,7 @@ fn ut_fold_binary(data: &[u8]) -> u32 {
 /// Folds two byte ranges and sums the results:
 /// 1. Bytes 4..26 (FIL_PAGE_OFFSET to FIL_PAGE_FILE_FLUSH_LSN)
 /// 2. Bytes 38..(page_size - 8) (FIL_PAGE_DATA to end before trailer)
-fn calculate_innodb_checksum(page_data: &[u8], page_size: usize) -> u32 {
+pub fn calculate_innodb_checksum(page_data: &[u8], page_size: usize) -> u32 {
     let end = page_size - SIZE_FIL_TRAILER;
 
     let fold1 = ut_fold_binary(&page_data[FIL_PAGE_OFFSET..FIL_PAGE_FILE_FLUSH_LSN]);
@@ -312,6 +313,36 @@ pub fn validate_lsn(page_data: &[u8], page_size: u32) -> bool {
     let trailer_lsn_low32 = BigEndian::read_u32(&page_data[trailer_offset + 4..]);
 
     header_lsn_low32 == trailer_lsn_low32
+}
+
+/// Recalculate and write the correct checksum into a mutable page buffer.
+///
+/// For MySQL CRC-32C and legacy InnoDB, the checksum is written to bytes 0-3
+/// (the `FIL_PAGE_SPACE_OR_CHKSUM` field). For MariaDB full_crc32, the
+/// checksum is written to the last 4 bytes of the page.
+///
+/// The `ChecksumAlgorithm::None` variant is a no-op.
+pub fn recalculate_checksum(page_data: &mut [u8], page_size: u32, algorithm: ChecksumAlgorithm) {
+    let ps = page_size as usize;
+    if page_data.len() < ps {
+        return;
+    }
+
+    match algorithm {
+        ChecksumAlgorithm::Crc32c => {
+            let checksum = calculate_crc32c(page_data, ps);
+            BigEndian::write_u32(&mut page_data[FIL_PAGE_SPACE_OR_CHKSUM..], checksum);
+        }
+        ChecksumAlgorithm::InnoDB => {
+            let checksum = calculate_innodb_checksum(page_data, ps);
+            BigEndian::write_u32(&mut page_data[FIL_PAGE_SPACE_OR_CHKSUM..], checksum);
+        }
+        ChecksumAlgorithm::MariaDbFullCrc32 => {
+            let checksum = calculate_mariadb_full_crc32(page_data, ps);
+            BigEndian::write_u32(&mut page_data[ps - 4..], checksum);
+        }
+        ChecksumAlgorithm::None => {}
+    }
 }
 
 #[cfg(test)]
@@ -381,5 +412,59 @@ mod tests {
         BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], 0x12345678);
         BigEndian::write_u32(&mut page[16380..], 0xAAAAAAAA);
         assert!(!validate_lsn(&page, 16384));
+    }
+
+    #[test]
+    fn test_recalculate_checksum_crc32c() {
+        let ps = 16384usize;
+        let mut page = vec![0u8; ps];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 1);
+        BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], 5000);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 17855);
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], 1);
+        let trailer = ps - SIZE_FIL_TRAILER;
+        BigEndian::write_u32(&mut page[trailer + 4..], 5000);
+
+        // Corrupt the checksum
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_OR_CHKSUM..], 0xDEAD);
+        let result = validate_checksum(&page, ps as u32, None);
+        assert!(!result.valid);
+
+        // Recalculate
+        recalculate_checksum(&mut page, ps as u32, ChecksumAlgorithm::Crc32c);
+        let result = validate_checksum(&page, ps as u32, None);
+        assert!(result.valid);
+        assert_eq!(result.algorithm, ChecksumAlgorithm::Crc32c);
+    }
+
+    #[test]
+    fn test_recalculate_checksum_innodb() {
+        let ps = 16384usize;
+        let mut page = vec![0u8; ps];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 1);
+        BigEndian::write_u64(&mut page[FIL_PAGE_LSN..], 5000);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 17855);
+        BigEndian::write_u32(&mut page[FIL_PAGE_SPACE_ID..], 1);
+        let trailer = ps - SIZE_FIL_TRAILER;
+        BigEndian::write_u32(&mut page[trailer + 4..], 5000);
+
+        recalculate_checksum(&mut page, ps as u32, ChecksumAlgorithm::InnoDB);
+        let result = validate_checksum(&page, ps as u32, None);
+        assert!(result.valid);
+        assert_eq!(result.algorithm, ChecksumAlgorithm::InnoDB);
+    }
+
+    #[test]
+    fn test_recalculate_checksum_mariadb() {
+        let ps = 16384usize;
+        let mut page = vec![0xABu8; ps];
+        BigEndian::write_u32(&mut page[FIL_PAGE_OFFSET..], 1);
+        BigEndian::write_u16(&mut page[FIL_PAGE_TYPE..], 17855);
+
+        recalculate_checksum(&mut page, ps as u32, ChecksumAlgorithm::MariaDbFullCrc32);
+        let vendor = VendorInfo::mariadb(MariaDbFormat::FullCrc32);
+        let result = validate_checksum(&page, ps as u32, Some(&vendor));
+        assert!(result.valid);
+        assert_eq!(result.algorithm, ChecksumAlgorithm::MariaDbFullCrc32);
     }
 }

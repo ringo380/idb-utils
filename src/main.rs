@@ -258,6 +258,7 @@ fn main() {
             page_size,
             keyring,
             streaming,
+            rebuild,
         } => cli::recover::execute(
             &cli::recover::RecoverOptions {
                 file,
@@ -270,6 +271,7 @@ fn main() {
                 threads: cli.threads,
                 mmap: cli.mmap,
                 streaming,
+                rebuild,
             },
             &mut writer,
         ),
@@ -315,6 +317,32 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Repair {
+            file,
+            page,
+            algorithm,
+            no_backup,
+            dry_run,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::repair::execute(
+            &cli::repair::RepairOptions {
+                file,
+                page,
+                algorithm,
+                no_backup,
+                dry_run,
+                verbose,
+                json,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
         Commands::Diff {
             file1,
             file2,
@@ -331,6 +359,54 @@ fn main() {
                 verbose,
                 byte_ranges,
                 page,
+                json,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
+        Commands::Transplant {
+            donor,
+            target,
+            pages,
+            no_backup,
+            force,
+            dry_run,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::transplant::execute(
+            &cli::transplant::TransplantOptions {
+                donor,
+                target,
+                pages,
+                no_backup,
+                force,
+                dry_run,
+                verbose,
+                json,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
+        Commands::Defrag {
+            file,
+            output,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::defrag::execute(
+            &cli::defrag::DefragOptions {
+                file,
+                output,
+                verbose,
                 json,
                 page_size,
                 keyring,

@@ -450,6 +450,10 @@ pub enum Commands {
         /// Stream results incrementally for lower memory usage (disables parallel processing)
         #[arg(long)]
         streaming: bool,
+
+        /// Write a new tablespace from recoverable pages to the given path
+        #[arg(long)]
+        rebuild: Option<String>,
     },
 
     /// Validate page checksums
@@ -525,6 +529,51 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Repair corrupt page checksums
+    ///
+    /// Recalculates and writes correct checksums for pages with invalid checksums
+    /// or LSN mismatches. By default, auto-detects the checksum algorithm from
+    /// page 0 and creates a `.bak` backup before modifying the file. Use
+    /// `--algorithm` to force a specific algorithm, `--dry-run` to preview
+    /// repairs without modifying the file, or `--no-backup` to skip the backup.
+    Repair {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Repair only a specific page number
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Checksum algorithm: auto, crc32c, innodb, full_crc32
+        #[arg(short, long, default_value = "auto")]
+        algorithm: String,
+
+        /// Skip creating a backup before repair
+        #[arg(long)]
+        no_backup: bool,
+
+        /// Preview repairs without modifying the file
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Show per-page repair details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Compare two tablespace files page-by-page
     ///
     /// Reads two InnoDB tablespace files and compares them page-by-page,
@@ -555,6 +604,88 @@ pub enum Commands {
         /// Compare a single page only
         #[arg(short, long)]
         page: Option<u64>,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
+    /// Copy specific pages from a donor tablespace into a target
+    ///
+    /// Reads pages from the donor file and writes them into the target file at
+    /// the same page number. Safety checks ensure page sizes and space IDs
+    /// match. Page 0 (FSP_HDR) is rejected unless `--force` is used. Donor
+    /// pages with invalid checksums are skipped unless `--force` is used.
+    ///
+    /// A backup of the target is created by default. Use `--dry-run` to preview
+    /// which pages would be transplanted without modifying the target.
+    Transplant {
+        /// Path to donor tablespace file (source of pages)
+        donor: String,
+
+        /// Path to target tablespace file (destination)
+        target: String,
+
+        /// Page numbers to transplant (comma-separated)
+        #[arg(short, long, value_delimiter = ',')]
+        pages: Vec<u64>,
+
+        /// Skip creating a backup of the target
+        #[arg(long)]
+        no_backup: bool,
+
+        /// Allow space ID mismatch, corrupt donor pages, and page 0 transplant
+        #[arg(long)]
+        force: bool,
+
+        /// Preview without modifying the target file
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Show per-page details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
+    /// Defragment a tablespace by reclaiming free space and reordering pages
+    ///
+    /// Reads all pages from a source tablespace, removes empty and corrupt
+    /// pages, sorts INDEX pages by (index_id, level, page_number), fixes
+    /// prev/next chain pointers within each index group, renumbers pages
+    /// sequentially, rebuilds page 0, recalculates all checksums, and writes
+    /// the result to a new output file. The source file is never modified.
+    Defrag {
+        /// Path to source InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Path to output file (required — always writes a new file)
+        #[arg(short, long)]
+        output: String,
+
+        /// Show per-page details
+        #[arg(short, long)]
+        verbose: bool,
 
         /// Output in JSON format
         #[arg(long)]
