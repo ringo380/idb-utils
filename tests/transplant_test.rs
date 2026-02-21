@@ -5,7 +5,7 @@ use byteorder::{BigEndian, ByteOrder};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
-use idb::innodb::checksum::{validate_checksum, recalculate_checksum, ChecksumAlgorithm};
+use idb::innodb::checksum::{recalculate_checksum, validate_checksum, ChecksumAlgorithm};
 use idb::innodb::constants::*;
 use idb::innodb::write;
 
@@ -90,7 +90,8 @@ fn test_transplant_page_size_mismatch() {
 
     // Create target with 8K pages (ssize=4 encodes 8K: 1 << (4+9) = 8192)
     let flags_8k = 4 << 6; // ssize=4 in bits 6-9
-    let target_page0 = write::build_fsp_page(42, 2, flags_8k, 1000, 8192, ChecksumAlgorithm::Crc32c);
+    let target_page0 =
+        write::build_fsp_page(42, 2, flags_8k, 1000, 8192, ChecksumAlgorithm::Crc32c);
     let mut target_page1 = vec![0u8; 8192];
     BigEndian::write_u32(&mut target_page1[FIL_PAGE_OFFSET..], 1);
     BigEndian::write_u64(&mut target_page1[FIL_PAGE_LSN..], 2000);

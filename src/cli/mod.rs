@@ -60,8 +60,8 @@ pub mod parse;
 pub mod recover;
 pub mod repair;
 pub mod schema;
-pub mod transplant;
 pub mod sdi;
+pub mod transplant;
 pub mod tsid;
 pub mod watch;
 

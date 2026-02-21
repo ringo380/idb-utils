@@ -591,11 +591,11 @@ fn format_text(col: &DdColumn) -> String {
 /// Returns max bytes per character for a collation ID.
 fn charset_max_bytes(collation_id: u64) -> u64 {
     match collation_id {
-        2 | 8 | 11 | 47 | 48 => 1,   // latin1, latin2, ascii
-        33 | 83 => 3,                   // utf8mb3
-        45 | 46 | 224 | 255 => 4,      // utf8mb4
-        63 => 1,                        // binary
-        _ => 4, // default to utf8mb4
+        2 | 8 | 11 | 47 | 48 => 1, // latin1, latin2, ascii
+        33 | 83 => 3,              // utf8mb3
+        45 | 46 | 224 | 255 => 4,  // utf8mb4
+        63 => 1,                   // binary
+        _ => 4,                    // default to utf8mb4
     }
 }
 
@@ -704,7 +704,11 @@ pub fn extract_schema_from_sdi(sdi_json: &str) -> Result<TableSchema, IdbError> 
     // Excludes hidden=2 (HT_HIDDEN_SE: DB_TRX_ID, DB_ROLL_PTR, DB_ROW_ID)
     //      and hidden=3 (HT_HIDDEN_SQL: functional index backing columns)
     let visible_columns: Vec<&DdColumn> = {
-        let mut cols: Vec<&DdColumn> = all_columns.iter().copied().filter(|c| c.hidden == 1 || c.hidden == 4).collect();
+        let mut cols: Vec<&DdColumn> = all_columns
+            .iter()
+            .copied()
+            .filter(|c| c.hidden == 1 || c.hidden == 4)
+            .collect();
         cols.sort_by_key(|c| c.ordinal_position);
         cols
     };
@@ -848,14 +852,24 @@ fn build_index_def(idx: &DdIndex, columns: &HashMap<u64, &DdColumn>) -> IndexDef
                 // characters for comparison and DDL output.
                 let col = columns.get(&e.column_opx);
                 let full_len = col.map(|c| c.char_length).unwrap_or(0);
-                let max_bytes = col
-                    .map(|c| charset_max_bytes(c.collation_id))
-                    .unwrap_or(4);
-                let full_char_len = if max_bytes > 0 { full_len / max_bytes } else { full_len };
+                let max_bytes = col.map(|c| charset_max_bytes(c.collation_id)).unwrap_or(4);
+                let full_char_len = if max_bytes > 0 {
+                    full_len / max_bytes
+                } else {
+                    full_len
+                };
                 if e.length < full_char_len {
                     // Convert byte-based e.length to characters for DDL
-                    let prefix_chars = if max_bytes > 0 { e.length / max_bytes } else { e.length };
-                    if prefix_chars > 0 { Some(prefix_chars) } else { Some(e.length) }
+                    let prefix_chars = if max_bytes > 0 {
+                        e.length / max_bytes
+                    } else {
+                        e.length
+                    };
+                    if prefix_chars > 0 {
+                        Some(prefix_chars)
+                    } else {
+                        Some(e.length)
+                    }
                 } else {
                     None
                 }
@@ -1008,7 +1022,10 @@ fn format_column_ddl(col: &ColumnDef) -> String {
         } else {
             "STORED"
         };
-        parts.push(format!("GENERATED ALWAYS AS ({}) {}", expr, stored_or_virtual));
+        parts.push(format!(
+            "GENERATED ALWAYS AS ({}) {}",
+            expr, stored_or_virtual
+        ));
     }
 
     if col.is_invisible {
@@ -1040,7 +1057,8 @@ fn format_index_ddl(idx: &IndexDef) -> String {
     match idx.index_type.as_str() {
         "PRIMARY KEY" => format!("  PRIMARY KEY ({}){}{}", cols, comment, visibility),
         _ => format!(
-            "  {} `{}` ({}){}{}", idx.index_type, idx.name, cols, comment, visibility
+            "  {} `{}` ({}){}{}",
+            idx.index_type, idx.name, cols, comment, visibility
         ),
     }
 }
@@ -1349,7 +1367,9 @@ mod tests {
         assert_eq!(schema.indexes[1].index_type, "UNIQUE KEY");
         assert_eq!(schema.indexes[1].name, "idx_email");
         assert!(schema.ddl.contains("CREATE TABLE `users`"));
-        assert!(schema.ddl.contains("`id` int unsigned NOT NULL AUTO_INCREMENT"));
+        assert!(schema
+            .ddl
+            .contains("`id` int unsigned NOT NULL AUTO_INCREMENT"));
         assert!(schema.ddl.contains("PRIMARY KEY (`id`)"));
         assert!(schema.ddl.contains("UNIQUE KEY `idx_email` (`email`)"));
     }
@@ -1463,7 +1483,9 @@ mod tests {
         let tax = &schema.columns[1];
         assert_eq!(tax.generation_expression, Some("`price` * 0.1".to_string()));
         assert_eq!(tax.is_virtual, Some(true));
-        assert!(schema.ddl.contains("GENERATED ALWAYS AS (`price` * 0.1) VIRTUAL"));
+        assert!(schema
+            .ddl
+            .contains("GENERATED ALWAYS AS (`price` * 0.1) VIRTUAL"));
     }
 
     #[test]

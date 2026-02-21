@@ -13,7 +13,14 @@ const PAGE_SIZE: u32 = 16384;
 const PS: usize = PAGE_SIZE as usize;
 
 fn build_fsp_hdr_page(space_id: u32, total_pages: u32) -> Vec<u8> {
-    write::build_fsp_page(space_id, total_pages, 0, 1000, PAGE_SIZE, ChecksumAlgorithm::Crc32c)
+    write::build_fsp_page(
+        space_id,
+        total_pages,
+        0,
+        1000,
+        PAGE_SIZE,
+        ChecksumAlgorithm::Crc32c,
+    )
 }
 
 fn build_index_page(page_num: u32, space_id: u32, lsn: u64) -> Vec<u8> {
@@ -78,7 +85,11 @@ fn test_repair_fixes_bad_checksums() {
     // Verify all pages are now valid
     for i in 0..4 {
         let page = write::read_page_raw(path, i, PAGE_SIZE).unwrap();
-        assert!(validate_checksum(&page, PAGE_SIZE, None).valid, "Page {} invalid after repair", i);
+        assert!(
+            validate_checksum(&page, PAGE_SIZE, None).valid,
+            "Page {} invalid after repair",
+            i
+        );
     }
 }
 

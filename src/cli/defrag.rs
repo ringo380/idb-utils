@@ -84,7 +84,9 @@ pub fn execute(opts: &DefragOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     let page0_data = if ps <= all_data.len() {
         &all_data[..ps]
     } else {
-        return Err(IdbError::Parse("File too small to contain page 0".to_string()));
+        return Err(IdbError::Parse(
+            "File too small to contain page 0".to_string(),
+        ));
     };
 
     let space_id = BigEndian::read_u32(&page0_data[FIL_PAGE_SPACE_ID..]);
@@ -282,7 +284,12 @@ pub fn execute(opts: &DefragOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     } else {
         wprintln!(writer)?;
         wprintln!(writer, "Defrag Summary:")?;
-        wprintln!(writer, "  Source:          {} ({} pages)", opts.file, page_count)?;
+        wprintln!(
+            writer,
+            "  Source:          {} ({} pages)",
+            opts.file,
+            page_count
+        )?;
         wprintln!(
             writer,
             "  Output:          {} ({} pages)",

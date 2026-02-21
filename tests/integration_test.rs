@@ -5234,7 +5234,11 @@ fn test_schema_mysql90_standard_extracts_ddl() {
     let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
 
     let table_records: Vec<_> = records.iter().filter(|r| r.sdi_type == 1).collect();
-    assert_eq!(table_records.len(), 1, "should have exactly one Table SDI record");
+    assert_eq!(
+        table_records.len(),
+        1,
+        "should have exactly one Table SDI record"
+    );
 
     let schema = extract_schema_from_sdi(&table_records[0].data).expect("parse schema");
     assert_eq!(schema.table_name, "standard");
@@ -5317,14 +5321,20 @@ fn test_schema_compressed_falls_back_to_inference() {
     let mut ts = Tablespace::open(&path).expect("open");
 
     let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
-    assert!(sdi_pages.is_empty(), "compressed fixture should have no SDI pages");
+    assert!(
+        sdi_pages.is_empty(),
+        "compressed fixture should have no SDI pages"
+    );
 
     let inferred = infer_schema_from_pages(&mut ts).expect("infer schema");
     assert!(
         inferred.source.contains("Inferred"),
         "source should indicate inference"
     );
-    assert!(!inferred.indexes.is_empty(), "should detect at least one index");
+    assert!(
+        !inferred.indexes.is_empty(),
+        "should detect at least one index"
+    );
 }
 
 #[test]
@@ -5343,9 +5353,18 @@ fn test_schema_cli_default_output() {
     idb::cli::schema::execute(&opts, &mut out).expect("execute schema");
     let output = String::from_utf8(out).expect("valid utf8");
 
-    assert!(output.contains("CREATE TABLE `standard`"), "should contain DDL");
-    assert!(output.contains("-- Table:"), "should contain table comment header");
-    assert!(output.contains("-- Source: SDI"), "should contain source header");
+    assert!(
+        output.contains("CREATE TABLE `standard`"),
+        "should contain DDL"
+    );
+    assert!(
+        output.contains("-- Table:"),
+        "should contain table comment header"
+    );
+    assert!(
+        output.contains("-- Source: SDI"),
+        "should contain source header"
+    );
 }
 
 #[test]
@@ -5387,11 +5406,20 @@ fn test_schema_cli_verbose_output() {
     idb::cli::schema::execute(&opts, &mut out).expect("execute schema -v");
     let output = String::from_utf8(out).expect("valid utf8");
 
-    assert!(output.contains("Schema:"), "verbose should show schema name");
+    assert!(
+        output.contains("Schema:"),
+        "verbose should show schema name"
+    );
     assert!(output.contains("Table:"), "verbose should show table name");
     assert!(output.contains("Engine:"), "verbose should show engine");
-    assert!(output.contains("Columns (3):"), "verbose should show column count");
-    assert!(output.contains("Indexes (1):"), "verbose should show index count");
+    assert!(
+        output.contains("Columns (3):"),
+        "verbose should show column count"
+    );
+    assert!(
+        output.contains("Indexes (1):"),
+        "verbose should show index count"
+    );
     assert!(output.contains("DDL:"), "verbose should show DDL header");
 }
 

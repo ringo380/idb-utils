@@ -44,8 +44,12 @@ pub fn execute(opts: &SchemaOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     if ts.vendor_info().vendor == crate::innodb::vendor::InnoDbVendor::MariaDB {
         let inferred = schema::infer_schema_from_pages(&mut ts)?;
         if opts.json {
-            wprintln!(writer, "{}", serde_json::to_string_pretty(&inferred)
-                .map_err(|e| IdbError::Parse(e.to_string()))?)?;
+            wprintln!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&inferred)
+                    .map_err(|e| IdbError::Parse(e.to_string()))?
+            )?;
         } else {
             print_inferred_text(writer, &inferred)?;
         }
@@ -59,8 +63,12 @@ pub fn execute(opts: &SchemaOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         // Pre-8.0 fallback
         let inferred = schema::infer_schema_from_pages(&mut ts)?;
         if opts.json {
-            wprintln!(writer, "{}", serde_json::to_string_pretty(&inferred)
-                .map_err(|e| IdbError::Parse(e.to_string()))?)?;
+            wprintln!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&inferred)
+                    .map_err(|e| IdbError::Parse(e.to_string()))?
+            )?;
         } else {
             print_inferred_text(writer, &inferred)?;
         }
@@ -82,8 +90,12 @@ pub fn execute(opts: &SchemaOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         let table_schema = schema::extract_schema_from_sdi(&rec.data)?;
 
         if opts.json {
-            wprintln!(writer, "{}", serde_json::to_string_pretty(&table_schema)
-                .map_err(|e| IdbError::Parse(e.to_string()))?)?;
+            wprintln!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&table_schema)
+                    .map_err(|e| IdbError::Parse(e.to_string()))?
+            )?;
         } else if opts.verbose {
             print_verbose_text(writer, &table_schema)?;
         } else {
@@ -142,7 +154,12 @@ fn print_verbose_text(writer: &mut dyn Write, schema: &TableSchema) -> Result<()
     wprintln!(writer)?;
     wprintln!(writer, "Columns ({}):", schema.columns.len())?;
     for (i, col) in schema.columns.iter().enumerate() {
-        let mut parts = vec![format!("  {}. {:<16} {:<20}", i + 1, col.name, col.column_type)];
+        let mut parts = vec![format!(
+            "  {}. {:<16} {:<20}",
+            i + 1,
+            col.name,
+            col.column_type
+        )];
         if !col.is_nullable {
             parts.push("NOT NULL".to_string());
         }
@@ -150,7 +167,11 @@ fn print_verbose_text(writer: &mut dyn Write, schema: &TableSchema) -> Result<()
             parts.push("AUTO_INCREMENT".to_string());
         }
         if let Some(ref expr) = col.generation_expression {
-            let kind = if col.is_virtual == Some(true) { "VIRTUAL" } else { "STORED" };
+            let kind = if col.is_virtual == Some(true) {
+                "VIRTUAL"
+            } else {
+                "STORED"
+            };
             parts.push(format!("AS ({}) {}", expr, kind));
         }
         if col.is_invisible {
@@ -164,21 +185,31 @@ fn print_verbose_text(writer: &mut dyn Write, schema: &TableSchema) -> Result<()
         wprintln!(writer)?;
         wprintln!(writer, "Indexes ({}):", schema.indexes.len())?;
         for idx in &schema.indexes {
-            let cols: Vec<String> = idx.columns.iter().map(|c| {
-                let mut s = c.name.clone();
-                if let Some(len) = c.prefix_length {
-                    s.push_str(&format!("({})", len));
-                }
-                if let Some(ref ord) = c.order {
-                    s.push(' ');
-                    s.push_str(ord);
-                }
-                s
-            }).collect();
+            let cols: Vec<String> = idx
+                .columns
+                .iter()
+                .map(|c| {
+                    let mut s = c.name.clone();
+                    if let Some(len) = c.prefix_length {
+                        s.push_str(&format!("({})", len));
+                    }
+                    if let Some(ref ord) = c.order {
+                        s.push(' ');
+                        s.push_str(ord);
+                    }
+                    s
+                })
+                .collect();
             if idx.index_type == "PRIMARY KEY" {
                 wprintln!(writer, "  {} ({})", idx.index_type, cols.join(", "))?;
             } else {
-                wprintln!(writer, "  {} {} ({})", idx.index_type, idx.name, cols.join(", "))?;
+                wprintln!(
+                    writer,
+                    "  {} {} ({})",
+                    idx.index_type,
+                    idx.name,
+                    cols.join(", ")
+                )?;
             }
         }
     }

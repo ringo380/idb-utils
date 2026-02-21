@@ -717,16 +717,12 @@ fn execute_rebuild(
                 let offset = a.page_number as usize * ps;
                 if offset + ps <= all_data.len() {
                     let page_data = &all_data[offset..offset + ps];
-                    space_id = BigEndian::read_u32(
-                        &page_data[FIL_PAGE_SPACE_ID..],
-                    );
+                    space_id = BigEndian::read_u32(&page_data[FIL_PAGE_SPACE_ID..]);
                     // Read flags from page 0 if this is page 0
                     if a.page_number == 0 {
                         let fsp = FIL_PAGE_DATA;
                         if page_data.len() > fsp + FSP_SPACE_FLAGS + 4 {
-                            flags = BigEndian::read_u32(
-                                &page_data[fsp + FSP_SPACE_FLAGS..],
-                            );
+                            flags = BigEndian::read_u32(&page_data[fsp + FSP_SPACE_FLAGS..]);
                         }
                     }
                     found_metadata = true;
@@ -818,7 +814,12 @@ fn execute_rebuild(
         wprintln!(writer, "Rebuild Output: {}", output_path)?;
         wprintln!(writer, "  Pages written:    {}", pages_written)?;
         wprintln!(writer, "  Pages skipped:    {}", skipped)?;
-        wprintln!(writer, "  Post-validation:  {}/{} valid checksums", valid_count, output_count)?;
+        wprintln!(
+            writer,
+            "  Post-validation:  {}/{} valid checksums",
+            valid_count,
+            output_count
+        )?;
         if valid_count < output_count {
             wprintln!(writer, "  Warning: some pages still have invalid checksums")?;
         }
