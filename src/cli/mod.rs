@@ -26,6 +26,7 @@
 //! | `inno find` | [`find`] | Search a MySQL data directory for pages matching a page number |
 //! | `inno tsid` | [`tsid`] | List or look up tablespace (space) IDs across `.ibd`/`.ibu` files |
 //! | `inno sdi` | [`sdi`] | Extract SDI metadata (MySQL 8.0+ serialized data dictionary) |
+//! | `inno schema` | [`schema`] | Extract schema and reconstruct DDL from tablespace metadata |
 //! | `inno log` | [`log`] | Analyze redo log file headers, checkpoints, and data blocks |
 //! | `inno info` | [`info`] | Inspect `ibdata1`, compare LSNs, or query a live MySQL instance |
 //!
@@ -58,6 +59,7 @@ pub mod pages;
 pub mod parse;
 pub mod recover;
 pub mod repair;
+pub mod schema;
 pub mod transplant;
 pub mod sdi;
 pub mod tsid;

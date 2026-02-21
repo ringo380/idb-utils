@@ -34,6 +34,7 @@
 //! | [`inno find`](cli::app::Commands::Find) | Search data directory for pages by number |
 //! | [`inno tsid`](cli::app::Commands::Tsid) | List or find tablespace IDs |
 //! | [`inno sdi`](cli::app::Commands::Sdi) | Extract SDI metadata (MySQL 8.0+) |
+//! | [`inno schema`](cli::app::Commands::Schema) | Extract schema and reconstruct DDL from SDI |
 //! | [`inno log`](cli::app::Commands::Log) | Analyze InnoDB redo log files |
 //! | [`inno info`](cli::app::Commands::Info) | Inspect ibdata1, compare LSNs, query MySQL |
 //!

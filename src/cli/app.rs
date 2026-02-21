@@ -310,6 +310,40 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Extract schema and reconstruct DDL from tablespace metadata
+    ///
+    /// Reads SDI (Serialized Dictionary Information) from MySQL 8.0+
+    /// tablespaces, parses the embedded data dictionary JSON into typed
+    /// column, index, and foreign key definitions, and reconstructs a
+    /// complete `CREATE TABLE` DDL statement. For pre-8.0 tablespaces
+    /// that lack SDI, scans INDEX pages to infer basic index structure
+    /// and record format (compact vs. redundant).
+    ///
+    /// Use `--verbose` for a structured breakdown of columns, indexes,
+    /// and foreign keys above the DDL. Use `--json` for machine-readable
+    /// output including the full schema definition and DDL as a JSON object.
+    Schema {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Show structured schema breakdown above the DDL
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Analyze InnoDB redo log files
     ///
     /// Opens an InnoDB redo log file (`ib_logfile0`/`ib_logfile1` for
