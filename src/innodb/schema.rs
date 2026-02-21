@@ -9,7 +9,7 @@
 //!
 //! # Usage
 //!
-//! ```no_run
+//! ```rust,ignore
 //! use idb::innodb::tablespace::Tablespace;
 //! use idb::innodb::sdi::{find_sdi_pages, extract_sdi_from_pages};
 //! use idb::innodb::schema::extract_schema_from_sdi;

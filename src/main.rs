@@ -208,7 +208,7 @@ fn main() {
             page_size,
             keyring,
         } => cli::schema::execute(
-            &cli::schema::SchemaOptions {
+            &cli::schema::Options {
                 file,
                 verbose,
                 json,
