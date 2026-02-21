@@ -181,7 +181,7 @@ pub struct DdIndex {
     /// Index type: 1=PRIMARY, 2=UNIQUE, 3=MULTIPLE (non-unique), 4=FULLTEXT, 5=SPATIAL.
     #[serde(rename = "type", default)]
     pub index_type: u64,
-    /// Algorithm code (1=BTREE default, 2=BTREE explicit, 3=HASH, 4=RTREE, 5=FULLTEXT).
+    /// Algorithm code (1=SE_SPECIFIC, 2=BTREE, 3=RTREE, 4=HASH, 5=FULLTEXT).
     #[serde(default)]
     pub algorithm: u64,
     /// Whether the index is hidden.
