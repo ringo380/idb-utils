@@ -5330,7 +5330,7 @@ fn test_schema_compressed_falls_back_to_inference() {
 #[test]
 fn test_schema_cli_default_output() {
     let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
-    let opts = idb::cli::schema::Options {
+    let opts = idb::cli::schema::SchemaOptions {
         file: path,
         verbose: false,
         json: false,
@@ -5351,7 +5351,7 @@ fn test_schema_cli_default_output() {
 #[test]
 fn test_schema_cli_json_output() {
     let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
-    let opts = idb::cli::schema::Options {
+    let opts = idb::cli::schema::SchemaOptions {
         file: path,
         verbose: false,
         json: true,
@@ -5374,7 +5374,7 @@ fn test_schema_cli_json_output() {
 #[test]
 fn test_schema_cli_verbose_output() {
     let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
-    let opts = idb::cli::schema::Options {
+    let opts = idb::cli::schema::SchemaOptions {
         file: path,
         verbose: true,
         json: false,

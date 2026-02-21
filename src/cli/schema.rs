@@ -12,7 +12,7 @@ use crate::innodb::sdi;
 use crate::IdbError;
 
 /// Options for the `inno schema` subcommand.
-pub struct Options {
+pub struct SchemaOptions {
     /// Path to the InnoDB tablespace file (.ibd).
     pub file: String,
     /// Show additional structured details above the DDL.
@@ -33,7 +33,7 @@ pub struct Options {
 /// parses it into typed structs, and generates `CREATE TABLE` DDL. For
 /// pre-8.0 tablespaces without SDI, scans INDEX pages to infer basic
 /// index structure.
-pub fn execute(opts: &Options, writer: &mut dyn Write) -> Result<(), IdbError> {
+pub fn execute(opts: &SchemaOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
@@ -42,12 +42,11 @@ pub fn execute(opts: &Options, writer: &mut dyn Write) -> Result<(), IdbError> {
 
     // MariaDB does not use SDI
     if ts.vendor_info().vendor == crate::innodb::vendor::InnoDbVendor::MariaDB {
+        let inferred = schema::infer_schema_from_pages(&mut ts)?;
         if opts.json {
-            let inferred = schema::infer_schema_from_pages(&mut ts)?;
             wprintln!(writer, "{}", serde_json::to_string_pretty(&inferred)
                 .map_err(|e| IdbError::Parse(e.to_string()))?)?;
         } else {
-            let inferred = schema::infer_schema_from_pages(&mut ts)?;
             print_inferred_text(writer, &inferred)?;
         }
         return Ok(());

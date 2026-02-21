@@ -81,7 +81,7 @@ pub struct DdTable {
     /// MySQL server version ID.
     #[serde(default)]
     pub mysql_version_id: u64,
-    /// Table hidden flag (1=visible for tables).
+    /// Table visibility type: 1=visible (normal table), 2=hidden (system table).
     #[serde(default)]
     pub hidden: u64,
 }
@@ -200,7 +200,7 @@ pub struct DdIndex {
 /// Data dictionary index element (column reference).
 #[derive(Debug, Default, Deserialize)]
 pub struct DdIndexElement {
-    /// 0-based index into the columns array.
+    /// 0-based index into the columns array as ordered in the SDI JSON.
     #[serde(default)]
     pub column_opx: u64,
     /// Prefix length (4294967295 = full column).
@@ -240,7 +240,7 @@ pub struct DdForeignKey {
 /// Data dictionary foreign key element (column mapping).
 #[derive(Debug, Default, Deserialize)]
 pub struct DdForeignKeyElement {
-    /// 0-based index into the table's columns array.
+    /// 0-based index into the table's columns array as ordered in the SDI JSON.
     #[serde(default)]
     pub column_opx: u64,
     /// Name of the referenced column.
@@ -695,8 +695,8 @@ pub fn extract_schema_from_sdi(sdi_json: &str) -> Result<TableSchema, IdbError> 
         cols
     };
 
-    // Build index from ordinal_position to column (for column_opx lookups)
-    // column_opx is a 0-based index into the columns array as ordered in the JSON
+    // Build lookup from JSON array position to column (for column_opx lookups).
+    // column_opx is a 0-based index into the columns array as ordered in the JSON.
     let column_by_index: HashMap<u64, &DdColumn> = dd
         .columns
         .iter()
