@@ -18,6 +18,7 @@
 //! | [`checksum`] | CRC-32C and legacy InnoDB checksum validation |
 //! | [`index`] | INDEX page internals — B+Tree header, FSEG, system records |
 //! | [`record`] | Row-level record parsing — compact format, variable-length fields |
+//! | [`schema`] | Schema extraction and DDL reconstruction from SDI metadata |
 //! | [`sdi`] | SDI metadata extraction from MySQL 8.0+ tablespaces |
 //! | [`log`] | Redo log file header, checkpoints, and data block parsing |
 //! | [`undo`] | UNDO log page header and segment header parsing |
@@ -41,6 +42,7 @@ pub mod log;
 pub mod page;
 pub mod page_types;
 pub mod record;
+pub mod schema;
 pub mod sdi;
 pub mod tablespace;
 pub mod undo;

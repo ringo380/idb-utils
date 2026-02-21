@@ -5217,3 +5217,228 @@ fn test_streaming_single_page_mode_ignored() {
         result.err()
     );
 }
+
+// ============================================================
+// Schema extraction (inno schema)
+// ============================================================
+
+#[test]
+fn test_schema_mysql90_standard_extracts_ddl() {
+    use idb::innodb::schema::extract_schema_from_sdi;
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+
+    let table_records: Vec<_> = records.iter().filter(|r| r.sdi_type == 1).collect();
+    assert_eq!(
+        table_records.len(),
+        1,
+        "should have exactly one Table SDI record"
+    );
+
+    let schema = extract_schema_from_sdi(&table_records[0].data).expect("parse schema");
+    assert_eq!(schema.table_name, "standard");
+    assert_eq!(schema.schema_name, Some("fixtures".to_string()));
+    assert_eq!(schema.engine, "InnoDB");
+    assert_eq!(schema.source, "sdi");
+    assert_eq!(schema.mysql_version, Some("9.0.1".to_string()));
+
+    // Should have 3 visible columns (id, name, data) — DB_TRX_ID/DB_ROLL_PTR filtered
+    assert_eq!(schema.columns.len(), 3);
+    assert_eq!(schema.columns[0].name, "id");
+    assert_eq!(schema.columns[0].column_type, "int");
+    assert!(schema.columns[0].is_auto_increment);
+    assert!(!schema.columns[0].is_nullable);
+    assert_eq!(schema.columns[1].name, "name");
+    assert_eq!(schema.columns[1].column_type, "varchar(100)");
+    assert!(schema.columns[1].is_nullable);
+    assert_eq!(schema.columns[2].name, "data");
+    assert_eq!(schema.columns[2].column_type, "text");
+
+    // Should have PRIMARY KEY index
+    assert_eq!(schema.indexes.len(), 1);
+    assert_eq!(schema.indexes[0].index_type, "PRIMARY KEY");
+    assert_eq!(schema.indexes[0].columns.len(), 1);
+    assert_eq!(schema.indexes[0].columns[0].name, "id");
+
+    // DDL should be valid
+    assert!(schema.ddl.contains("CREATE TABLE `standard`"));
+    assert!(schema.ddl.contains("PRIMARY KEY (`id`)"));
+    assert!(schema.ddl.contains("ENGINE=InnoDB"));
+}
+
+#[test]
+fn test_schema_mysql91_standard_extracts_ddl() {
+    use idb::innodb::schema::extract_schema_from_sdi;
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = format!("{}/mysql91_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+
+    let table_records: Vec<_> = records.iter().filter(|r| r.sdi_type == 1).collect();
+    assert!(!table_records.is_empty(), "should have Table SDI record");
+
+    let schema = extract_schema_from_sdi(&table_records[0].data).expect("parse schema");
+    assert_eq!(schema.table_name, "standard");
+    assert_eq!(schema.mysql_version, Some("9.1.0".to_string()));
+    assert_eq!(schema.columns.len(), 3);
+}
+
+#[test]
+fn test_schema_percona84_standard_extracts_ddl() {
+    use idb::innodb::schema::extract_schema_from_sdi;
+    use idb::innodb::sdi::{extract_sdi_from_pages, find_sdi_pages};
+
+    let path = "tests/fixtures/percona/percona84_standard.ibd";
+    let mut ts = Tablespace::open(path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    let records = extract_sdi_from_pages(&mut ts, &sdi_pages).expect("extract SDI");
+
+    let table_records: Vec<_> = records.iter().filter(|r| r.sdi_type == 1).collect();
+    assert!(!table_records.is_empty(), "should have Table SDI record");
+
+    let schema = extract_schema_from_sdi(&table_records[0].data).expect("parse schema");
+    assert_eq!(schema.table_name, "standard");
+    assert_eq!(schema.engine, "InnoDB");
+    assert_eq!(schema.columns.len(), 3);
+    assert!(schema.ddl.contains("CREATE TABLE `standard`"));
+}
+
+#[test]
+fn test_schema_compressed_falls_back_to_inference() {
+    use idb::innodb::schema::infer_schema_from_pages;
+    use idb::innodb::sdi::find_sdi_pages;
+
+    let path = format!("{}/mysql90_compressed.ibd", MYSQL9_FIXTURE_DIR);
+    let mut ts = Tablespace::open(&path).expect("open");
+
+    let sdi_pages = find_sdi_pages(&mut ts).expect("find SDI pages");
+    assert!(
+        sdi_pages.is_empty(),
+        "compressed fixture should have no SDI pages"
+    );
+
+    let inferred = infer_schema_from_pages(&mut ts).expect("infer schema");
+    assert!(
+        inferred.source.contains("Inferred"),
+        "source should indicate inference"
+    );
+    assert!(
+        !inferred.indexes.is_empty(),
+        "should detect at least one index"
+    );
+}
+
+#[test]
+fn test_schema_cli_default_output() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let opts = idb::cli::schema::SchemaOptions {
+        file: path,
+        verbose: false,
+        json: false,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::schema::execute(&opts, &mut out).expect("execute schema");
+    let output = String::from_utf8(out).expect("valid utf8");
+
+    assert!(
+        output.contains("CREATE TABLE `standard`"),
+        "should contain DDL"
+    );
+    assert!(
+        output.contains("-- Table:"),
+        "should contain table comment header"
+    );
+    assert!(
+        output.contains("-- Source: SDI"),
+        "should contain source header"
+    );
+}
+
+#[test]
+fn test_schema_cli_json_output() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let opts = idb::cli::schema::SchemaOptions {
+        file: path,
+        verbose: false,
+        json: true,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::schema::execute(&opts, &mut out).expect("execute schema --json");
+    let output = String::from_utf8(out).expect("valid utf8");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(output.trim()).expect("should produce valid JSON");
+    assert_eq!(parsed["table_name"], "standard");
+    assert_eq!(parsed["source"], "sdi");
+    assert!(parsed["ddl"].as_str().unwrap().contains("CREATE TABLE"));
+}
+
+#[test]
+fn test_schema_cli_verbose_output() {
+    let path = format!("{}/mysql90_standard.ibd", MYSQL9_FIXTURE_DIR);
+    let opts = idb::cli::schema::SchemaOptions {
+        file: path,
+        verbose: true,
+        json: false,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+
+    let mut out = Vec::new();
+    idb::cli::schema::execute(&opts, &mut out).expect("execute schema -v");
+    let output = String::from_utf8(out).expect("valid utf8");
+
+    assert!(
+        output.contains("Schema:"),
+        "verbose should show schema name"
+    );
+    assert!(output.contains("Table:"), "verbose should show table name");
+    assert!(output.contains("Engine:"), "verbose should show engine");
+    assert!(
+        output.contains("Columns (3):"),
+        "verbose should show column count"
+    );
+    assert!(
+        output.contains("Indexes (1):"),
+        "verbose should show index count"
+    );
+    assert!(output.contains("DDL:"), "verbose should show DDL header");
+}
+
+#[test]
+fn test_schema_pre80_inference_synthetic() {
+    use idb::innodb::schema::infer_schema_from_pages;
+
+    // Build a synthetic tablespace with 2 INDEX pages
+    let page0 = build_fsp_hdr_page(100, 4);
+    let page1 = build_index_page(1, 100, 2000);
+    let page2 = build_index_page(2, 100, 3000);
+    let page3 = build_allocated_page(3, 100);
+
+    let tmp = write_tablespace(&[page0, page1, page2, page3]);
+    let mut ts = Tablespace::open(tmp.path()).expect("open synthetic");
+
+    let inferred = infer_schema_from_pages(&mut ts).expect("infer schema");
+    assert_eq!(inferred.record_format, "COMPACT");
+    assert_eq!(inferred.indexes.len(), 1, "should detect one index");
+    assert_eq!(inferred.indexes[0].index_id, 42); // from build_index_page
+    assert_eq!(inferred.indexes[0].leaf_pages, 2);
+}

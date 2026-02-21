@@ -4,9 +4,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::cli::{create_progress_bar, wprintln};
-use crate::innodb::checksum::{
-    validate_checksum, validate_lsn, ChecksumAlgorithm,
-};
+use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::write;
 use crate::IdbError;
 
@@ -191,7 +189,11 @@ pub fn execute(opts: &RepairOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         repaired += 1;
 
         if opts.verbose && !opts.json {
-            let action = if opts.dry_run { "would repair" } else { "repaired" };
+            let action = if opts.dry_run {
+                "would repair"
+            } else {
+                "repaired"
+            };
             let mut detail = format!(
                 "Page {:>4}: {} (0x{:08X} -> 0x{:08X})",
                 page_num, action, old_checksum, new_checksum
@@ -247,7 +249,11 @@ pub fn execute(opts: &RepairOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         wprintln!(writer, "  Total pages:   {:>4}", scan_count)?;
         wprintln!(writer, "  Already valid: {:>4}", already_valid)?;
         if repaired > 0 {
-            let label = if opts.dry_run { "Would repair" } else { "Repaired" };
+            let label = if opts.dry_run {
+                "Would repair"
+            } else {
+                "Repaired"
+            };
             wprintln!(
                 writer,
                 "  {}:     {:>4}",

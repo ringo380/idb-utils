@@ -330,7 +330,11 @@ pub fn execute(opts: &TransplantOptions, writer: &mut dyn Write) -> Result<(), I
             wprintln!(writer, "  Transplanted: 0")?;
         }
         if skipped > 0 {
-            wprintln!(writer, "  Skipped:      {}", format!("{}", skipped).yellow())?;
+            wprintln!(
+                writer,
+                "  Skipped:      {}",
+                format!("{}", skipped).yellow()
+            )?;
         } else {
             wprintln!(writer, "  Skipped:      0")?;
         }

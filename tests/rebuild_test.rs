@@ -5,7 +5,7 @@ use byteorder::{BigEndian, ByteOrder};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
-use idb::innodb::checksum::{validate_checksum, recalculate_checksum, ChecksumAlgorithm};
+use idb::innodb::checksum::{recalculate_checksum, validate_checksum, ChecksumAlgorithm};
 use idb::innodb::constants::*;
 use idb::innodb::tablespace::Tablespace;
 use idb::innodb::write;

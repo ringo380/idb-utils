@@ -13,9 +13,7 @@ use std::path::{Path, PathBuf};
 
 use byteorder::{BigEndian, ByteOrder};
 
-use crate::innodb::checksum::{
-    recalculate_checksum, validate_checksum, ChecksumAlgorithm,
-};
+use crate::innodb::checksum::{recalculate_checksum, validate_checksum, ChecksumAlgorithm};
 use crate::innodb::constants::*;
 use crate::innodb::vendor::VendorInfo;
 use crate::IdbError;
@@ -36,15 +34,17 @@ pub fn create_backup(path: &str) -> Result<PathBuf, IdbError> {
         backup_path = PathBuf::from(format!("{}.bak.{}", path, counter));
         counter += 1;
         if counter > 999 {
-            return Err(IdbError::Io(format!(
-                "Too many backup files for {}",
-                path
-            )));
+            return Err(IdbError::Io(format!("Too many backup files for {}", path)));
         }
     }
 
-    fs::copy(src, &backup_path)
-        .map_err(|e| IdbError::Io(format!("Cannot create backup {}: {}", backup_path.display(), e)))?;
+    fs::copy(src, &backup_path).map_err(|e| {
+        IdbError::Io(format!(
+            "Cannot create backup {}: {}",
+            backup_path.display(),
+            e
+        ))
+    })?;
 
     Ok(backup_path)
 }
@@ -54,8 +54,8 @@ pub fn create_backup(path: &str) -> Result<PathBuf, IdbError> {
 /// Returns a `Vec<u8>` of exactly `page_size` bytes.
 pub fn read_page_raw(path: &str, page_num: u64, page_size: u32) -> Result<Vec<u8>, IdbError> {
     let offset = page_num * page_size as u64;
-    let mut f = File::open(path)
-        .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
+    let mut f =
+        File::open(path).map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
     f.seek(SeekFrom::Start(offset))
         .map_err(|e| IdbError::Io(format!("Cannot seek to offset {}: {}", offset, e)))?;
     let mut buf = vec![0u8; page_size as usize];
@@ -91,8 +91,8 @@ pub fn write_page(path: &str, page_num: u64, page_size: u32, data: &[u8]) -> Res
 ///
 /// Creates (or truncates) the file at `path` and writes each page in order.
 pub fn write_tablespace(path: &str, pages: &[Vec<u8>]) -> Result<(), IdbError> {
-    let mut f = File::create(path)
-        .map_err(|e| IdbError::Io(format!("Cannot create {}: {}", path, e)))?;
+    let mut f =
+        File::create(path).map_err(|e| IdbError::Io(format!("Cannot create {}: {}", path, e)))?;
     for (i, page) in pages.iter().enumerate() {
         f.write_all(page)
             .map_err(|e| IdbError::Io(format!("Cannot write page {}: {}", i, e)))?;
@@ -173,9 +173,7 @@ pub fn fix_page_checksum(
 
     // Read old checksum
     let old_checksum = match algorithm {
-        ChecksumAlgorithm::MariaDbFullCrc32 => {
-            BigEndian::read_u32(&page_data[ps - 4..])
-        }
+        ChecksumAlgorithm::MariaDbFullCrc32 => BigEndian::read_u32(&page_data[ps - 4..]),
         _ => BigEndian::read_u32(&page_data[FIL_PAGE_SPACE_OR_CHKSUM..]),
     };
 
@@ -192,9 +190,7 @@ pub fn fix_page_checksum(
 
     // Read new checksum
     let new_checksum = match algorithm {
-        ChecksumAlgorithm::MariaDbFullCrc32 => {
-            BigEndian::read_u32(&page_data[ps - 4..])
-        }
+        ChecksumAlgorithm::MariaDbFullCrc32 => BigEndian::read_u32(&page_data[ps - 4..]),
         _ => BigEndian::read_u32(&page_data[FIL_PAGE_SPACE_OR_CHKSUM..]),
     };
 

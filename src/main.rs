@@ -201,6 +201,24 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Schema {
+            file,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::schema::execute(
+            &cli::schema::SchemaOptions {
+                file,
+                verbose,
+                json,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
         Commands::Log {
             file,
             blocks,
