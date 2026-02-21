@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`inno repair`** — New subcommand to recalculate and fix corrupt page checksums in-place. Auto-detects the checksum algorithm from page 0 (or accepts `--algorithm crc32c|innodb|full_crc32`). Creates a `.bak` backup by default. Supports `--dry-run` to preview repairs, `--page N` to target a single page, and `--json` for machine-readable output. (Closes #33)
+- **`inno defrag`** — New subcommand to defragment a tablespace by removing empty/corrupt pages, sorting INDEX pages by (index_id, level, page_number), fixing prev/next chain pointers, and writing a clean output file. Always writes to a new file (source is never modified). (Closes #34)
+- **`inno transplant`** — New subcommand to copy specific pages from a donor tablespace into a target. Validates page size and space ID compatibility. Rejects page 0 and corrupt donor pages unless `--force` is used. Creates a target backup by default. Supports `--dry-run` and `--json`. (Closes #37)
+- **`inno recover --rebuild`** — New `--rebuild <path>` option on the recover subcommand. Writes a new tablespace from recoverable pages, building a fresh page 0, renumbering pages sequentially, and recalculating all checksums. Use `--force` to include corrupt pages. (Closes #35)
+- New `src/innodb/write.rs` module with shared write utilities: `create_backup`, `read_page_raw`, `write_page`, `write_tablespace`, `build_fsp_page`, `detect_algorithm`, `fix_page_checksum` (gated with `cfg(not(wasm32))`)
+- `recalculate_checksum()` public function in `innodb::checksum` for writing correct checksums into page buffers
+- `Serialize` derive on `ChecksumAlgorithm` for JSON report output
+- Made `calculate_crc32c`, `calculate_innodb_checksum`, and `calculate_mariadb_full_crc32` public for use by write operations
+- 20 new integration tests across `repair_test.rs` (7), `rebuild_test.rs` (3), `defrag_test.rs` (4), `transplant_test.rs` (6)
+- 11 new unit tests for write utilities and checksum recalculation
+
 ## [2.1.0] - 2026-02-19
 
 ### Added
