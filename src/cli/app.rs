@@ -796,6 +796,61 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Audit a MySQL data directory for integrity, health, or corruption
+    ///
+    /// Scans all `.ibd` files under a data directory and validates checksums,
+    /// computes health metrics, or lists corrupt pages — replacing the need
+    /// to run `inno checksum` or `inno health` file-by-file. Three modes:
+    ///
+    /// **Default (integrity)**: validates checksums across all tablespace files
+    /// and reports per-file pass/fail with a directory-wide integrity percentage.
+    ///
+    /// **`--health`**: computes per-tablespace fill factor, fragmentation, and
+    /// garbage ratio, ranked worst-first. Use `--min-fill-factor` and
+    /// `--max-fragmentation` to filter for unhealthy tablespaces only.
+    ///
+    /// **`--checksum-mismatch`**: compact listing of only corrupt pages with
+    /// stored vs. calculated checksums, suitable for piping to `inno repair`.
+    ///
+    /// `--health` and `--checksum-mismatch` are mutually exclusive.
+    Audit {
+        /// MySQL data directory path
+        #[arg(short, long)]
+        datadir: String,
+
+        /// Show per-tablespace health metrics instead of checksum validation
+        #[arg(long)]
+        health: bool,
+
+        /// List only pages with checksum mismatches (compact output)
+        #[arg(long = "checksum-mismatch")]
+        checksum_mismatch: bool,
+
+        /// Show additional details (per-page results in default mode)
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect per file)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+
+        /// Show tables with fill factor below this threshold (0-100, --health only)
+        #[arg(long = "min-fill-factor")]
+        min_fill_factor: Option<f64>,
+
+        /// Show tables with fragmentation above this threshold (0-100, --health only)
+        #[arg(long = "max-fragmentation")]
+        max_fragmentation: Option<f64>,
+    },
+
     /// Defragment a tablespace by reclaiming free space and reordering pages
     ///
     /// Reads all pages from a source tablespace, removes empty and corrupt

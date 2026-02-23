@@ -4,7 +4,12 @@ CLAUDE.md
 .claude/
 .worktrees/
 docs/book/
-
+.DS_Store
+.env
+.claude-dev-helper/
+.plugin-config/
+IdbHelpers/
+docs/plans/
 
 # Generated WASM output
 npm/pkg/
