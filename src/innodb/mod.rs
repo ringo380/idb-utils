@@ -35,6 +35,8 @@ pub mod compression;
 pub mod constants;
 pub mod decryption;
 pub mod encryption;
+pub mod field_decode;
+pub mod health;
 pub mod index;
 pub mod keyring;
 pub mod lob;

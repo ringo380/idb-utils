@@ -215,6 +215,54 @@ pub enum Commands {
         page_size: Option<u32>,
     },
 
+    /// Export record-level data from a tablespace
+    ///
+    /// Extracts user records from clustered index leaf pages and outputs
+    /// them as CSV, JSON, or raw hex. Uses SDI metadata (MySQL 8.0+) to
+    /// decode field types and column names. Without SDI, falls back to
+    /// hex-only output.
+    ///
+    /// Supported types: integers (TINYINT–BIGINT), FLOAT, DOUBLE,
+    /// DATE, DATETIME, TIMESTAMP, YEAR, VARCHAR, CHAR. Unsupported
+    /// types (DECIMAL, BLOB, JSON, etc.) are exported as hex strings.
+    ///
+    /// Use `--where-delete-mark` to include only delete-marked records
+    /// (useful for forensic recovery). Use `--system-columns` to include
+    /// DB_TRX_ID and DB_ROLL_PTR in the output.
+    Export {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Export records from a specific page only
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Output format: csv, json, or hex
+        #[arg(long, default_value = "csv")]
+        format: String,
+
+        /// Include only delete-marked records
+        #[arg(long = "where-delete-mark")]
+        where_delete_mark: bool,
+
+        /// Include system columns (DB_TRX_ID, DB_ROLL_PTR) in output
+        #[arg(long = "system-columns")]
+        system_columns: bool,
+
+        /// Show additional details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Search for pages across data directory
     ///
     /// Recursively discovers all `.ibd` files under a MySQL data directory,
@@ -685,6 +733,37 @@ pub enum Commands {
         dry_run: bool,
 
         /// Show per-page details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
+    /// Per-index B+Tree health metrics
+    ///
+    /// Scans all INDEX pages in a tablespace and computes per-index health
+    /// metrics including fill factor (average, min, max), garbage ratio,
+    /// fragmentation, tree depth, and page counts. Optionally resolves
+    /// index names from SDI metadata (MySQL 8.0+).
+    ///
+    /// Use `--verbose` for additional detail including total records and
+    /// empty leaf page counts. Use `--json` for machine-readable output.
+    Health {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Show additional detail (records, empty leaves)
         #[arg(short, long)]
         verbose: bool,
 
