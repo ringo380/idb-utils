@@ -503,6 +503,7 @@ fn test_corrupt_execute_basic() {
         json: false,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -529,6 +530,7 @@ fn test_corrupt_verify_detects_change() {
         json: false,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -1474,6 +1476,7 @@ fn test_corrupt_json_output() {
         json: true,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -2132,6 +2135,7 @@ fn test_corrupt_header_mode() {
         json: true,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -2174,6 +2178,7 @@ fn test_corrupt_offset_mode() {
         json: true,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -2213,6 +2218,7 @@ fn test_corrupt_random_page() {
         json: true,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();
@@ -2551,6 +2557,7 @@ fn test_corrupt_nonexistent_file() {
         json: false,
         page_size: None,
         mmap: false,
+        audit_logger: None,
     };
 
     let mut out = Vec::new();

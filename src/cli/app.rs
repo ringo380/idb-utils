@@ -26,6 +26,10 @@ pub struct Cli {
     #[arg(long, global = true, default_value = "text")]
     pub format: OutputFormat,
 
+    /// Write NDJSON audit events to a file for all write operations
+    #[arg(long = "audit-log", global = true)]
+    pub audit_log: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -637,7 +641,11 @@ pub enum Commands {
     Repair {
         /// Path to InnoDB data file (.ibd)
         #[arg(short, long)]
-        file: String,
+        file: Option<String>,
+
+        /// Repair all .ibd files under a data directory
+        #[arg(long)]
+        batch: Option<String>,
 
         /// Repair only a specific page number
         #[arg(short, long)]

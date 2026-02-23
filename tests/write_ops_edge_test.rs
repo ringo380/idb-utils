@@ -184,7 +184,8 @@ fn test_mariadb_full_crc32_repair() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "full_crc32".to_string(),
             no_backup: true,
@@ -194,6 +195,7 @@ fn test_mariadb_full_crc32_repair() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -233,7 +235,8 @@ fn test_repair_single_page_leaves_others_untouched() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: Some(2),
             algorithm: "crc32c".to_string(),
             no_backup: true,
@@ -243,6 +246,7 @@ fn test_repair_single_page_leaves_others_untouched() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -285,7 +289,8 @@ fn test_repair_dry_run_file_unchanged() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -295,6 +300,7 @@ fn test_repair_dry_run_file_unchanged() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -334,6 +340,7 @@ fn test_defrag_mixed_page_types() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -390,6 +397,7 @@ fn test_defrag_removes_empty_pages_edge() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -438,6 +446,7 @@ fn test_defrag_preserves_prev_next_chain() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -506,6 +515,7 @@ fn test_transplant_single_page_only_target_differs() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -560,6 +570,7 @@ fn test_transplant_page0_rejected_without_force() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -615,6 +626,7 @@ fn test_transplant_corrupt_donor_page_skipped() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -673,6 +685,7 @@ fn test_transplant_dry_run_no_modification() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -711,6 +724,7 @@ fn test_corrupt_specific_byte_count() {
             json: false,
             page_size: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -762,6 +776,7 @@ fn test_corrupt_header_mode() {
             json: false,
             page_size: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -817,6 +832,7 @@ fn test_corrupt_record_area() {
             json: false,
             page_size: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -880,7 +896,8 @@ fn test_8k_page_size_repair_roundtrip() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -890,6 +907,7 @@ fn test_8k_page_size_repair_roundtrip() {
             page_size: Some(PAGE_SIZE_8K),
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -925,7 +943,8 @@ fn test_encrypted_flags_repair_without_keyring() {
     let mut output = Vec::new();
     let result = idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "crc32c".to_string(),
             no_backup: true,
@@ -935,6 +954,7 @@ fn test_encrypted_flags_repair_without_keyring() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     );

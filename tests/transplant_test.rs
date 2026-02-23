@@ -71,6 +71,7 @@ fn test_transplant_fixes_corrupt_page() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -116,6 +117,7 @@ fn test_transplant_page_size_mismatch() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     );
@@ -150,6 +152,7 @@ fn test_transplant_space_id_mismatch_without_force() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     );
@@ -187,6 +190,7 @@ fn test_transplant_dry_run_does_not_modify() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -218,6 +222,7 @@ fn test_transplant_page0_rejected_without_force() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -254,6 +259,7 @@ fn test_transplant_backup_creation() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )

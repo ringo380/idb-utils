@@ -76,6 +76,7 @@ fn test_defrag_removes_empty_pages() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -124,6 +125,7 @@ fn test_defrag_sorts_index_pages_by_index_id() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -173,6 +175,7 @@ fn test_defrag_fixes_prev_next_chains() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -221,6 +224,7 @@ fn test_defrag_json_output() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )

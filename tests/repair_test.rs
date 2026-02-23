@@ -67,7 +67,8 @@ fn test_repair_fixes_bad_checksums() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -77,6 +78,7 @@ fn test_repair_fixes_bad_checksums() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -108,7 +110,8 @@ fn test_repair_dry_run_does_not_modify() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -118,6 +121,7 @@ fn test_repair_dry_run_does_not_modify() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -144,7 +148,8 @@ fn test_repair_single_page() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: Some(1),
             algorithm: "crc32c".to_string(),
             no_backup: true,
@@ -154,6 +159,7 @@ fn test_repair_single_page() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -179,7 +185,8 @@ fn test_repair_already_valid_file() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -189,6 +196,7 @@ fn test_repair_already_valid_file() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -212,7 +220,8 @@ fn test_repair_json_output() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -222,6 +231,7 @@ fn test_repair_json_output() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -246,7 +256,8 @@ fn test_repair_innodb_algorithm() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: Some(1),
             algorithm: "innodb".to_string(),
             no_backup: true,
@@ -256,6 +267,7 @@ fn test_repair_innodb_algorithm() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )
@@ -280,7 +292,8 @@ fn test_repair_no_backup_skips_backup() {
     let mut output = Vec::new();
     idb::cli::repair::execute(
         &idb::cli::repair::RepairOptions {
-            file: path.to_string(),
+            file: Some(path.to_string()),
+            batch: None,
             page: None,
             algorithm: "auto".to_string(),
             no_backup: true,
@@ -290,6 +303,7 @@ fn test_repair_no_backup_skips_backup() {
             page_size: None,
             keyring: None,
             mmap: false,
+            audit_logger: None,
         },
         &mut output,
     )

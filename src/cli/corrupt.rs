@@ -1,5 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
+use std::sync::Arc;
 
 use colored::Colorize;
 
@@ -8,6 +9,7 @@ use serde::Serialize;
 use crate::cli::wprintln;
 use crate::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
 use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
+use crate::util::audit::AuditLogger;
 use crate::util::hex::format_bytes;
 use crate::IdbError;
 
@@ -33,6 +35,8 @@ pub struct CorruptOptions {
     pub page_size: Option<u32>,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Audit logger for recording write operations.
+    pub audit_logger: Option<Arc<AuditLogger>>,
 }
 
 #[derive(Serialize)]
@@ -151,6 +155,9 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     if opts.json {
         // Write the corruption first, then verify
         write_corruption(&opts.file, corrupt_offset, &random_data)?;
+        if let Some(ref logger) = opts.audit_logger {
+            let _ = logger.log_page_write(&opts.file, page_num, "corrupt", None, None);
+        }
         let verify_json = if opts.verify {
             let post_data = read_page_bytes(&opts.file, page_num, page_size as u32)?;
             let post_result = validate_checksum(&post_data, page_size as u32, None);
@@ -183,6 +190,9 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     )?;
 
     write_corruption(&opts.file, corrupt_offset, &random_data)?;
+    if let Some(ref logger) = opts.audit_logger {
+        let _ = logger.log_page_write(&opts.file, page_num, "corrupt", None, None);
+    }
 
     wprintln!(writer, "Data written: {}", format_bytes(&random_data).red())?;
     wprintln!(writer, "Completed.")?;
@@ -246,6 +256,9 @@ fn corrupt_at_offset(
 
     // Write the corruption
     write_corruption(&opts.file, abs_offset, &random_data)?;
+    if let Some(ref logger) = opts.audit_logger {
+        let _ = logger.log_page_write(&opts.file, abs_offset, "corrupt_offset", None, None);
+    }
 
     if opts.json {
         return output_json_with_verify(opts, abs_offset, None, &random_data, None, writer);

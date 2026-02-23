@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
@@ -10,6 +11,7 @@ use crate::innodb::constants::*;
 use crate::innodb::page::FilHeader;
 use crate::innodb::page_types::PageType;
 use crate::innodb::write;
+use crate::util::audit::AuditLogger;
 use crate::IdbError;
 
 /// Options for the `inno defrag` subcommand.
@@ -28,6 +30,8 @@ pub struct DefragOptions {
     pub keyring: Option<String>,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Audit logger for recording write operations.
+    pub audit_logger: Option<Arc<AuditLogger>>,
 }
 
 #[derive(Serialize)]
@@ -251,6 +255,9 @@ pub fn execute(opts: &DefragOptions, writer: &mut dyn Write) -> Result<(), IdbEr
 
     // Write output
     write::write_tablespace(&opts.output, &output_pages)?;
+    if let Some(ref logger) = opts.audit_logger {
+        let _ = logger.log_file_write(&opts.output, "defrag", output_pages.len() as u64);
+    }
 
     // Post-validate
     let output_count = output_pages.len() as u64;

@@ -5,9 +5,11 @@ use clap::Parser;
 use std::fs::File;
 use std::io::Write;
 use std::process;
+use std::sync::Arc;
 
 use idb::cli;
 use idb::cli::app::{Cli, ColorMode, Commands, OutputFormat};
+use idb::util::audit::AuditLogger;
 use idb::IdbError;
 
 fn main() {
@@ -44,6 +46,23 @@ fn main() {
 
     // Resolve effective output format: --format overrides per-subcommand --json
     let global_format = cli.format;
+
+    // Create audit logger if --audit-log was specified
+    let audit_logger: Option<Arc<AuditLogger>> = match &cli.audit_log {
+        Some(path) => {
+            let logger = match AuditLogger::open(path) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(1);
+                }
+            };
+            let args: Vec<String> = std::env::args().collect();
+            let _ = logger.start_session(args);
+            Some(Arc::new(logger))
+        }
+        None => None,
+    };
 
     let result = match cli.command {
         Commands::Parse {
@@ -147,6 +166,7 @@ fn main() {
                 json,
                 page_size,
                 mmap: cli.mmap,
+                audit_logger: audit_logger.clone(),
             },
             &mut writer,
         ),
@@ -345,6 +365,7 @@ fn main() {
 
         Commands::Repair {
             file,
+            batch,
             page,
             algorithm,
             no_backup,
@@ -356,6 +377,7 @@ fn main() {
         } => cli::repair::execute(
             &cli::repair::RepairOptions {
                 file,
+                batch,
                 page,
                 algorithm,
                 no_backup,
@@ -365,6 +387,7 @@ fn main() {
                 page_size,
                 keyring,
                 mmap: cli.mmap,
+                audit_logger: audit_logger.clone(),
             },
             &mut writer,
         ),
@@ -417,6 +440,7 @@ fn main() {
                 page_size,
                 keyring,
                 mmap: cli.mmap,
+                audit_logger: audit_logger.clone(),
             },
             &mut writer,
         ),
@@ -507,10 +531,16 @@ fn main() {
                 page_size,
                 keyring,
                 mmap: cli.mmap,
+                audit_logger: audit_logger.clone(),
             },
             &mut writer,
         ),
     };
+
+    // End audit session if logger was created
+    if let Some(ref logger) = audit_logger {
+        let _ = logger.end_session();
+    }
 
     if let Err(e) = result {
         eprintln!("Error: {}", e);

@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
@@ -8,6 +9,7 @@ use crate::cli::wprintln;
 use crate::innodb::checksum::validate_checksum;
 use crate::innodb::constants::FIL_PAGE_SPACE_ID;
 use crate::innodb::write;
+use crate::util::audit::AuditLogger;
 use crate::IdbError;
 
 /// Options for the `inno transplant` subcommand.
@@ -34,6 +36,8 @@ pub struct TransplantOptions {
     pub keyring: Option<String>,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Audit logger for recording write operations.
+    pub audit_logger: Option<Arc<AuditLogger>>,
 }
 
 #[derive(Serialize)]
@@ -122,6 +126,9 @@ pub fn execute(opts: &TransplantOptions, writer: &mut dyn Write) -> Result<(), I
         let path = write::create_backup(&opts.target)?;
         if !opts.json {
             wprintln!(writer, "Backup created: {}", path.display())?;
+        }
+        if let Some(ref logger) = opts.audit_logger {
+            let _ = logger.log_backup(&opts.target, &path.display().to_string());
         }
         Some(path)
     } else {
@@ -251,6 +258,9 @@ pub fn execute(opts: &TransplantOptions, writer: &mut dyn Write) -> Result<(), I
         // Write to target
         if !opts.dry_run {
             write::write_page(&opts.target, page_num, page_size, &donor_page)?;
+            if let Some(ref logger) = opts.audit_logger {
+                let _ = logger.log_page_write(&opts.target, page_num, "transplant", None, None);
+            }
 
             // Post-validate
             let written = write::read_page_raw(&opts.target, page_num, page_size)?;
