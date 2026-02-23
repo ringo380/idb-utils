@@ -124,14 +124,14 @@ pub fn build_column_layout(dd_table: &DdTable) -> Vec<ColumnStorageInfo> {
     let mut user_columns: Vec<&crate::innodb::schema::DdColumn> = dd_table
         .columns
         .iter()
-        .filter(|c| !c.is_virtual && c.hidden != 2) // exclude virtual and SE-hidden
+        .filter(|c| !c.is_virtual && (c.hidden == 1 || c.hidden == 4)) // HT_VISIBLE + HT_HIDDEN_USER only
         .collect();
     user_columns.sort_by_key(|c| c.ordinal_position);
 
     // PK columns first
     for &pk_opx in &pk_col_positions {
         if let Some(col) = dd_table.columns.get(pk_opx as usize) {
-            if !col.is_virtual && col.hidden != 2 {
+            if !col.is_virtual && (col.hidden == 1 || col.hidden == 4) {
                 layout.push(column_to_storage_info(col, false));
             }
         }
@@ -372,7 +372,7 @@ fn decode_int(data: &[u8], size: usize, unsigned: bool) -> FieldValue {
         if val > (max_unsigned >> 1) {
             // Negative: val is in [sign_bit..max], map to negative range
             // For size bytes, negative range is [-(sign_bit)..-1]
-            let signed = val as i64 - (1i64 << (size * 8));
+            let signed = (val as i64).wrapping_sub(1i64.wrapping_shl((size * 8) as u32));
             FieldValue::Int(signed)
         } else {
             FieldValue::Int(val as i64)
@@ -829,6 +829,7 @@ mod tests {
                     dd_type: DD_TYPE_LONG,
                     ordinal_position: 1,
                     is_unsigned: true,
+                    hidden: 1, // HT_VISIBLE
                     ..Default::default()
                 },
                 crate::innodb::schema::DdColumn {
@@ -836,12 +837,14 @@ mod tests {
                     dd_type: DD_TYPE_VARCHAR,
                     ordinal_position: 2,
                     column_type_utf8: "varchar(100)".to_string(),
+                    hidden: 1, // HT_VISIBLE
                     ..Default::default()
                 },
                 crate::innodb::schema::DdColumn {
                     name: "age".to_string(),
                     dd_type: DD_TYPE_LONG,
                     ordinal_position: 3,
+                    hidden: 1, // HT_VISIBLE
                     ..Default::default()
                 },
             ],
