@@ -5,12 +5,13 @@ const TAB_DEFS = [
   { id: 'pages', label: 'Pages', key: '2' },
   { id: 'checksums', label: 'Checksums', key: '3' },
   { id: 'sdi', label: 'SDI', key: '4' },
-  { id: 'hex', label: 'Hex Dump', key: '5' },
-  { id: 'recovery', label: 'Recovery', key: '6' },
+  { id: 'schema', label: 'Schema', key: '5' },
+  { id: 'hex', label: 'Hex Dump', key: '6' },
+  { id: 'recovery', label: 'Recovery', key: '7' },
 ];
 
-const HEATMAP_TAB = { id: 'heatmap', label: 'Heatmap', key: '7' };
-const DIFF_TAB = { id: 'diff', label: 'Diff', key: '8' };
+const HEATMAP_TAB = { id: 'heatmap', label: 'Heatmap', key: '8' };
+const DIFF_TAB = { id: 'diff', label: 'Diff', key: '9' };
 const REDOLOG_TAB = { id: 'redolog', label: 'Redo Log', key: '1' };
 
 function getVisibleTabs({ showDiff = false, showRedoLog = false } = {}) {

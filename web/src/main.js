@@ -9,6 +9,7 @@ import { createOverview } from './components/overview.js';
 import { createPages } from './components/pages.js';
 import { createChecksums } from './components/checksums.js';
 import { createSdi } from './components/sdi.js';
+import { createSchema } from './components/schema.js';
 import { createHex } from './components/hex.js';
 import { createDiff } from './components/diff.js';
 import { createRecovery } from './components/recovery.js';
@@ -294,6 +295,9 @@ function renderTab() {
     case 'sdi':
       createSdi(content, data);
       break;
+    case 'schema':
+      createSchema(content, data);
+      break;
     case 'hex':
       createHex(content, data, pageCount);
       break;
@@ -328,6 +332,7 @@ function exportAll() {
   try { result.pages = JSON.parse(wasm.analyze_pages(data, -1n)); } catch { /* skip */ }
   try { result.checksums = JSON.parse(wasm.validate_checksums(data)); } catch { /* skip */ }
   try { result.sdi = JSON.parse(wasm.extract_sdi(data)); } catch { /* skip */ }
+  try { const s = wasm.extract_schema(data); if (s !== 'null') result.schema = JSON.parse(s); } catch { /* skip */ }
   try { result.recovery = JSON.parse(wasm.assess_recovery(data)); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');

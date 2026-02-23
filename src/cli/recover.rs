@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::cli::{create_progress_bar, wprintln};
 use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
 use crate::innodb::constants::*;
+use crate::innodb::corruption::{classify_corruption, CorruptionPattern};
 use crate::innodb::page::FilHeader;
 use crate::innodb::page_types::PageType;
 use crate::innodb::record::walk_compact_records;
@@ -98,6 +99,8 @@ struct PageRecoveryInfo {
     lsn_valid: bool,
     lsn: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    corruption_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     record_count: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     records: Vec<RecoveredRecord>,
@@ -127,6 +130,7 @@ struct RecoverStats {
     corrupt_page_numbers: Vec<u64>,
     index_pages_total: u64,
     index_pages_recoverable: u64,
+    corruption_patterns: Vec<(String, u64)>,
 }
 
 /// Internal per-page analysis result.
@@ -137,6 +141,7 @@ struct PageAnalysis {
     checksum_valid: bool,
     lsn_valid: bool,
     lsn: u64,
+    corruption_pattern: Option<CorruptionPattern>,
     record_count: Option<usize>,
     records: Vec<RecoveredRecord>,
 }
@@ -212,6 +217,7 @@ fn analyze_page(
             checksum_valid: true,
             lsn_valid: true,
             lsn: 0,
+            corruption_pattern: None,
             record_count: None,
             records: Vec::new(),
         };
@@ -228,6 +234,7 @@ fn analyze_page(
                 checksum_valid: false,
                 lsn_valid: false,
                 lsn: 0,
+                corruption_pattern: None,
                 record_count: None,
                 records: Vec::new(),
             };
@@ -240,6 +247,13 @@ fn analyze_page(
         PageStatus::Intact
     } else {
         PageStatus::Corrupt
+    };
+
+    // Classify corruption pattern on corrupt pages
+    let corruption_pattern = if status == PageStatus::Corrupt {
+        Some(classify_corruption(page_data, page_size))
+    } else {
+        None
     };
 
     // Count records on INDEX pages
@@ -264,6 +278,7 @@ fn analyze_page(
         checksum_valid: csum_result.valid,
         lsn_valid,
         lsn: header.lsn,
+        corruption_pattern,
         record_count,
         records,
     }
@@ -386,6 +401,7 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
                     checksum_valid: false,
                     lsn_valid: false,
                     lsn: 0,
+                    corruption_pattern: None,
                     record_count: None,
                     records: Vec::new(),
                 };
@@ -417,6 +433,8 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
     let mut corrupt_page_numbers = Vec::new();
     let mut index_pages_total = 0u64;
     let mut index_pages_recoverable = 0u64;
+    let mut pattern_counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
 
     for a in &analyses {
         match a.status {
@@ -424,6 +442,11 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
             PageStatus::Corrupt => {
                 corrupt += 1;
                 corrupt_page_numbers.push(a.page_number);
+                if let Some(pattern) = a.corruption_pattern {
+                    *pattern_counts
+                        .entry(pattern.name().to_string())
+                        .or_insert(0) += 1;
+                }
             }
             PageStatus::Empty => empty += 1,
             PageStatus::Unreadable => unreadable += 1,
@@ -456,6 +479,9 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
         }
     }
 
+    let mut corruption_patterns: Vec<(String, u64)> = pattern_counts.into_iter().collect();
+    corruption_patterns.sort_by(|a, b| b.1.cmp(&a.1));
+
     let stats = RecoverStats {
         file_size,
         page_size,
@@ -470,6 +496,7 @@ pub fn execute(opts: &RecoverOptions, writer: &mut dyn Write) -> Result<(), IdbE
         corrupt_page_numbers,
         index_pages_total,
         index_pages_recoverable,
+        corruption_patterns,
     };
 
     // Execute rebuild if requested
@@ -520,6 +547,8 @@ fn execute_streaming(
     let mut corrupt_page_numbers: Vec<u64> = Vec::new();
     let mut index_pages_total = 0u64;
     let mut index_pages_recoverable = 0u64;
+    let mut pattern_counts: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
 
     if !opts.json {
         wprintln!(writer, "Recovery Analysis: {}", opts.file)?;
@@ -554,6 +583,11 @@ fn execute_streaming(
             PageStatus::Corrupt => {
                 corrupt += 1;
                 corrupt_page_numbers.push(a.page_number);
+                if let Some(pattern) = a.corruption_pattern {
+                    *pattern_counts
+                        .entry(pattern.name().to_string())
+                        .or_insert(0) += 1;
+                }
             }
             PageStatus::Empty => empty += 1,
             PageStatus::Unreadable => unreadable += 1,
@@ -586,6 +620,7 @@ fn execute_streaming(
                     checksum_valid: a.checksum_valid,
                     lsn_valid: a.lsn_valid,
                     lsn: a.lsn,
+                    corruption_pattern: a.corruption_pattern.map(|p| p.name().to_string()),
                     record_count: a.record_count,
                     records: a.records,
                 };
@@ -621,6 +656,9 @@ fn execute_streaming(
                 if !a.lsn_valid {
                     line.push_str("  LSN mismatch");
                 }
+                if let Some(pattern) = a.corruption_pattern {
+                    line.push_str(&format!("  [{}]", pattern.name()));
+                }
             }
 
             wprintln!(writer, "{}", line)?;
@@ -630,6 +668,9 @@ fn execute_streaming(
     })?;
 
     // Output summary
+    let mut corruption_patterns: Vec<(String, u64)> = pattern_counts.into_iter().collect();
+    corruption_patterns.sort_by(|a, b| b.1.cmp(&a.1));
+
     let stats = RecoverStats {
         file_size,
         page_size,
@@ -644,6 +685,7 @@ fn execute_streaming(
         corrupt_page_numbers,
         index_pages_total,
         index_pages_recoverable,
+        corruption_patterns,
     };
 
     if opts.json {
@@ -879,6 +921,9 @@ fn output_text(
                 if !a.lsn_valid {
                     line.push_str("  LSN mismatch");
                 }
+                if let Some(pattern) = a.corruption_pattern {
+                    line.push_str(&format!("  [{}]", pattern.name()));
+                }
             }
 
             wprintln!(writer, "{}", line)?;
@@ -929,6 +974,15 @@ fn output_text_summary(
     }
     wprintln!(writer, "  Total:       {:>4} pages", stats.scan_count)?;
     wprintln!(writer)?;
+
+    if !stats.corruption_patterns.is_empty() {
+        wprintln!(writer, "Corruption Patterns:")?;
+        for (name, count) in &stats.corruption_patterns {
+            let label = if *count == 1 { "page" } else { "pages" };
+            wprintln!(writer, "  {}: {} {}", name, count, label)?;
+        }
+        wprintln!(writer)?;
+    }
 
     if stats.index_pages_total > 0 {
         wprintln!(
@@ -981,6 +1035,7 @@ fn output_json(
                 checksum_valid: a.checksum_valid,
                 lsn_valid: a.lsn_valid,
                 lsn: a.lsn,
+                corruption_pattern: a.corruption_pattern.map(|p| p.name().to_string()),
                 record_count: a.record_count,
                 records: a
                     .records

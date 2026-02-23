@@ -7,10 +7,12 @@ use crate::cli::{wprint, wprintln};
 use crate::innodb::checksum;
 use crate::innodb::compression;
 use crate::innodb::encryption;
+use crate::innodb::health::compute_fill_factor;
 use crate::innodb::index::{FsegHeader, IndexHeader, SystemRecords};
 use crate::innodb::lob::{BlobPageHeader, LobFirstPageHeader};
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
+use crate::innodb::record::walk_compact_records;
 use crate::innodb::tablespace::Tablespace;
 use crate::innodb::undo::{UndoPageHeader, UndoSegmentHeader};
 use crate::util::hex::format_offset;
@@ -38,6 +40,10 @@ pub struct PagesOptions {
     pub keyring: Option<String>,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Show delete-marked record statistics for INDEX pages.
+    pub deleted: bool,
+    /// Output as CSV.
+    pub csv: bool,
 }
 
 /// JSON-serializable detailed page info.
@@ -53,6 +59,14 @@ struct PageDetailJson {
     index_header: Option<IndexHeader>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fsp_header: Option<FspHeader>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill_factor: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delete_marked_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_record_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delete_marked_pct: Option<f64>,
 }
 
 /// Perform deep structural analysis of pages in an InnoDB tablespace.
@@ -91,9 +105,20 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         return execute_json(opts, &mut ts, page_size, writer);
     }
 
+    if opts.csv {
+        return execute_csv(opts, &mut ts, page_size, writer);
+    }
+
     if let Some(page_num) = opts.page {
         let page_data = ts.read_page(page_num)?;
-        print_full_page(&page_data, page_num, page_size, opts.verbose, writer)?;
+        print_full_page(
+            &page_data,
+            page_num,
+            page_size,
+            opts.verbose,
+            opts.deleted,
+            writer,
+        )?;
         return Ok(());
     }
 
@@ -125,12 +150,83 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         }
 
         if opts.list_mode {
-            print_list_line(&page_data, page_num, page_size, writer)?;
+            print_list_line(&page_data, page_num, page_size, opts.deleted, writer)?;
         } else {
-            print_full_page(&page_data, page_num, page_size, opts.verbose, writer)?;
+            print_full_page(
+                &page_data,
+                page_num,
+                page_size,
+                opts.verbose,
+                opts.deleted,
+                writer,
+            )?;
         }
     }
 
+    Ok(())
+}
+
+/// Execute pages in CSV output mode.
+fn execute_csv(
+    opts: &PagesOptions,
+    ts: &mut Tablespace,
+    page_size: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    wprintln!(
+        writer,
+        "page_number,page_type,byte_start,index_id,fill_factor"
+    )?;
+
+    let range: Box<dyn Iterator<Item = u64>> = if let Some(p) = opts.page {
+        Box::new(std::iter::once(p))
+    } else {
+        Box::new(0..ts.page_count())
+    };
+
+    for page_num in range {
+        let page_data = ts.read_page(page_num)?;
+        let header = match FilHeader::parse(&page_data) {
+            Some(h) => h,
+            None => continue,
+        };
+
+        if !opts.show_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
+            continue;
+        }
+
+        if let Some(ref filter) = opts.filter_type {
+            if !matches_page_type_filter(&header.page_type, filter) {
+                continue;
+            }
+        }
+
+        let pt = header.page_type;
+        let byte_start = page_num * page_size as u64;
+
+        let (index_id, fill_factor) = if pt == PageType::Index {
+            let idx = IndexHeader::parse(&page_data);
+            match idx {
+                Some(i) => {
+                    let ff = compute_fill_factor(i.heap_top, i.garbage, page_size);
+                    (Some(i.index_id), Some(format!("{:.4}", ff)))
+                }
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        wprintln!(
+            writer,
+            "{},{},{},{},{}",
+            page_num,
+            crate::cli::csv_escape(pt.name()),
+            byte_start,
+            index_id.map(|id| id.to_string()).unwrap_or_default(),
+            fill_factor.unwrap_or_default()
+        )?;
+    }
     Ok(())
 }
 
@@ -175,6 +271,25 @@ fn execute_json(
             None
         };
 
+        let fill_factor = index_header.as_ref().map(|idx| {
+            (compute_fill_factor(idx.heap_top, idx.garbage, page_size) * 10000.0).round() / 10000.0
+        });
+
+        let (delete_marked_count, total_record_count, delete_marked_pct) =
+            if pt == PageType::Index && opts.deleted {
+                let recs = walk_compact_records(&page_data);
+                let total = recs.len();
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count();
+                let pct = if total > 0 {
+                    (deleted as f64 / total as f64 * 10000.0).round() / 100.0
+                } else {
+                    0.0
+                };
+                (Some(deleted), Some(total), Some(pct))
+            } else {
+                (None, None, None)
+            };
+
         let fsp_header = if page_num == 0 {
             FspHeader::parse(&page_data)
         } else {
@@ -190,6 +305,10 @@ fn execute_json(
             header,
             index_header,
             fsp_header,
+            fill_factor,
+            delete_marked_count,
+            total_record_count,
+            delete_marked_pct,
         });
     }
 
@@ -204,6 +323,7 @@ fn print_list_line(
     page_data: &[u8],
     page_num: u64,
     page_size: u32,
+    show_deleted: bool,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
@@ -225,6 +345,27 @@ fn print_list_line(
     if pt == PageType::Index {
         if let Some(idx) = IndexHeader::parse(page_data) {
             wprint!(writer, ", Index ID: {}", idx.index_id)?;
+
+            let ff = compute_fill_factor(idx.heap_top, idx.garbage, page_size);
+            let pct = ff * 100.0;
+            let fill_str = if pct >= 80.0 {
+                format!("{:.1}%", pct).green().to_string()
+            } else if pct >= 50.0 {
+                format!("{:.1}%", pct).yellow().to_string()
+            } else {
+                format!("{:.1}%", pct).red().to_string()
+            };
+            wprint!(writer, ", Fill: {}", fill_str)?;
+
+            if show_deleted {
+                let recs = walk_compact_records(page_data);
+                let total = recs.len();
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count();
+                if total > 0 {
+                    let del_pct = deleted as f64 / total as f64 * 100.0;
+                    wprint!(writer, " (del: {}/{}, {:.1}%)", deleted, total, del_pct)?;
+                }
+            }
         }
     }
 
@@ -238,6 +379,7 @@ fn print_full_page(
     page_num: u64,
     page_size: u32,
     verbose: bool,
+    show_deleted: bool,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let header = match FilHeader::parse(page_data) {
@@ -288,6 +430,37 @@ fn print_full_page(
         if let Some(idx) = IndexHeader::parse(page_data) {
             wprintln!(writer)?;
             print_index_header(&idx, header.page_number, verbose, writer)?;
+
+            // Fill factor
+            let ff = compute_fill_factor(idx.heap_top, idx.garbage, page_size);
+            let pct = ff * 100.0;
+            let fill_str = if pct >= 80.0 {
+                format!("{:.1}%", pct).green().to_string()
+            } else if pct >= 50.0 {
+                format!("{:.1}%", pct).yellow().to_string()
+            } else {
+                format!("{:.1}%", pct).red().to_string()
+            };
+            wprintln!(writer, "Fill Factor: {}", fill_str)?;
+
+            // Delete-marked record stats
+            if show_deleted {
+                let recs = walk_compact_records(page_data);
+                let total = recs.len();
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count();
+                wprintln!(writer)?;
+                wprintln!(
+                    writer,
+                    "=== Delete-Marked Records: Page {}",
+                    header.page_number
+                )?;
+                wprintln!(writer, "Total Records: {}", total)?;
+                wprintln!(writer, "Delete-Marked: {}", deleted)?;
+                if total > 0 {
+                    let del_pct = deleted as f64 / total as f64 * 100.0;
+                    wprintln!(writer, "Delete-Marked Ratio: {:.1}%", del_pct)?;
+                }
+            }
 
             wprintln!(writer)?;
             print_fseg_headers(page_data, header.page_number, &idx, verbose, writer)?;

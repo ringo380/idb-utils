@@ -938,6 +938,46 @@ pub fn inspect_index_records(data: &[u8], page_num: u64) -> Result<String, JsVal
 }
 
 // ---------------------------------------------------------------------------
+// extract_schema — mirrors `inno schema`
+// ---------------------------------------------------------------------------
+
+/// Extracts schema metadata from a MySQL 8.0+ tablespace and returns it as JSON.
+///
+/// Takes raw `.ibd` file bytes, locates SDI pages, extracts the table SDI
+/// record (sdi_type == 1), and reconstructs the table schema including column
+/// definitions, index definitions, foreign keys, and DDL.
+///
+/// Returns a JSON string containing the `TableSchema` object with fields:
+/// `table_name`, `engine`, `row_format`, `collation`, `charset`, `columns`
+/// (array of column definitions), `indexes` (array of index definitions),
+/// `foreign_keys` (array), and `ddl` (reconstructed CREATE TABLE statement).
+///
+/// Returns `"null"` if no SDI metadata is found (pre-8.0 tablespaces).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace or
+/// if SDI parsing fails.
+#[wasm_bindgen]
+pub fn extract_schema(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let sdi_pages = sdi::find_sdi_pages(&mut ts).map_err(to_js_err)?;
+    if sdi_pages.is_empty() {
+        return Ok("null".to_string());
+    }
+    let records = sdi::extract_sdi_from_pages(&mut ts, &sdi_pages).map_err(to_js_err)?;
+
+    // Find the first Table SDI record (sdi_type == 1)
+    for rec in &records {
+        if rec.sdi_type == 1 {
+            let schema =
+                crate::innodb::schema::extract_schema_from_sdi(&rec.data).map_err(to_js_err)?;
+            return to_json(&schema);
+        }
+    }
+
+    Ok("null".to_string())
+}
+
+// ---------------------------------------------------------------------------
 // parse_redo_log — mirrors `inno log`
 // ---------------------------------------------------------------------------
 

@@ -22,6 +22,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub mmap: bool,
 
+    /// Output format (text, json, or csv); overrides per-subcommand --json
+    #[arg(long, global = true, default_value = "text")]
+    pub format: OutputFormat,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -32,6 +36,14 @@ pub enum ColorMode {
     Auto,
     Always,
     Never,
+}
+
+/// Global output format selection.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    Csv,
 }
 
 /// Available subcommands for the `inno` CLI.
@@ -113,6 +125,10 @@ pub enum Commands {
         /// Filter by page type (e.g., INDEX)
         #[arg(short = 't', long = "type")]
         filter_type: Option<String>,
+
+        /// Show delete-marked record statistics for INDEX pages
+        #[arg(long)]
+        deleted: bool,
 
         /// Output in JSON format
         #[arg(long)]

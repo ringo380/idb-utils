@@ -87,6 +87,19 @@ macro_rules! wprint {
 pub(crate) use wprint;
 pub(crate) use wprintln;
 
+/// Escape a string value for CSV output.
+///
+/// If the value contains a comma, double-quote, or newline, it is enclosed
+/// in double-quotes with internal double-quotes doubled. Otherwise the value
+/// is returned as-is.
+pub(crate) fn csv_escape(val: &str) -> String {
+    if val.contains(',') || val.contains('"') || val.contains('\n') {
+        format!("\"{}\"", val.replace('"', "\"\""))
+    } else {
+        val.to_string()
+    }
+}
+
 use crate::innodb::decryption::DecryptionContext;
 use crate::innodb::keyring::Keyring;
 use crate::innodb::tablespace::Tablespace;

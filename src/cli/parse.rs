@@ -21,6 +21,8 @@ pub struct ParseOptions {
     pub no_empty: bool,
     pub page_size: Option<u32>,
     pub json: bool,
+    /// Output as CSV.
+    pub csv: bool,
     pub keyring: Option<String>,
     /// Number of threads for parallel processing (0 = auto-detect).
     pub threads: usize,
@@ -90,6 +92,10 @@ pub fn execute(opts: &ParseOptions, writer: &mut dyn Write) -> Result<(), IdbErr
 
     if opts.json {
         return execute_json(opts, &mut ts, page_size, writer);
+    }
+
+    if opts.csv {
+        return execute_csv(opts, &mut ts, page_size, writer);
     }
 
     if let Some(page_num) = opts.page {
@@ -297,6 +303,61 @@ fn execute_streaming_json(
         Ok(())
     })?;
 
+    Ok(())
+}
+
+/// Execute parse in CSV output mode.
+fn execute_csv(
+    opts: &ParseOptions,
+    ts: &mut Tablespace,
+    _page_size: u32,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    wprintln!(
+        writer,
+        "page_number,checksum,page_type,lsn,space_id,prev_page,next_page"
+    )?;
+
+    let range: Box<dyn Iterator<Item = u64>> = if let Some(p) = opts.page {
+        Box::new(std::iter::once(p))
+    } else {
+        Box::new(0..ts.page_count())
+    };
+
+    for page_num in range {
+        let page_data = ts.read_page(page_num)?;
+        let header = match FilHeader::parse(&page_data) {
+            Some(h) => h,
+            None => continue,
+        };
+
+        if opts.no_empty && header.checksum == 0 && header.page_type == PageType::Allocated {
+            continue;
+        }
+
+        let prev = if header.has_prev() {
+            header.prev_page.to_string()
+        } else {
+            String::new()
+        };
+        let next = if header.has_next() {
+            header.next_page.to_string()
+        } else {
+            String::new()
+        };
+
+        wprintln!(
+            writer,
+            "{},{},{},{},{},{},{}",
+            page_num,
+            header.checksum,
+            crate::cli::csv_escape(header.page_type.name()),
+            header.lsn,
+            header.space_id,
+            prev,
+            next
+        )?;
+    }
     Ok(())
 }
 

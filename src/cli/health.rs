@@ -19,6 +19,8 @@ pub struct HealthOptions {
     pub verbose: bool,
     /// Output in JSON format.
     pub json: bool,
+    /// Output as CSV.
+    pub csv: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -74,6 +76,25 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
             "{}",
             serde_json::to_string_pretty(&report).map_err(|e| IdbError::Parse(e.to_string()))?
         )?;
+    } else if opts.csv {
+        wprintln!(
+            writer,
+            "index_id,index_name,tree_depth,total_pages,leaf_pages,avg_fill_factor,garbage_ratio,fragmentation"
+        )?;
+        for idx in &report.indexes {
+            wprintln!(
+                writer,
+                "{},{},{},{},{},{},{},{}",
+                idx.index_id,
+                crate::cli::csv_escape(idx.index_name.as_deref().unwrap_or("")),
+                idx.tree_depth,
+                idx.total_pages,
+                idx.leaf_pages,
+                idx.avg_fill_factor,
+                idx.avg_garbage_ratio,
+                idx.fragmentation
+            )?;
+        }
     } else {
         print_text(writer, &report, opts.verbose)?;
     }

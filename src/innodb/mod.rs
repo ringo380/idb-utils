@@ -16,6 +16,7 @@
 //! | [`page`] | FIL header (38 bytes), FIL trailer (8 bytes), FSP header parsing |
 //! | [`page_types`] | Page type enum mapping `u16` codes to names and descriptions |
 //! | [`checksum`] | CRC-32C and legacy InnoDB checksum validation |
+//! | [`corruption`] | Corruption pattern classification (bitrot, torn write, zero-fill) |
 //! | [`index`] | INDEX page internals — B+Tree header, FSEG, system records |
 //! | [`record`] | Row-level record parsing — compact format, variable-length fields |
 //! | [`schema`] | Schema extraction and DDL reconstruction from SDI metadata |
@@ -33,6 +34,7 @@
 pub mod checksum;
 pub mod compression;
 pub mod constants;
+pub mod corruption;
 pub mod decryption;
 pub mod encryption;
 pub mod field_decode;

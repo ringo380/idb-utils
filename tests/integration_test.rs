@@ -246,6 +246,7 @@ fn test_parse_execute_succeeds() {
         no_empty: false,
         page_size: None,
         json: false,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -275,6 +276,7 @@ fn test_parse_single_page() {
         no_empty: false,
         page_size: None,
         json: false,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -299,6 +301,7 @@ fn test_checksum_execute_all_valid() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: false,
         json: false,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -326,6 +329,7 @@ fn test_checksum_json_output() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: false,
         json: true,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -400,6 +404,8 @@ fn test_pages_execute_succeeds() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -429,6 +435,8 @@ fn test_pages_list_mode() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -459,6 +467,8 @@ fn test_pages_json_output() {
         json: true,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -707,6 +717,7 @@ fn test_parse_nonexistent_file() {
         no_empty: false,
         page_size: None,
         json: false,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -749,6 +760,7 @@ fn test_parse_json_validates_output() {
         no_empty: false,
         page_size: None,
         json: true,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -778,6 +790,7 @@ fn test_checksum_json_validates_output() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: true,
         json: true,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -1400,6 +1413,7 @@ fn test_checksum_invalid_returns_error() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: false,
         json: false,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -1745,6 +1759,7 @@ fn test_parse_verbose_output() {
         no_empty: false,
         page_size: None,
         json: false,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -1781,6 +1796,7 @@ fn test_parse_no_empty() {
         no_empty: true,
         page_size: None,
         json: true,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -1818,6 +1834,8 @@ fn test_pages_single_page() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -1848,6 +1866,8 @@ fn test_pages_verbose_output() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -1884,6 +1904,8 @@ fn test_pages_show_empty() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out1 = Vec::new();
@@ -1902,6 +1924,8 @@ fn test_pages_show_empty() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out2 = Vec::new();
@@ -1938,6 +1962,8 @@ fn test_pages_filter_type() {
         json: false,
         keyring: None,
         mmap: false,
+        deleted: false,
+        csv: false,
     };
 
     let mut out = Vec::new();
@@ -4864,6 +4890,7 @@ fn test_streaming_checksum_text_matches_nonstreaming() {
         file: path.clone(),
         verbose: true,
         json: false,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -4878,6 +4905,7 @@ fn test_streaming_checksum_text_matches_nonstreaming() {
         file: path,
         verbose: true,
         json: false,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -4905,6 +4933,7 @@ fn test_streaming_checksum_json_is_valid_ndjson() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: true,
         json: true,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -4952,6 +4981,7 @@ fn test_streaming_parse_json_is_valid_ndjson() {
         no_empty: false,
         page_size: None,
         json: true,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -5006,6 +5036,7 @@ fn test_streaming_parse_json_line_count_matches_pages() {
         no_empty: false,
         page_size: None,
         json: true,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -5040,6 +5071,7 @@ fn test_streaming_parse_json_no_empty_filters_pages() {
         no_empty: true,
         page_size: None,
         json: true,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,
@@ -5168,6 +5200,7 @@ fn test_streaming_checksum_detects_invalid() {
         file: tmp.path().to_string_lossy().to_string(),
         verbose: false,
         json: false,
+        csv: false,
         page_size: None,
         keyring: None,
         threads: 0,
@@ -5203,6 +5236,7 @@ fn test_streaming_single_page_mode_ignored() {
         no_empty: false,
         page_size: None,
         json: false,
+        csv: false,
         keyring: None,
         threads: 0,
         mmap: false,

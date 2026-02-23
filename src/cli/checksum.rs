@@ -17,6 +17,8 @@ pub struct ChecksumOptions {
     pub verbose: bool,
     /// Emit output as JSON.
     pub json: bool,
+    /// Output as CSV.
+    pub csv: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -144,6 +146,10 @@ pub fn execute(opts: &ChecksumOptions, writer: &mut dyn Write) -> Result<(), Idb
             &vendor_info,
             writer,
         );
+    }
+
+    if opts.csv {
+        return execute_csv_parallel(&all_data, ps, page_size, page_count, &vendor_info, writer);
     }
 
     wprintln!(
@@ -446,6 +452,66 @@ fn execute_streaming(
         )));
     }
 
+    Ok(())
+}
+
+fn execute_csv_parallel(
+    all_data: &[u8],
+    ps: usize,
+    page_size: u32,
+    page_count: u64,
+    vendor_info: &crate::innodb::vendor::VendorInfo,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    use rayon::prelude::*;
+
+    wprintln!(
+        writer,
+        "page_number,status,algorithm,stored_checksum,calculated_checksum"
+    )?;
+
+    let results: Vec<(u64, PageResult)> = (0..page_count)
+        .into_par_iter()
+        .map(|page_num| {
+            let offset = page_num as usize * ps;
+            if offset + ps > all_data.len() {
+                return (page_num, PageResult::ParseError);
+            }
+            let page_data = &all_data[offset..offset + ps];
+            (page_num, validate_page(page_data, page_size, vendor_info))
+        })
+        .collect();
+
+    for (page_num, result) in results {
+        match result {
+            PageResult::Empty | PageResult::ParseError => {}
+            PageResult::Validated {
+                csum_result,
+                lsn_valid: _,
+            } => {
+                let algo = match csum_result.algorithm {
+                    ChecksumAlgorithm::Crc32c => "crc32c",
+                    ChecksumAlgorithm::InnoDB => "innodb",
+                    ChecksumAlgorithm::MariaDbFullCrc32 => "mariadb_full_crc32",
+                    ChecksumAlgorithm::None => "none",
+                };
+                let status = if csum_result.valid {
+                    "valid"
+                } else {
+                    "invalid"
+                };
+                wprintln!(
+                    writer,
+                    "{},{},{},{},{}",
+                    page_num,
+                    status,
+                    algo,
+                    csum_result.stored_checksum,
+                    csum_result.calculated_checksum
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 

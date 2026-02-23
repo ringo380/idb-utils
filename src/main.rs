@@ -7,7 +7,7 @@ use std::io::Write;
 use std::process;
 
 use idb::cli;
-use idb::cli::app::{Cli, ColorMode, Commands};
+use idb::cli::app::{Cli, ColorMode, Commands, OutputFormat};
 use idb::IdbError;
 
 fn main() {
@@ -42,6 +42,9 @@ fn main() {
         }
     };
 
+    // Resolve effective output format: --format overrides per-subcommand --json
+    let global_format = cli.format;
+
     let result = match cli.command {
         Commands::Parse {
             file,
@@ -59,7 +62,8 @@ fn main() {
                 verbose,
                 no_empty,
                 page_size,
-                json,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
                 keyring,
                 threads: cli.threads,
                 mmap: cli.mmap,
@@ -75,6 +79,7 @@ fn main() {
             show_empty,
             list,
             filter_type,
+            deleted,
             json,
             page_size,
             keyring,
@@ -87,9 +92,11 @@ fn main() {
                 list_mode: list,
                 filter_type,
                 page_size,
-                json,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
                 keyring,
                 mmap: cli.mmap,
+                deleted,
             },
             &mut writer,
         ),
@@ -305,7 +312,8 @@ fn main() {
             &cli::checksum::ChecksumOptions {
                 file,
                 verbose,
-                json,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
                 page_size,
                 keyring,
                 threads: cli.threads,
@@ -423,7 +431,8 @@ fn main() {
             &cli::health::HealthOptions {
                 file,
                 verbose,
-                json,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
                 page_size,
                 keyring,
                 mmap: cli.mmap,
