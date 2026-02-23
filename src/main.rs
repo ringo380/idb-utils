@@ -464,6 +464,33 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Audit {
+            datadir,
+            health,
+            checksum_mismatch,
+            verbose,
+            json,
+            page_size,
+            keyring,
+            min_fill_factor,
+            max_fragmentation,
+        } => cli::audit::execute(
+            &cli::audit::AuditOptions {
+                datadir,
+                health,
+                checksum_mismatch,
+                verbose,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+                min_fill_factor,
+                max_fragmentation,
+            },
+            &mut writer,
+        ),
+
         Commands::Defrag {
             file,
             output,

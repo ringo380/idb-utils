@@ -1,6 +1,6 @@
 //! CLI subcommand implementations for the `inno` binary.
 //!
-//! The `inno` binary provides thirteen subcommands for analyzing InnoDB data files,
+//! The `inno` binary provides twenty subcommands for analyzing InnoDB data files,
 //! redo logs, and system tablespaces. CLI argument parsing uses clap derive macros,
 //! with the top-level [`app::Cli`] struct and [`app::Commands`] enum defined in
 //! [`app`] and shared between `main.rs` and `build.rs` (for man page generation)
@@ -29,6 +29,7 @@
 //! | `inno schema` | [`schema`] | Extract schema and reconstruct DDL from tablespace metadata |
 //! | `inno log` | [`log`] | Analyze redo log file headers, checkpoints, and data blocks |
 //! | `inno info` | [`info`] | Inspect `ibdata1`, compare LSNs, or query a live MySQL instance |
+//! | `inno audit` | [`audit`] | Audit a data directory for integrity, health, or corrupt pages |
 //!
 //! # Common patterns
 //!
@@ -47,6 +48,7 @@
 //! wrap `writeln!`/`write!` to convert `io::Error` into `IdbError`.
 
 pub mod app;
+pub mod audit;
 pub mod checksum;
 pub mod corrupt;
 pub mod defrag;
