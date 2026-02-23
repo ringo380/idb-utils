@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::cli::wprintln;
 use crate::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
-use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
+use crate::innodb::constants::{SIZE_FIL_HEAD, SIZE_FIL_TRAILER, SIZE_PAGE_DEFAULT};
 use crate::util::audit::AuditLogger;
 use crate::util::hex::format_bytes;
 use crate::IdbError;
@@ -257,7 +257,9 @@ fn corrupt_at_offset(
     // Write the corruption
     write_corruption(&opts.file, abs_offset, &random_data)?;
     if let Some(ref logger) = opts.audit_logger {
-        let _ = logger.log_page_write(&opts.file, abs_offset, "corrupt_offset", None, None);
+        let ps = opts.page_size.unwrap_or(SIZE_PAGE_DEFAULT) as u64;
+        let page_num = abs_offset / ps;
+        let _ = logger.log_page_write(&opts.file, page_num, "corrupt_offset", None, None);
     }
 
     if opts.json {
