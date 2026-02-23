@@ -223,19 +223,15 @@ fn audit_file(
     let mut lsn_mismatches = 0u64;
     let mut corrupt_pages = Vec::new();
 
-    for &(page_num, is_valid, is_empty, lsn_ok, ref corrupt) in &results {
-        if is_empty && is_valid && page_num > 0 {
-            // The tuple encoding: empty pages have (_, true, true, true, None)
-            // But the first result field is page_num and second is is_valid_or_empty
-            // Let me re-check: for empty pages we return (page_num, true, true, true, None)
-            // is_valid=true, is_empty=true
+    for &(_, is_valid, is_empty, lsn_ok, ref corrupt) in &results {
+        if is_empty {
             empty += 1;
         } else if is_valid {
             valid += 1;
         } else {
             invalid += 1;
         }
-        if !lsn_ok && !is_empty {
+        if !lsn_ok && !is_empty && is_valid {
             lsn_mismatches += 1;
         }
         if let Some(pn) = corrupt {
@@ -530,8 +526,10 @@ fn execute_integrity(
     let files_error = results.iter().filter(|r| r.status == "error").count();
     let total_pages: u64 = results.iter().map(|r| r.total_pages).sum();
     let corrupt_pages: u64 = results.iter().map(|r| r.invalid_pages).sum();
-    let integrity_pct = if total_pages > 0 {
-        ((total_pages - corrupt_pages) as f64 / total_pages as f64) * 100.0
+    let valid_pages: u64 = results.iter().map(|r| r.valid_pages).sum();
+    let checked_pages = valid_pages + corrupt_pages;
+    let integrity_pct = if checked_pages > 0 {
+        (valid_pages as f64 / checked_pages as f64) * 100.0
     } else {
         100.0
     };
@@ -687,24 +685,7 @@ fn execute_health(
         pb.finish_and_clear();
     }
 
-    // Filter by thresholds (values are 0-100 from CLI, compare as 0.0-1.0)
-    if let Some(min_ff) = opts.min_fill_factor {
-        let threshold = min_ff / 100.0;
-        results.retain(|r| r.error.is_some() || r.avg_fill_factor < threshold);
-    }
-    if let Some(max_frag) = opts.max_fragmentation {
-        let threshold = max_frag / 100.0;
-        results.retain(|r| r.error.is_some() || r.avg_fragmentation > threshold);
-    }
-
-    // Sort worst-first by fragmentation (descending)
-    results.sort_by(|a, b| {
-        b.avg_fragmentation
-            .partial_cmp(&a.avg_fragmentation)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Compute directory-wide summary from all results (after filtering)
+    // Compute directory-wide summary from ALL results (before filtering)
     let total_files = results.len();
     let total_index_pages: u64 = results.iter().map(|r| r.total_index_pages).sum();
 
@@ -735,6 +716,23 @@ fn execute_health(
     } else {
         0.0
     };
+
+    // Filter by thresholds (values are 0-100 from CLI, compare as 0.0-1.0)
+    if let Some(min_ff) = opts.min_fill_factor {
+        let threshold = min_ff / 100.0;
+        results.retain(|r| r.error.is_some() || r.avg_fill_factor < threshold);
+    }
+    if let Some(max_frag) = opts.max_fragmentation {
+        let threshold = max_frag / 100.0;
+        results.retain(|r| r.error.is_some() || r.avg_fragmentation > threshold);
+    }
+
+    // Sort worst-first by fragmentation (descending)
+    results.sort_by(|a, b| {
+        b.avg_fragmentation
+            .partial_cmp(&a.avg_fragmentation)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if opts.json {
         let report = HealthAuditReport {

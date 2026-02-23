@@ -23,12 +23,17 @@
 //! | `inno watch` | [`watch`] | Monitor a tablespace file for page-level changes in real time |
 //! | `inno corrupt` | [`corrupt`] | Inject random bytes into a page for testing recovery workflows |
 //! | `inno recover` | [`recover`] | Assess page-level recoverability and count salvageable records |
+//! | `inno repair` | [`repair`] | Recalculate and fix corrupt page checksums |
 //! | `inno find` | [`find`] | Search a MySQL data directory for pages matching a page number |
 //! | `inno tsid` | [`tsid`] | List or look up tablespace (space) IDs across `.ibd`/`.ibu` files |
 //! | `inno sdi` | [`sdi`] | Extract SDI metadata (MySQL 8.0+ serialized data dictionary) |
 //! | `inno schema` | [`schema`] | Extract schema and reconstruct DDL from tablespace metadata |
+//! | `inno export` | [`export`] | Export record-level data from INDEX pages as CSV, JSON, or hex |
+//! | `inno health` | [`health`] | Per-index B+Tree health metrics (fill factor, fragmentation, garbage) |
 //! | `inno log` | [`log`] | Analyze redo log file headers, checkpoints, and data blocks |
 //! | `inno info` | [`info`] | Inspect `ibdata1`, compare LSNs, or query a live MySQL instance |
+//! | `inno defrag` | [`defrag`] | Defragment a tablespace by reclaiming free space and reordering pages |
+//! | `inno transplant` | [`transplant`] | Copy specific pages from a donor tablespace into a target |
 //! | `inno audit` | [`audit`] | Audit a data directory for integrity, health, or corrupt pages |
 //!
 //! # Common patterns
@@ -44,7 +49,7 @@
 //! - **`--output` / `-o`** (global) — Redirect output to a file instead of stdout.
 //!
 //! Progress bars (via [`indicatif`]) are displayed for long-running operations
-//! in `parse`, `checksum`, and `find`. The `wprintln!` and `wprint!` macros
+//! in `parse`, `checksum`, `find`, and `audit`. The `wprintln!` and `wprint!` macros
 //! wrap `writeln!`/`write!` to convert `io::Error` into `IdbError`.
 
 pub mod app;
