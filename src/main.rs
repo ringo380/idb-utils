@@ -413,6 +413,48 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Health {
+            file,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::health::execute(
+            &cli::health::HealthOptions {
+                file,
+                verbose,
+                json,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
+        Commands::Export {
+            file,
+            page,
+            format,
+            where_delete_mark,
+            system_columns,
+            verbose,
+            page_size,
+            keyring,
+        } => cli::export::execute(
+            &cli::export::ExportOptions {
+                file,
+                page,
+                format,
+                where_delete_mark,
+                system_columns,
+                verbose,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
         Commands::Defrag {
             file,
             output,
