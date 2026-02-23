@@ -3,11 +3,13 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use std::io::Write;
-use tempfile::NamedTempFile;
+use std::sync::Arc;
+use tempfile::{NamedTempFile, TempDir};
 
 use idb::innodb::checksum::{validate_checksum, ChecksumAlgorithm};
 use idb::innodb::constants::*;
 use idb::innodb::write;
+use idb::util::audit::AuditLogger;
 
 const PAGE_SIZE: u32 = 16384;
 const PS: usize = PAGE_SIZE as usize;
@@ -312,4 +314,371 @@ fn test_repair_no_backup_skips_backup() {
     // No .bak file should exist
     let backup = format!("{}.bak", path);
     assert!(!std::path::Path::new(&backup).exists());
+}
+
+// ---------------------------------------------------------------------------
+// Batch repair integration tests
+// ---------------------------------------------------------------------------
+
+/// Write a tablespace file into a directory, returning the file path.
+fn write_tablespace_in_dir(dir: &std::path::Path, name: &str, pages: &[Vec<u8>]) -> String {
+    let path = dir.join(name);
+    let mut f = std::fs::File::create(&path).unwrap();
+    for page in pages {
+        f.write_all(page).unwrap();
+    }
+    f.flush().unwrap();
+    path.to_str().unwrap().to_string()
+}
+
+#[test]
+fn test_batch_all_valid_files() {
+    let dir = TempDir::new().unwrap();
+
+    // Two valid tablespace files
+    let page0a = build_fsp_hdr_page(1, 2);
+    let page1a = build_index_page(1, 1, 1000);
+    write_tablespace_in_dir(dir.path(), "a.ibd", &[page0a, page1a]);
+
+    let page0b = build_fsp_hdr_page(2, 2);
+    let page1b = build_index_page(1, 2, 2000);
+    write_tablespace_in_dir(dir.path(), "b.ibd", &[page0b, page1b]);
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["summary"]["total_files"], 2);
+    assert_eq!(json["summary"]["total_pages_repaired"], 0);
+    assert_eq!(json["summary"]["files_already_valid"], 2);
+}
+
+#[test]
+fn test_batch_repairs_corrupt_pages() {
+    let dir = TempDir::new().unwrap();
+
+    // File with a corrupt page
+    let page0 = build_fsp_hdr_page(1, 3);
+    let page1 = build_index_page(1, 1, 1000);
+    let mut page2 = build_index_page(2, 1, 2000);
+    corrupt_checksum(&mut page2);
+    let fpath = write_tablespace_in_dir(dir.path(), "bad.ibd", &[page0, page1, page2]);
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["summary"]["total_pages_repaired"], 1);
+    assert_eq!(json["summary"]["files_repaired"], 1);
+
+    // Verify page is now valid
+    let p2 = write::read_page_raw(&fpath, 2, PAGE_SIZE).unwrap();
+    assert!(validate_checksum(&p2, PAGE_SIZE, None).valid);
+}
+
+#[test]
+fn test_batch_dry_run_no_modification() {
+    let dir = TempDir::new().unwrap();
+
+    let page0 = build_fsp_hdr_page(1, 2);
+    let mut page1 = build_index_page(1, 1, 1000);
+    corrupt_checksum(&mut page1);
+    let corrupted_csum = BigEndian::read_u32(&page1[FIL_PAGE_SPACE_OR_CHKSUM..]);
+    let fpath = write_tablespace_in_dir(dir.path(), "test.ibd", &[page0, page1]);
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: true,
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    // Page should still have the corrupt checksum
+    let p1 = write::read_page_raw(&fpath, 1, PAGE_SIZE).unwrap();
+    let after_csum = BigEndian::read_u32(&p1[FIL_PAGE_SPACE_OR_CHKSUM..]);
+    assert_eq!(after_csum, corrupted_csum);
+
+    let text = String::from_utf8(output).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["dry_run"], true);
+}
+
+#[test]
+fn test_batch_json_output_structure() {
+    let dir = TempDir::new().unwrap();
+
+    let page0 = build_fsp_hdr_page(1, 2);
+    let page1 = build_index_page(1, 1, 1000);
+    write_tablespace_in_dir(dir.path(), "test.ibd", &[page0, page1]);
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+    // Validate top-level fields
+    assert!(json["datadir"].is_string());
+    assert!(json["algorithm"].is_string());
+    assert!(json["files"].is_array());
+    assert!(json["summary"].is_object());
+
+    // Validate file-level fields
+    let file = &json["files"][0];
+    assert!(file["file"].is_string());
+    assert!(file["total_pages"].is_number());
+    assert!(file["already_valid"].is_number());
+    assert!(file["repaired"].is_number());
+
+    // Validate summary fields
+    let s = &json["summary"];
+    assert!(s["total_files"].is_number());
+    assert!(s["files_repaired"].is_number());
+    assert!(s["files_already_valid"].is_number());
+    assert!(s["total_pages_scanned"].is_number());
+    assert!(s["total_pages_repaired"].is_number());
+}
+
+#[test]
+fn test_batch_with_audit_log() {
+    let dir = TempDir::new().unwrap();
+
+    let page0 = build_fsp_hdr_page(1, 2);
+    let mut page1 = build_index_page(1, 1, 1000);
+    corrupt_checksum(&mut page1);
+    write_tablespace_in_dir(dir.path(), "test.ibd", &[page0, page1]);
+
+    // Create audit log
+    let audit_tmp = NamedTempFile::new().unwrap();
+    let audit_path = audit_tmp.path().to_str().unwrap().to_string();
+    drop(audit_tmp);
+
+    let logger = Arc::new(AuditLogger::open(&audit_path).unwrap());
+    logger.start_session(vec!["test".into()]).unwrap();
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: Some(logger.clone()),
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    logger.end_session().unwrap();
+
+    // Verify audit log contains expected events
+    let audit_content = std::fs::read_to_string(&audit_path).unwrap();
+    let lines: Vec<&str> = audit_content.lines().collect();
+    assert!(lines.len() >= 3); // session_start + page_write + session_end
+
+    let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(first["event"], "session_start");
+
+    // Find page_write event
+    let has_page_write = lines.iter().any(|l| l.contains("\"event\":\"page_write\""));
+    assert!(has_page_write);
+
+    let last: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
+    assert_eq!(last["event"], "session_end");
+}
+
+#[test]
+fn test_batch_no_backup_skips_bak_files() {
+    let dir = TempDir::new().unwrap();
+
+    let page0 = build_fsp_hdr_page(1, 2);
+    let mut page1 = build_index_page(1, 1, 1000);
+    corrupt_checksum(&mut page1);
+    write_tablespace_in_dir(dir.path(), "test.ibd", &[page0, page1]);
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: false,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    // No .bak files should exist
+    let bak_exists = std::fs::read_dir(dir.path()).unwrap().any(|e| {
+        e.unwrap()
+            .path()
+            .extension()
+            .map_or(false, |ext| ext == "bak")
+    });
+    assert!(!bak_exists);
+}
+
+#[test]
+fn test_batch_empty_directory() {
+    let dir = TempDir::new().unwrap();
+
+    let mut output = Vec::new();
+    idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some(dir.path().to_str().unwrap().to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: false,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.contains("No .ibd files found"));
+}
+
+#[test]
+fn test_batch_file_mutual_exclusion() {
+    let result = idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: Some("test.ibd".to_string()),
+            batch: Some("/tmp".to_string()),
+            page: None,
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: false,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut Vec::new(),
+    );
+
+    match result {
+        Err(idb::IdbError::Argument(msg)) => {
+            assert!(msg.contains("mutually exclusive"));
+        }
+        other => panic!("Expected Argument error, got {:?}", other.err()),
+    }
+}
+
+#[test]
+fn test_batch_page_incompatible() {
+    let result = idb::cli::repair::execute(
+        &idb::cli::repair::RepairOptions {
+            file: None,
+            batch: Some("/tmp".to_string()),
+            page: Some(1),
+            algorithm: "auto".to_string(),
+            no_backup: true,
+            dry_run: false,
+            verbose: false,
+            json: false,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            audit_logger: None,
+        },
+        &mut Vec::new(),
+    );
+
+    match result {
+        Err(idb::IdbError::Argument(msg)) => {
+            assert!(msg.contains("--page cannot be used with --batch"));
+        }
+        other => panic!("Expected Argument error, got {:?}", other.err()),
+    }
 }
