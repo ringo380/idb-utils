@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-02-23
+
+### Added
+
+- **`inno schema`** — New subcommand to extract SDI metadata and reconstruct `CREATE TABLE` DDL from MySQL 8.0+ tablespaces. Parses columns (types, defaults, nullability, character sets, collations), indexes (BTREE, FULLTEXT, SPATIAL with prefix lengths and sort order), foreign keys (with referential actions), partitioning, `AUTO_INCREMENT`, `ROW_FORMAT`, and table comments. Pre-8.0 tablespace inference when SDI is unavailable. Supports `--verbose` for column detail and `--json` for machine-readable output. (Closes #71)
+- **`inno export`** — New subcommand to export record data from INDEX pages as CSV, JSON, or hex dump. Decodes InnoDB field types including INT, BIGINT, FLOAT, DOUBLE, DECIMAL, DATE, DATETIME, TIMESTAMP, VARCHAR, CHAR, TEXT, and BLOB. Handles signed integer encoding (high-bit XOR for memcmp ordering). Supports `--where-delete-mark` to include delete-marked records, `--system-columns` to show DB_TRX_ID/DB_ROLL_PTR, and `--page` to target specific pages. (Closes #72)
+- **`inno health`** — New subcommand for per-index B+Tree health metrics. Computes fill factor (used vs available space), fragmentation score (out-of-order page ratio), and garbage ratio (delete-marked records vs total). Resolves index names from SDI metadata when available. Supports `--verbose` for per-page detail, `--json` for machine-readable output, and `--keyring` for encrypted tablespaces. (Closes #75)
+- **`--format text|json|csv`** global flag on the top-level `inno` command, providing a unified output format selector across subcommands. Per-subcommand `--json` flags continue to work as overrides. CSV output supported for `parse`, `pages`, `checksum`, and `health`. (Closes #80)
+- **`--deleted` flag on `inno pages`** — Walks compact records on INDEX pages and reports delete-marked record counts in text, JSON, and CSV output modes. (Closes #74)
+- **Fill-factor display in `inno pages`** — Per-page fill factor shown for INDEX pages via `compute_fill_factor()` from the health module. Color-coded in text output (green/yellow/red), included in JSON and CSV. (Closes #76)
+- **Corruption pattern analysis in `inno recover`** — New `src/innodb/corruption.rs` module with `CorruptionPattern` enum (ZeroFill, RandomNoise, TornWrite, HeaderOnly, Bitrot, Unknown). Classification uses Shannon entropy and Hamming distance heuristics. Integrated into `inno recover` verbose and JSON output. (Closes #73)
+- **WASM `extract_schema()` binding** — New wasm-bindgen export in `src/wasm.rs` that extracts schema metadata and DDL from in-memory tablespace bytes. Returns JSON with columns, indexes, foreign keys, and DDL string. (Closes #77)
+- **Web UI Schema tab** — New tab in the web analyzer displaying columns, indexes, and foreign keys as formatted tables, plus reconstructed DDL with a copy-to-clipboard button. Inserted after SDI (keyboard shortcut: 5). (Closes #78)
+- 15 new integration tests for write operation edge cases (repair, defrag, transplant, rebuild) covering multi-index tablespaces, concurrent page types, and boundary conditions. (Closes #79)
+- New `src/innodb/corruption.rs` module for corruption pattern classification
+- New `src/innodb/field_decode.rs` module for InnoDB field type decoding and column layout building
+- New `src/innodb/health.rs` module with `IndexPageSnapshot`, `IndexHealth`, and `HealthReport` types
+- New `src/innodb/schema.rs` module for SDI deserialization, DDL generation, and type mapping
+
+### Changed
+
+- Web UI keyboard shortcuts renumbered: Schema=5, Hex=6, Recovery=7, Heatmap=8, Diff=9
+
 ## [3.0.0] - 2026-02-20
 
 ### Added
