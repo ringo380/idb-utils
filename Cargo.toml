@@ -42,6 +42,7 @@ chrono = { version = "0.4", optional = true }
 rand = { version = "0.10", optional = true }
 rayon = { version = "1", optional = true }
 memmap2 = { version = "0.9", optional = true }
+fs2 = { version = "0.4", optional = true }
 
 # MySQL query support (requires CLI)
 mysql_async = { version = "0.36", optional = true }
@@ -68,7 +69,7 @@ js-sys = "0.3"
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand", "dep:rayon", "dep:memmap2"]
+cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand", "dep:rayon", "dep:memmap2", "dep:fs2"]
 mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
 [package.metadata.wasm-pack.profile.release]
