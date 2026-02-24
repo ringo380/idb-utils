@@ -11,6 +11,12 @@ class Inno < Formula
   def install
     system "cargo", "install", *std_cargo_args
     man1.install Dir["target/release/build/innodb-utils-*/out/man/*.1"]
+    completions_dir = Dir["target/release/build/innodb-utils-*/out/completions"].first
+    if completions_dir
+      bash_completion.install "#{completions_dir}/inno.bash" => "inno"
+      zsh_completion.install "#{completions_dir}/_inno"
+      fish_completion.install "#{completions_dir}/inno.fish"
+    end
   end
 
   test do

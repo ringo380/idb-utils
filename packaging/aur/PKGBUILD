@@ -28,4 +28,13 @@ package() {
     if [[ -d "$_mandir" ]]; then
         install -Dm644 "$_mandir"/*.1 -t "$pkgdir/usr/share/man/man1/"
     fi
+
+    # Shell completions (generated during build)
+    local _compdir
+    _compdir=$(find target/release/build/innodb-utils-*/out/completions -maxdepth 0 2>/dev/null | head -1)
+    if [[ -d "$_compdir" ]]; then
+        install -Dm644 "$_compdir/inno.bash" "$pkgdir/usr/share/bash-completion/completions/inno"
+        install -Dm644 "$_compdir/_inno" "$pkgdir/usr/share/zsh/site-functions/_inno"
+        install -Dm644 "$_compdir/inno.fish" "$pkgdir/usr/share/fish/vendor_completions.d/inno.fish"
+    fi
 }

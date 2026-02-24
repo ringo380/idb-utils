@@ -43,6 +43,7 @@ rand = { version = "0.10", optional = true }
 rayon = { version = "1", optional = true }
 memmap2 = { version = "0.9", optional = true }
 fs2 = { version = "0.4", optional = true }
+clap_complete = { version = "4", optional = true }
 
 # MySQL query support (requires CLI)
 mysql_async = { version = "0.36", optional = true }
@@ -51,11 +52,13 @@ tokio = { version = "1", features = ["rt", "macros"], optional = true }
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
+clap_complete = "4"
 
 [dev-dependencies]
 tempfile = "3"
 byteorder = "1"
 crc32c = "0.6"
+clap_complete = "4"
 criterion = { version = "0.5", features = ["html_reports"] }
 rayon = "1"
 
@@ -69,7 +72,7 @@ js-sys = "0.3"
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand", "dep:rayon", "dep:memmap2", "dep:fs2"]
+cli = ["dep:clap", "dep:colored", "dep:indicatif", "dep:ctrlc", "dep:chrono", "dep:rand", "dep:rayon", "dep:memmap2", "dep:fs2", "dep:clap_complete"]
 mysql = ["dep:mysql_async", "dep:tokio", "cli"]
 
 [package.metadata.wasm-pack.profile.release]
@@ -85,6 +88,9 @@ assets = [
     ["target/release/inno", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/innodb-utils/", "644"],
     ["LICENSE", "usr/share/doc/innodb-utils/", "644"],
+    ["target/release/build/innodb-utils-*/out/completions/inno.bash", "usr/share/bash-completion/completions/inno", "644"],
+    ["target/release/build/innodb-utils-*/out/completions/_inno", "usr/share/zsh/vendor-completions/", "644"],
+    ["target/release/build/innodb-utils-*/out/completions/inno.fish", "usr/share/fish/vendor_completions.d/", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -92,6 +98,9 @@ assets = [
     { source = "target/release/inno", dest = "/usr/bin/inno", mode = "755" },
     { source = "README.md", dest = "/usr/share/doc/innodb-utils/README.md", mode = "644" },
     { source = "LICENSE", dest = "/usr/share/doc/innodb-utils/LICENSE", mode = "644" },
+    { source = "target/release/build/innodb-utils-*/out/completions/inno.bash", dest = "/usr/share/bash-completion/completions/inno", mode = "644" },
+    { source = "target/release/build/innodb-utils-*/out/completions/_inno", dest = "/usr/share/zsh/vendor-completions/_inno", mode = "644" },
+    { source = "target/release/build/innodb-utils-*/out/completions/inno.fish", dest = "/usr/share/fish/vendor_completions.d/inno.fish", mode = "644" },
 ]
 
 [package.metadata.docs.rs]

@@ -35,6 +35,7 @@
 //! | `inno defrag` | [`defrag`] | Defragment a tablespace by reclaiming free space and reordering pages |
 //! | `inno transplant` | [`transplant`] | Copy specific pages from a donor tablespace into a target |
 //! | `inno audit` | [`audit`] | Audit a data directory for integrity, health, or corrupt pages |
+//! | `inno completions` | — | Generate shell completion scripts for bash, zsh, fish, or powershell |
 //!
 //! # Common patterns
 //!

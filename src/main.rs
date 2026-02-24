@@ -537,6 +537,12 @@ fn main() {
             },
             &mut writer,
         ),
+
+        Commands::Completions { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(shell, &mut cmd, "inno", &mut std::io::stdout());
+            Ok(())
+        }
     };
 
     // End audit session if logger was created

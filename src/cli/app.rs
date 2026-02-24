@@ -899,4 +899,10 @@ pub enum Commands {
         #[arg(long)]
         keyring: Option<String>,
     },
+
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
 }
