@@ -291,6 +291,10 @@ pub enum Commands {
     /// `--space-id` filters narrow results when the same page number appears
     /// in multiple tablespaces. Use `--first` to stop after the first match
     /// for faster lookups.
+    ///
+    /// With `--corrupt`, scans all pages for checksum mismatches instead of
+    /// searching by page number. Reports corrupt pages with their stored and
+    /// calculated checksums plus corruption pattern classification.
     Find {
         /// MySQL data directory path
         #[arg(short, long)]
@@ -298,15 +302,19 @@ pub enum Commands {
 
         /// Page number to search for
         #[arg(short, long)]
-        page: u64,
+        page: Option<u64>,
 
-        /// Checksum to match
+        /// Checksum to match (page-number search only)
         #[arg(short, long)]
         checksum: Option<u32>,
 
         /// Space ID to match
         #[arg(short, long)]
         space_id: Option<u32>,
+
+        /// Scan for pages with checksum mismatches
+        #[arg(long)]
+        corrupt: bool,
 
         /// Stop at first match
         #[arg(long)]

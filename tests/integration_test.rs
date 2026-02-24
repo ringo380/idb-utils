@@ -563,9 +563,10 @@ fn test_find_execute_basic() {
 
     let opts = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 1,
+        page: Some(1),
         checksum: None,
         space_id: None,
+        corrupt: false,
         first: false,
         json: false,
         page_size: None,
@@ -828,9 +829,10 @@ fn test_find_json_output() {
 
     let opts = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: None,
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -1440,9 +1442,10 @@ fn test_checksum_invalid_returns_error() {
 fn test_find_nonexistent_directory() {
     let opts = idb::cli::find::FindOptions {
         datadir: "/nonexistent/datadir".to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: None,
+        corrupt: false,
         first: false,
         json: false,
         page_size: None,
@@ -2261,9 +2264,10 @@ fn test_find_checksum_filter() {
     // Search with matching checksum — should find it
     let opts_match = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: Some(stored_checksum),
         space_id: None,
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -2284,9 +2288,10 @@ fn test_find_checksum_filter() {
     // Search with wrong checksum — should find nothing
     let opts_no_match = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: Some(0xDEADBEEF),
         space_id: None,
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -2320,9 +2325,10 @@ fn test_find_space_id_filter() {
     // Matching space_id
     let opts_match = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: Some(50),
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -2342,9 +2348,10 @@ fn test_find_space_id_filter() {
     // Non-matching space_id
     let opts_no_match = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: Some(999),
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -2380,9 +2387,10 @@ fn test_find_first_flag() {
     // Without --first, should find 2 matches for page 0
     let opts_all = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: None,
+        corrupt: false,
         first: false,
         json: true,
         page_size: None,
@@ -2400,9 +2408,10 @@ fn test_find_first_flag() {
     // With --first, should find only 1
     let opts_first = idb::cli::find::FindOptions {
         datadir: datadir.path().to_string_lossy().to_string(),
-        page: 0,
+        page: Some(0),
         checksum: None,
         space_id: None,
+        corrupt: false,
         first: true,
         json: true,
         page_size: None,
