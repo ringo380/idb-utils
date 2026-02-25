@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-02-25
+
+### Added
+
+- **`inno audit` subcommand** — New subcommand for directory-wide integrity scanning, health metrics, and checksum mismatch detection. Three modes: default integrity (`inno audit -d <datadir>`), health (`--health`), and mismatch listing (`--checksum-mismatch`). Scans `.ibd` files in parallel with rayon. Supports `--json`, `--csv`, and `--prometheus` output formats, threshold filters (`--min-fill-factor`, `--max-fragmentation`), and `--keyring` for encrypted tablespaces. (Closes #83, #84, #85)
+- **`--audit-log <path>` global flag** — Structured NDJSON audit logging for write operations (repair, corrupt, defrag, transplant). `AuditLogger` with mutex + fs2 file locking, `AuditEvent` tagged enum (session_start, page_write, file_write, backup_created, session_end). (Closes #86)
+- **`--prometheus` flag on `inno audit` and `inno health`** — Prometheus exposition format output for integration with textfile collectors. Per-file and directory-wide gauge metrics for pages, corruption, fill factor, fragmentation, garbage ratio, and scan duration. (Closes #87)
+- **`inno watch --events`** — Structured NDJSON change event stream. Emits `watch_start`, `page_change`, `watch_error`, and `watch_stop` events with per-page detail (page type, LSN delta, checksum validity). (Closes #88)
+- **`inno repair --batch <dir>`** — Batch repair mode scanning a data directory for corrupt tablespaces and repairing them in parallel. Auto-detects checksum algorithm per file. `BatchRepairReport` JSON output with per-file results and summary. (Closes #89)
+- **`inno find --corrupt`** — Scan data directory for pages with checksum mismatches. (Closes #90)
+- **`--depth` flag on `inno find`, `inno tsid`, and `inno audit`** — Control recursive directory scanning depth. `None` = default depth 2, `--depth 0` = unlimited, `--depth N` = N levels. Symlink loop detection via canonical path tracking. (Closes #93)
+- **Shell completion generation** — `inno completions <shell>` generates completions for bash, zsh, fish, and PowerShell via `clap_complete`. (Closes #92)
+- **Web UI audit dashboard** — New "Audit" tab in the web analyzer for multi-file integrity and health analysis. Drop 3+ `.ibd` files to see summary cards (total files, pages, corrupt pages, integrity %, avg fill factor), progress bars for integrity and fragmentation, and a sortable/filterable per-file detail table. (Closes #91)
+- **WASM `analyze_health()` binding** — New wasm-bindgen export for B+Tree health analysis from in-memory tablespace bytes.
+- New `src/util/prometheus.rs` module with Prometheus exposition format helpers (`format_gauge`, `format_gauge_int`, `escape_label_value`, `help_line`, `type_line`)
+- New `src/util/audit.rs` module with `AuditLogger` and `AuditEvent` types
+- New `web/src/components/audit.js` audit dashboard component
+- 30+ new integration tests across audit, find, health, and watch test files
+
+### Changed
+
+- `find_tablespace_files()` rewritten with configurable depth and symlink loop safety via `HashSet<PathBuf>` canonical path tracking
+- Web UI dropzone extended for 3+ file multi-drop (audit mode)
+- Web UI tab bar conditionally shows Audit tab (keyboard shortcut: 0)
+
 ## [3.1.0] - 2026-02-23
 
 ### Added
