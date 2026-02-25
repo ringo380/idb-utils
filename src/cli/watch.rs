@@ -97,8 +97,8 @@ struct PageChange {
 
 /// A single structured change event emitted in `--events` mode.
 ///
-/// Each event is one NDJSON line with a tagged `event` field, compatible
-/// with the audit log format from [`crate::util::audit::AuditEvent`].
+/// Each event is one NDJSON line with a tagged `event` field, following
+/// the same NDJSON convention used by [`crate::util::audit::AuditEvent`].
 #[derive(Serialize)]
 struct WatchChangeEvent {
     timestamp: String,

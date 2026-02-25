@@ -411,7 +411,7 @@ fn algorithm_name(algo: crate::innodb::checksum::ChecksumAlgorithm) -> &'static 
 /// Audit a MySQL data directory for integrity, health metrics, or corrupt pages.
 pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if opts.prometheus && (opts.json || opts.csv) {
-        return Err(IdbError::Parse(
+        return Err(IdbError::Argument(
             "--prometheus cannot be combined with JSON or CSV output".to_string(),
         ));
     }
@@ -434,7 +434,10 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
     let ibd_files = find_tablespace_files(datadir, &["ibd"], opts.depth)?;
 
     if ibd_files.is_empty() {
-        if opts.json {
+        if opts.prometheus {
+            // Empty Prometheus output — valid exposition format (no metrics emitted)
+            return Ok(());
+        } else if opts.json {
             if opts.health {
                 let report = HealthAuditReport {
                     datadir: opts.datadir.clone(),
@@ -553,12 +556,14 @@ fn execute_integrity(
         let duration_secs = start.elapsed().as_secs_f64();
         print_prometheus_integrity(
             writer,
-            &opts.datadir,
-            &results,
-            total_pages,
-            corrupt_pages,
-            integrity_pct,
-            duration_secs,
+            &IntegrityPrometheusParams {
+                datadir: &opts.datadir,
+                results: &results,
+                total_pages,
+                corrupt_pages,
+                integrity_pct,
+                duration_secs,
+            },
         )?;
 
         if corrupt_pages > 0 {
@@ -759,14 +764,16 @@ fn execute_health(
         let duration_secs = start.elapsed().as_secs_f64();
         print_prometheus_health(
             writer,
-            &opts.datadir,
-            &results,
-            total_files,
-            total_index_pages,
-            avg_fill,
-            avg_frag,
-            avg_garbage,
-            duration_secs,
+            &HealthPrometheusParams {
+                datadir: &opts.datadir,
+                results: &results,
+                total_files,
+                total_index_pages,
+                avg_fill,
+                avg_frag,
+                avg_garbage,
+                duration_secs,
+            },
         )?;
         return Ok(());
     }
@@ -990,17 +997,26 @@ fn round2(v: f64) -> f64 {
 // Prometheus exposition format output
 // ---------------------------------------------------------------------------
 
-/// Print integrity audit results in Prometheus exposition format.
-#[allow(clippy::too_many_arguments)]
-fn print_prometheus_integrity(
-    writer: &mut dyn Write,
-    datadir: &str,
-    results: &[FileIntegrityResult],
+struct IntegrityPrometheusParams<'a> {
+    datadir: &'a str,
+    results: &'a [FileIntegrityResult],
     total_pages: u64,
     corrupt_pages: u64,
     integrity_pct: f64,
     duration_secs: f64,
+}
+
+/// Print integrity audit results in Prometheus exposition format.
+fn print_prometheus_integrity(
+    writer: &mut dyn Write,
+    params: &IntegrityPrometheusParams<'_>,
 ) -> Result<(), IdbError> {
+    let datadir = params.datadir;
+    let results = params.results;
+    let total_pages = params.total_pages;
+    let corrupt_pages = params.corrupt_pages;
+    let integrity_pct = params.integrity_pct;
+    let duration_secs = params.duration_secs;
     // innodb_pages per file
     wprintln!(
         writer,
@@ -1165,19 +1181,30 @@ fn print_prometheus_integrity(
     Ok(())
 }
 
-/// Print health audit results in Prometheus exposition format.
-#[allow(clippy::too_many_arguments)]
-fn print_prometheus_health(
-    writer: &mut dyn Write,
-    datadir: &str,
-    results: &[FileHealthResult],
+struct HealthPrometheusParams<'a> {
+    datadir: &'a str,
+    results: &'a [FileHealthResult],
     total_files: usize,
     total_index_pages: u64,
     avg_fill: f64,
     avg_frag: f64,
     avg_garbage: f64,
     duration_secs: f64,
+}
+
+/// Print health audit results in Prometheus exposition format.
+fn print_prometheus_health(
+    writer: &mut dyn Write,
+    params: &HealthPrometheusParams<'_>,
 ) -> Result<(), IdbError> {
+    let datadir = params.datadir;
+    let results = params.results;
+    let total_files = params.total_files;
+    let total_index_pages = params.total_index_pages;
+    let avg_fill = params.avg_fill;
+    let avg_frag = params.avg_frag;
+    let avg_garbage = params.avg_garbage;
+    let duration_secs = params.duration_secs;
     // Per-file fill factor
     wprintln!(
         writer,

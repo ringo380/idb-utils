@@ -36,7 +36,7 @@ pub struct HealthOptions {
 /// Analyze B+Tree health metrics for all indexes in a tablespace.
 pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     if opts.prometheus && (opts.json || opts.csv) {
-        return Err(IdbError::Parse(
+        return Err(IdbError::Argument(
             "--prometheus cannot be combined with JSON or CSV output".to_string(),
         ));
     }
@@ -150,8 +150,7 @@ fn resolve_index_names(
                         // index_id without parsing se_private_data, but we can use
                         // the name if we find a matching pattern.
                         // Use se_private_data parsing to extract "id=N"
-                        if let Some(id) = parse_se_private_id(&dd_idx.name, &rec.data, &dd_idx.name)
-                        {
+                        if let Some(id) = parse_se_private_id(&rec.data, &dd_idx.name) {
                             name_map.insert(id, dd_idx.name.clone());
                         }
                     }
@@ -174,7 +173,7 @@ fn resolve_index_names(
 ///
 /// The JSON contains `"se_private_data": "id=N;root=M;..."` for each index.
 /// We search the raw JSON for the pattern matching this index name.
-fn parse_se_private_id(_index_name: &str, sdi_json: &str, name: &str) -> Option<u64> {
+fn parse_se_private_id(sdi_json: &str, name: &str) -> Option<u64> {
     // Parse the full JSON to extract se_private_data for the named index
     let val: serde_json::Value = serde_json::from_str(sdi_json).ok()?;
     let indexes = val.get("dd_object")?.get("indexes")?.as_array()?;

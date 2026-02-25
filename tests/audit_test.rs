@@ -213,6 +213,27 @@ fn test_audit_empty_directory() {
 }
 
 #[test]
+fn test_audit_empty_directory_prometheus() {
+    let dir = TempDir::new().unwrap();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.prometheus = true;
+
+    let mut output = Vec::new();
+    let result = idb::cli::audit::execute(&opts, &mut output);
+    assert!(result.is_ok());
+
+    // Prometheus output for empty directory should be empty (valid exposition format)
+    let text = String::from_utf8(output).unwrap();
+    assert!(
+        text.is_empty(),
+        "expected empty prometheus output, got: {}",
+        text
+    );
+}
+
+#[test]
 fn test_audit_unreadable_file() {
     let dir = create_test_datadir();
     let datadir = dir.path().to_str().unwrap();
