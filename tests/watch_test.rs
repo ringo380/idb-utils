@@ -76,6 +76,7 @@ fn default_opts(file: &str) -> WatchOptions {
         interval: 100,
         verbose: false,
         json: false,
+        events: false,
         page_size: None,
         keyring: None,
         mmap: false,
@@ -144,6 +145,7 @@ fn test_watch_file_deleted_during_poll_text() {
         interval: 50,
         verbose: false,
         json: false,
+        events: false,
         page_size: None,
         keyring: None,
         mmap: false,
@@ -163,6 +165,7 @@ fn test_watch_json_opts_construction() {
         interval: 500,
         verbose: true,
         json: true,
+        events: false,
         page_size: Some(16384),
         keyring: None,
         mmap: false,
@@ -170,6 +173,7 @@ fn test_watch_json_opts_construction() {
     assert_eq!(opts.interval, 500);
     assert!(opts.verbose);
     assert!(opts.json);
+    assert!(!opts.events);
     assert_eq!(opts.page_size, Some(16384));
 }
 
@@ -189,6 +193,7 @@ fn test_watch_page_size_override() {
         interval: 100,
         verbose: false,
         json: false,
+        events: false,
         page_size: Some(16384),
         keyring: None,
         mmap: false,
@@ -196,4 +201,58 @@ fn test_watch_page_size_override() {
     // Just verify the options are accepted (initial open succeeds)
     // We can't run the full loop but we can verify construction is valid
     assert_eq!(opts.page_size, Some(16384));
+}
+
+#[test]
+fn test_watch_events_opts_construction() {
+    let tmp = write_tablespace(&[build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)]);
+    let opts = WatchOptions {
+        file: tmp.path().to_str().unwrap().to_string(),
+        interval: 500,
+        verbose: false,
+        json: false,
+        events: true,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+    assert!(opts.events);
+    assert!(!opts.json);
+}
+
+#[test]
+fn test_watch_events_and_json_opts() {
+    // When both --events and --json are set, events should take priority
+    let tmp = write_tablespace(&[build_fsp_hdr_page(1, 2), build_index_page(1, 1, 2000)]);
+    let opts = WatchOptions {
+        file: tmp.path().to_str().unwrap().to_string(),
+        interval: 500,
+        verbose: false,
+        json: true,
+        events: true,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+    assert!(opts.events);
+    assert!(opts.json);
+    // Both are set; execute() should use events mode when both are true
+}
+
+#[test]
+fn test_watch_events_nonexistent_file() {
+    let opts = WatchOptions {
+        file: "/tmp/nonexistent_watch_events_test_12345.ibd".to_string(),
+        interval: 100,
+        verbose: false,
+        json: false,
+        events: true,
+        page_size: None,
+        keyring: None,
+        mmap: false,
+    };
+    let mut buf = Vec::new();
+    let result = execute(&opts, &mut buf);
+    // Should fail on initial open (file doesn't exist)
+    assert!(result.is_err());
 }

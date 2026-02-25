@@ -26,6 +26,8 @@ pub struct WatchOptions {
     pub verbose: bool,
     /// Output in NDJSON streaming format.
     pub json: bool,
+    /// Emit per-page NDJSON change events (audit-log compatible).
+    pub events: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -89,6 +91,48 @@ struct PageChange {
     lsn_delta: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     checksum_valid: Option<bool>,
+}
+
+// ── Events-mode NDJSON struct (audit-log compatible) ─────────────────
+
+/// A single structured change event emitted in `--events` mode.
+///
+/// Each event is one NDJSON line with a tagged `event` field, compatible
+/// with the audit log format from [`crate::util::audit::AuditEvent`].
+#[derive(Serialize)]
+struct WatchChangeEvent {
+    timestamp: String,
+    event: String,
+    file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pages: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_lsn: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_lsn: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checksum_valid: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_changes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_polls: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn emit_change_event(writer: &mut dyn Write, event: &WatchChangeEvent) -> Result<(), IdbError> {
+    let json = serde_json::to_string(event)
+        .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+    wprintln!(writer, "{}", json)?;
+    Ok(())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -158,8 +202,32 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         vendor_name: vendor_name.clone(),
     };
 
+    // When --events is set, it takes priority over --json for output mode
+    let use_events = opts.events;
+    let use_json = opts.json && !use_events;
+
     // Emit start message
-    if opts.json {
+    if use_events {
+        emit_change_event(
+            writer,
+            &WatchChangeEvent {
+                timestamp: now_timestamp(),
+                event: "watch_start".to_string(),
+                file: opts.file.clone(),
+                pages: Some(page_count),
+                page_size: Some(page_size),
+                page: None,
+                page_type: None,
+                old_lsn: None,
+                new_lsn: None,
+                kind: None,
+                checksum_valid: None,
+                total_changes: None,
+                total_polls: None,
+                error: None,
+            },
+        )?;
+    } else if use_json {
         emit_json_line(
             writer,
             &WatchEvent {
@@ -208,7 +276,7 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
 
         // Check if file still exists
         if !Path::new(&opts.file).exists() {
-            if opts.json {
+            if use_json {
                 emit_json_line(
                     writer,
                     &WatchEvent {
@@ -221,6 +289,26 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                         added: None,
                         removed: None,
                         changes: None,
+                        total_changes: None,
+                        total_polls: None,
+                        error: Some("File no longer exists".to_string()),
+                    },
+                )?;
+            } else if use_events {
+                emit_change_event(
+                    writer,
+                    &WatchChangeEvent {
+                        timestamp: now_timestamp(),
+                        event: "watch_error".to_string(),
+                        file: opts.file.clone(),
+                        pages: None,
+                        page_size: None,
+                        page: None,
+                        page_type: None,
+                        old_lsn: None,
+                        new_lsn: None,
+                        kind: None,
+                        checksum_valid: None,
                         total_changes: None,
                         total_polls: None,
                         error: Some("File no longer exists".to_string()),
@@ -247,7 +335,7 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         let (new_page_count, new_snapshots) = match poll_result {
             Ok(r) => r,
             Err(e) => {
-                if opts.json {
+                if use_json {
                     emit_json_line(
                         writer,
                         &WatchEvent {
@@ -260,6 +348,26 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                             added: None,
                             removed: None,
                             changes: None,
+                            total_changes: None,
+                            total_polls: None,
+                            error: Some(e.to_string()),
+                        },
+                    )?;
+                } else if use_events {
+                    emit_change_event(
+                        writer,
+                        &WatchChangeEvent {
+                            timestamp: now_timestamp(),
+                            event: "watch_error".to_string(),
+                            file: opts.file.clone(),
+                            pages: None,
+                            page_size: None,
+                            page: None,
+                            page_type: None,
+                            old_lsn: None,
+                            new_lsn: None,
+                            kind: None,
+                            checksum_valid: None,
                             total_changes: None,
                             total_polls: None,
                             error: Some(e.to_string()),
@@ -346,7 +454,30 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
 
         // Only emit output when something changed
         if cycle_changes > 0 {
-            if opts.json {
+            if use_events {
+                // Emit individual per-page change events
+                for change in &changes {
+                    emit_change_event(
+                        writer,
+                        &WatchChangeEvent {
+                            timestamp: now_timestamp(),
+                            event: "page_change".to_string(),
+                            file: opts.file.clone(),
+                            pages: None,
+                            page_size: None,
+                            page: Some(change.page),
+                            page_type: Some(change.page_type.clone()),
+                            old_lsn: change.old_lsn,
+                            new_lsn: change.new_lsn,
+                            kind: Some(change.kind.clone()),
+                            checksum_valid: change.checksum_valid,
+                            total_changes: None,
+                            total_polls: None,
+                            error: None,
+                        },
+                    )?;
+                }
+            } else if use_json {
                 emit_json_line(
                     writer,
                     &WatchEvent {
@@ -448,7 +579,27 @@ pub fn execute(opts: &WatchOptions, writer: &mut dyn Write) -> Result<(), IdbErr
     }
 
     // Emit stop summary
-    if opts.json {
+    if use_events {
+        emit_change_event(
+            writer,
+            &WatchChangeEvent {
+                timestamp: now_timestamp(),
+                event: "watch_stop".to_string(),
+                file: opts.file.clone(),
+                pages: None,
+                page_size: None,
+                page: None,
+                page_type: None,
+                old_lsn: None,
+                new_lsn: None,
+                kind: None,
+                checksum_valid: None,
+                total_changes: Some(total_changes),
+                total_polls: Some(total_polls),
+                error: None,
+            },
+        )?;
+    } else if use_json {
         emit_json_line(
             writer,
             &WatchEvent {
@@ -569,6 +720,7 @@ mod tests {
             interval: 100,
             verbose: false,
             json: false,
+            events: false,
             page_size: None,
             keyring: None,
             mmap: false,
@@ -586,6 +738,7 @@ mod tests {
             interval: 100,
             verbose: false,
             json: false,
+            events: false,
             page_size: Some(16384),
             keyring: None,
             mmap: false,
@@ -601,10 +754,129 @@ mod tests {
             interval: 100,
             verbose: false,
             json: false,
+            events: false,
             page_size: None,
             keyring: None,
             mmap: false,
         };
         assert!(open_tablespace(&opts).is_err());
+    }
+
+    #[test]
+    fn test_watch_change_event_serialization() {
+        let event = WatchChangeEvent {
+            timestamp: "2026-02-24T10:00:00.000+00:00".to_string(),
+            event: "watch_start".to_string(),
+            file: "/tmp/test.ibd".to_string(),
+            pages: Some(10),
+            page_size: Some(16384),
+            page: None,
+            page_type: None,
+            old_lsn: None,
+            new_lsn: None,
+            kind: None,
+            checksum_valid: None,
+            total_changes: None,
+            total_polls: None,
+            error: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["event"], "watch_start");
+        assert_eq!(parsed["file"], "/tmp/test.ibd");
+        assert_eq!(parsed["pages"], 10);
+        assert_eq!(parsed["page_size"], 16384);
+        // Optional fields should be absent
+        assert!(parsed.get("page").is_none());
+        assert!(parsed.get("page_type").is_none());
+        assert!(parsed.get("kind").is_none());
+    }
+
+    #[test]
+    fn test_watch_change_event_page_change() {
+        let event = WatchChangeEvent {
+            timestamp: "2026-02-24T10:00:01.000+00:00".to_string(),
+            event: "page_change".to_string(),
+            file: "/tmp/test.ibd".to_string(),
+            pages: None,
+            page_size: None,
+            page: Some(5),
+            page_type: Some("INDEX".to_string()),
+            old_lsn: Some(1000),
+            new_lsn: Some(2000),
+            kind: Some("modified".to_string()),
+            checksum_valid: Some(true),
+            total_changes: None,
+            total_polls: None,
+            error: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["event"], "page_change");
+        assert_eq!(parsed["page"], 5);
+        assert_eq!(parsed["page_type"], "INDEX");
+        assert_eq!(parsed["old_lsn"], 1000);
+        assert_eq!(parsed["new_lsn"], 2000);
+        assert_eq!(parsed["kind"], "modified");
+        assert_eq!(parsed["checksum_valid"], true);
+        // Batch fields should be absent
+        assert!(parsed.get("pages").is_none());
+        assert!(parsed.get("total_changes").is_none());
+    }
+
+    #[test]
+    fn test_watch_change_event_stop() {
+        let event = WatchChangeEvent {
+            timestamp: "2026-02-24T10:05:00.000+00:00".to_string(),
+            event: "watch_stop".to_string(),
+            file: "/tmp/test.ibd".to_string(),
+            pages: None,
+            page_size: None,
+            page: None,
+            page_type: None,
+            old_lsn: None,
+            new_lsn: None,
+            kind: None,
+            checksum_valid: None,
+            total_changes: Some(42),
+            total_polls: Some(300),
+            error: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["event"], "watch_stop");
+        assert_eq!(parsed["total_changes"], 42);
+        assert_eq!(parsed["total_polls"], 300);
+        assert_eq!(parsed["file"], "/tmp/test.ibd");
+    }
+
+    #[test]
+    fn test_emit_change_event_writes_ndjson() {
+        let event = WatchChangeEvent {
+            timestamp: "2026-02-24T10:00:00.000+00:00".to_string(),
+            event: "page_change".to_string(),
+            file: "/tmp/test.ibd".to_string(),
+            pages: None,
+            page_size: None,
+            page: Some(3),
+            page_type: Some("INDEX".to_string()),
+            old_lsn: Some(500),
+            new_lsn: Some(600),
+            kind: Some("modified".to_string()),
+            checksum_valid: Some(true),
+            total_changes: None,
+            total_polls: None,
+            error: None,
+        };
+        let mut buf = Vec::new();
+        emit_change_event(&mut buf, &event).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Should be a single line ending with newline
+        assert!(output.ends_with('\n'));
+        let trimmed = output.trim();
+        // Should be valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(trimmed).unwrap();
+        assert_eq!(parsed["event"], "page_change");
+        assert_eq!(parsed["page"], 3);
     }
 }

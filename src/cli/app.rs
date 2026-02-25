@@ -638,6 +638,10 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Emit per-page NDJSON change events (audit-log compatible)
+        #[arg(long)]
+        events: bool,
+
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,

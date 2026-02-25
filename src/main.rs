@@ -354,6 +354,7 @@ fn main() {
             interval,
             verbose,
             json,
+            events,
             page_size,
             keyring,
         } => cli::watch::execute(
@@ -362,6 +363,7 @@ fn main() {
                 interval,
                 verbose,
                 json,
+                events,
                 page_size,
                 keyring,
                 mmap: cli.mmap,
