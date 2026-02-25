@@ -92,6 +92,7 @@ fn find_opts(datadir: &str) -> idb::cli::find::FindOptions {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     }
 }
 
@@ -396,4 +397,118 @@ fn test_find_page_search_still_works() {
     // Page 1 exists in both orders.ibd and users.ibd
     assert!(text.contains("Found page 1"));
     assert!(text.contains("2 match(es)"));
+}
+
+// -----------------------------------------------------------------------
+// --depth flag integration tests
+// -----------------------------------------------------------------------
+
+/// Create a datadir with files at multiple depths for depth testing.
+/// Structure:
+///   root/root_table.ibd          (depth 1)
+///   root/db1/orders.ibd          (depth 2)
+///   root/db1/sub/deep.ibd        (depth 3)
+fn create_deep_datadir() -> TempDir {
+    let dir = TempDir::new().unwrap();
+
+    // Root-level file
+    let p0 = build_fsp_hdr_page(1, 2);
+    let p1 = build_index_page(1, 1, 2000);
+    write_ibd_file(dir.path(), "root_table.ibd", &[p0, p1]);
+
+    // Depth-2 file
+    let db1 = dir.path().join("db1");
+    fs::create_dir(&db1).unwrap();
+    let p0 = build_fsp_hdr_page(10, 2);
+    let p1 = build_index_page(1, 10, 2000);
+    write_ibd_file(&db1, "orders.ibd", &[p0, p1]);
+
+    // Depth-3 file
+    let sub = db1.join("sub");
+    fs::create_dir(&sub).unwrap();
+    let p0 = build_fsp_hdr_page(20, 2);
+    let p1 = build_index_page(1, 20, 2000);
+    write_ibd_file(&sub, "deep.ibd", &[p0, p1]);
+
+    dir
+}
+
+#[test]
+fn test_find_depth_1_root_only() {
+    let dir = create_deep_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = find_opts(datadir);
+    opts.page = Some(1);
+    opts.json = true;
+    opts.depth = Some(1);
+
+    let mut output = Vec::new();
+    idb::cli::find::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let matches = json["matches"].as_array().unwrap();
+    // Only root_table.ibd at depth 1
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0]["file"]
+        .as_str()
+        .unwrap()
+        .contains("root_table.ibd"));
+}
+
+#[test]
+fn test_find_depth_2_default() {
+    let dir = create_deep_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = find_opts(datadir);
+    opts.page = Some(1);
+    opts.json = true;
+    // depth: None uses default depth 2
+
+    let mut output = Vec::new();
+    idb::cli::find::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let matches = json["matches"].as_array().unwrap();
+    // root_table.ibd + db1/orders.ibd, but NOT db1/sub/deep.ibd
+    assert_eq!(matches.len(), 2);
+}
+
+#[test]
+fn test_find_depth_3_includes_deep() {
+    let dir = create_deep_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = find_opts(datadir);
+    opts.page = Some(1);
+    opts.json = true;
+    opts.depth = Some(3);
+
+    let mut output = Vec::new();
+    idb::cli::find::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let matches = json["matches"].as_array().unwrap();
+    // All 3 files
+    assert_eq!(matches.len(), 3);
+}
+
+#[test]
+fn test_find_depth_0_unlimited() {
+    let dir = create_deep_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = find_opts(datadir);
+    opts.page = Some(1);
+    opts.json = true;
+    opts.depth = Some(0);
+
+    let mut output = Vec::new();
+    idb::cli::find::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let matches = json["matches"].as_array().unwrap();
+    // All 3 files with unlimited depth
+    assert_eq!(matches.len(), 3);
 }

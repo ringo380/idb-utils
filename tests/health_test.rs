@@ -87,6 +87,7 @@ fn test_health_basic_text_output() {
             verbose: false,
             json: false,
             csv: false,
+            prometheus: false,
             page_size: None,
             keyring: None,
             mmap: false,
@@ -119,6 +120,7 @@ fn test_health_json_output() {
             verbose: false,
             json: true,
             csv: false,
+            prometheus: false,
             page_size: None,
             keyring: None,
             mmap: false,
@@ -165,6 +167,7 @@ fn test_health_verbose_output() {
             verbose: true,
             json: false,
             csv: false,
+            prometheus: false,
             page_size: None,
             keyring: None,
             mmap: false,
@@ -193,6 +196,7 @@ fn test_health_no_index_pages() {
             verbose: false,
             json: false,
             csv: false,
+            prometheus: false,
             page_size: None,
             keyring: None,
             mmap: false,
@@ -203,6 +207,55 @@ fn test_health_no_index_pages() {
 
     let text = String::from_utf8(output).unwrap();
     assert!(text.contains("No INDEX pages found"));
+}
+
+#[test]
+fn test_health_prometheus_output() {
+    let page0 = build_fsp_hdr_page(42, 4);
+    let page1 = build_index_page(1, 42, 2000, 100, 0, 50, 8000, 0);
+    let page2 = build_index_page(2, 42, 3000, 100, 0, 50, 8000, 0);
+    let page3 = build_index_page(3, 42, 4000, 100, 1, 2, 300, 0);
+
+    let tmp = write_tablespace(&[page0, page1, page2, page3]);
+    let path = tmp.path().to_str().unwrap();
+
+    let mut output = Vec::new();
+    idb::cli::health::execute(
+        &idb::cli::health::HealthOptions {
+            file: path.to_string(),
+            verbose: false,
+            json: false,
+            csv: false,
+            prometheus: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+        },
+        &mut output,
+    )
+    .unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    assert!(
+        text.contains("# TYPE innodb_fill_factor gauge"),
+        "missing innodb_fill_factor TYPE line"
+    );
+    assert!(
+        text.contains("# TYPE innodb_fragmentation_ratio gauge"),
+        "missing innodb_fragmentation_ratio TYPE line"
+    );
+    assert!(
+        text.contains("# TYPE innodb_pages gauge"),
+        "missing innodb_pages TYPE line"
+    );
+    assert!(
+        text.contains("innodb_scan_duration_seconds"),
+        "missing innodb_scan_duration_seconds metric"
+    );
+    assert!(
+        text.contains("# TYPE innodb_scan_duration_seconds gauge"),
+        "missing innodb_scan_duration_seconds TYPE line"
+    );
 }
 
 #[test]
@@ -223,6 +276,7 @@ fn test_health_multiple_indexes_json() {
             verbose: false,
             json: true,
             csv: false,
+            prometheus: false,
             page_size: None,
             keyring: None,
             mmap: false,

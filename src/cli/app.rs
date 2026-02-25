@@ -327,6 +327,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// List/find tablespace IDs
@@ -357,6 +361,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// Extract SDI metadata (MySQL 8.0+)
@@ -630,6 +638,10 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Emit per-page NDJSON change events (audit-log compatible)
+        #[arg(long)]
+        events: bool,
+
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
@@ -800,8 +812,12 @@ pub enum Commands {
         verbose: bool,
 
         /// Output in JSON format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "prometheus")]
         json: bool,
+
+        /// Output metrics in Prometheus exposition format
+        #[arg(long, conflicts_with = "json")]
+        prometheus: bool,
 
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
@@ -839,7 +855,7 @@ pub enum Commands {
         health: bool,
 
         /// List only pages with checksum mismatches (compact output)
-        #[arg(long = "checksum-mismatch")]
+        #[arg(long = "checksum-mismatch", conflicts_with = "prometheus")]
         checksum_mismatch: bool,
 
         /// Show additional details (per-page results in default mode)
@@ -847,8 +863,12 @@ pub enum Commands {
         verbose: bool,
 
         /// Output in JSON format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "prometheus")]
         json: bool,
+
+        /// Output metrics in Prometheus exposition format
+        #[arg(long, conflicts_with = "json", conflicts_with = "checksum_mismatch")]
+        prometheus: bool,
 
         /// Override page size (default: auto-detect per file)
         #[arg(long = "page-size")]
@@ -865,6 +885,10 @@ pub enum Commands {
         /// Show tables with fragmentation above this threshold (0-100, --health only)
         #[arg(long = "max-fragmentation")]
         max_fragmentation: Option<f64>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// Defragment a tablespace by reclaiming free space and reordering pages

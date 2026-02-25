@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::Path;
+use std::time::Instant;
 
 use colored::Colorize;
 use rayon::prelude::*;
@@ -9,6 +10,7 @@ use crate::cli::{create_progress_bar, csv_escape, wprintln};
 use crate::innodb::checksum::{validate_checksum, validate_lsn};
 use crate::innodb::health;
 use crate::util::fs::find_tablespace_files;
+use crate::util::prometheus as prom;
 use crate::IdbError;
 
 /// Options for the `inno audit` subcommand.
@@ -25,6 +27,8 @@ pub struct AuditOptions {
     pub json: bool,
     /// Output as CSV.
     pub csv: bool,
+    /// Output in Prometheus exposition format.
+    pub prometheus: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -35,6 +39,8 @@ pub struct AuditOptions {
     pub min_fill_factor: Option<f64>,
     /// Show tables with fragmentation above this threshold (0-100).
     pub max_fragmentation: Option<f64>,
+    /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
+    pub depth: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +410,12 @@ fn algorithm_name(algo: crate::innodb::checksum::ChecksumAlgorithm) -> &'static 
 
 /// Audit a MySQL data directory for integrity, health metrics, or corrupt pages.
 pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
+    if opts.prometheus && (opts.json || opts.csv) {
+        return Err(IdbError::Argument(
+            "--prometheus cannot be combined with JSON or CSV output".to_string(),
+        ));
+    }
+
     // Validate mutually exclusive flags
     if opts.health && opts.checksum_mismatch {
         return Err(IdbError::Argument(
@@ -419,10 +431,13 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         )));
     }
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], opts.depth)?;
 
     if ibd_files.is_empty() {
-        if opts.json {
+        if opts.prometheus {
+            // Empty Prometheus output — valid exposition format (no metrics emitted)
+            return Ok(());
+        } else if opts.json {
             if opts.health {
                 let report = HealthAuditReport {
                     datadir: opts.datadir.clone(),
@@ -491,7 +506,9 @@ fn execute_integrity(
     datadir: &Path,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    let pb = if !opts.json && !opts.csv {
+    let start = Instant::now();
+
+    let pb = if !opts.json && !opts.csv && !opts.prometheus {
         Some(create_progress_bar(ibd_files.len() as u64, "files"))
     } else {
         None
@@ -534,6 +551,29 @@ fn execute_integrity(
         100.0
     };
     let integrity_pct = (integrity_pct * 100.0).round() / 100.0;
+
+    if opts.prometheus {
+        let duration_secs = start.elapsed().as_secs_f64();
+        print_prometheus_integrity(
+            writer,
+            &IntegrityPrometheusParams {
+                datadir: &opts.datadir,
+                results: &results,
+                total_pages,
+                corrupt_pages,
+                integrity_pct,
+                duration_secs,
+            },
+        )?;
+
+        if corrupt_pages > 0 {
+            return Err(IdbError::Parse(format!(
+                "{} corrupt pages found across {} files",
+                corrupt_pages, files_failed
+            )));
+        }
+        return Ok(());
+    }
 
     if opts.json {
         let report = AuditReport {
@@ -660,7 +700,9 @@ fn execute_health(
     datadir: &Path,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    let pb = if !opts.json && !opts.csv {
+    let start = Instant::now();
+
+    let pb = if !opts.json && !opts.csv && !opts.prometheus {
         Some(create_progress_bar(ibd_files.len() as u64, "files"))
     } else {
         None
@@ -716,6 +758,25 @@ fn execute_health(
     } else {
         0.0
     };
+
+    // Prometheus output uses unfiltered results to avoid stale markers
+    if opts.prometheus {
+        let duration_secs = start.elapsed().as_secs_f64();
+        print_prometheus_health(
+            writer,
+            &HealthPrometheusParams {
+                datadir: &opts.datadir,
+                results: &results,
+                total_files,
+                total_index_pages,
+                avg_fill,
+                avg_frag,
+                avg_garbage,
+                duration_secs,
+            },
+        )?;
+        return Ok(());
+    }
 
     // Filter by thresholds (values are 0-100 from CLI, compare as 0.0-1.0)
     if let Some(min_ff) = opts.min_fill_factor {
@@ -930,4 +991,457 @@ fn execute_mismatch(
 
 fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
+}
+
+// ---------------------------------------------------------------------------
+// Prometheus exposition format output
+// ---------------------------------------------------------------------------
+
+struct IntegrityPrometheusParams<'a> {
+    datadir: &'a str,
+    results: &'a [FileIntegrityResult],
+    total_pages: u64,
+    corrupt_pages: u64,
+    integrity_pct: f64,
+    duration_secs: f64,
+}
+
+/// Print integrity audit results in Prometheus exposition format.
+fn print_prometheus_integrity(
+    writer: &mut dyn Write,
+    params: &IntegrityPrometheusParams<'_>,
+) -> Result<(), IdbError> {
+    let datadir = params.datadir;
+    let results = params.results;
+    let total_pages = params.total_pages;
+    let corrupt_pages = params.corrupt_pages;
+    let integrity_pct = params.integrity_pct;
+    let duration_secs = params.duration_secs;
+    // innodb_pages per file
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_pages", "Total pages in tablespace")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_pages", "gauge"))?;
+    for r in results {
+        if r.status == "error" {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge_int(
+                "innodb_pages",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.total_pages
+            )
+        )?;
+    }
+
+    // innodb_corrupt_pages per file
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_corrupt_pages",
+            "Number of corrupt pages in tablespace"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_corrupt_pages", "gauge")
+    )?;
+    for r in results {
+        if r.status == "error" {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge_int(
+                "innodb_corrupt_pages",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.invalid_pages
+            )
+        )?;
+    }
+
+    // innodb_empty_pages per file
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_empty_pages", "Number of empty pages in tablespace")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_empty_pages", "gauge"))?;
+    for r in results {
+        if r.status == "error" {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge_int(
+                "innodb_empty_pages",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.empty_pages
+            )
+        )?;
+    }
+
+    // innodb_audit_integrity_pct — directory-wide
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_integrity_pct",
+            "Directory-wide integrity percentage"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_integrity_pct", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_audit_integrity_pct",
+            &[("datadir", datadir)],
+            integrity_pct
+        )
+    )?;
+
+    // innodb_audit_pages — directory-wide
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_pages",
+            "Total pages scanned across data directory"
+        )
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_audit_pages", "gauge"))?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int("innodb_audit_pages", &[("datadir", datadir)], total_pages)
+    )?;
+
+    // innodb_audit_corrupt_pages — directory-wide
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_corrupt_pages",
+            "Total corrupt pages across data directory"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_corrupt_pages", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_audit_corrupt_pages",
+            &[("datadir", datadir)],
+            corrupt_pages
+        )
+    )?;
+
+    // innodb_scan_duration_seconds — directory-wide
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_scan_duration_seconds",
+            "Time spent scanning the data directory"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_scan_duration_seconds", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_scan_duration_seconds",
+            &[("datadir", datadir)],
+            duration_secs
+        )
+    )?;
+
+    Ok(())
+}
+
+struct HealthPrometheusParams<'a> {
+    datadir: &'a str,
+    results: &'a [FileHealthResult],
+    total_files: usize,
+    total_index_pages: u64,
+    avg_fill: f64,
+    avg_frag: f64,
+    avg_garbage: f64,
+    duration_secs: f64,
+}
+
+/// Print health audit results in Prometheus exposition format.
+fn print_prometheus_health(
+    writer: &mut dyn Write,
+    params: &HealthPrometheusParams<'_>,
+) -> Result<(), IdbError> {
+    let datadir = params.datadir;
+    let results = params.results;
+    let total_files = params.total_files;
+    let total_index_pages = params.total_index_pages;
+    let avg_fill = params.avg_fill;
+    let avg_frag = params.avg_frag;
+    let avg_garbage = params.avg_garbage;
+    let duration_secs = params.duration_secs;
+    // Per-file fill factor
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_fill_factor",
+            "Average B+Tree fill factor for tablespace"
+        )
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_fill_factor", "gauge"))?;
+    for r in results {
+        if r.error.is_some() {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_fill_factor",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.avg_fill_factor
+            )
+        )?;
+    }
+
+    // Per-file fragmentation
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_fragmentation_ratio",
+            "Average fragmentation ratio for tablespace"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_fragmentation_ratio", "gauge")
+    )?;
+    for r in results {
+        if r.error.is_some() {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_fragmentation_ratio",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.avg_fragmentation
+            )
+        )?;
+    }
+
+    // Per-file garbage ratio
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_garbage_ratio",
+            "Average garbage ratio for tablespace"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_garbage_ratio", "gauge")
+    )?;
+    for r in results {
+        if r.error.is_some() {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_garbage_ratio",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.avg_garbage_ratio
+            )
+        )?;
+    }
+
+    // Per-file index page count
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_index_pages", "Total INDEX pages in tablespace")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_index_pages", "gauge"))?;
+    for r in results {
+        if r.error.is_some() {
+            continue;
+        }
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge_int(
+                "innodb_index_pages",
+                &[("datadir", datadir), ("file", &r.file)],
+                r.total_index_pages
+            )
+        )?;
+    }
+
+    // Directory-wide summary metrics
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_audit_files", "Total tablespace files scanned")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_audit_files", "gauge"))?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_audit_files",
+            &[("datadir", datadir)],
+            total_files as u64
+        )
+    )?;
+
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_index_pages",
+            "Total INDEX pages across data directory"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_index_pages", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_audit_index_pages",
+            &[("datadir", datadir)],
+            total_index_pages
+        )
+    )?;
+
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_avg_fill_factor",
+            "Directory-wide average fill factor"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_avg_fill_factor", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_audit_avg_fill_factor",
+            &[("datadir", datadir)],
+            avg_fill
+        )
+    )?;
+
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_avg_fragmentation",
+            "Directory-wide average fragmentation"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_avg_fragmentation", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_audit_avg_fragmentation",
+            &[("datadir", datadir)],
+            avg_frag
+        )
+    )?;
+
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_audit_avg_garbage_ratio",
+            "Directory-wide average garbage ratio"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_audit_avg_garbage_ratio", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_audit_avg_garbage_ratio",
+            &[("datadir", datadir)],
+            avg_garbage
+        )
+    )?;
+
+    // innodb_scan_duration_seconds — directory-wide
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_scan_duration_seconds",
+            "Time spent scanning the data directory"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_scan_duration_seconds", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_scan_duration_seconds",
+            &[("datadir", datadir)],
+            duration_secs
+        )
+    )?;
+
+    Ok(())
 }

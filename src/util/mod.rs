@@ -7,3 +7,5 @@ pub mod fs;
 pub mod hex;
 #[cfg(feature = "mysql")]
 pub mod mysql;
+#[cfg(feature = "cli")]
+pub mod prometheus;

@@ -572,6 +572,7 @@ fn test_find_execute_basic() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -605,6 +606,7 @@ fn test_tsid_list_mode() {
         json: false,
         page_size: None,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -637,6 +639,7 @@ fn test_tsid_lookup() {
         json: false,
         page_size: None,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -838,6 +841,7 @@ fn test_find_json_output() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -1174,6 +1178,7 @@ fn test_tsid_json_output() {
         json: true,
         page_size: None,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -1451,6 +1456,7 @@ fn test_find_nonexistent_directory() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -2273,6 +2279,7 @@ fn test_find_checksum_filter() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out1 = Vec::new();
@@ -2297,6 +2304,7 @@ fn test_find_checksum_filter() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out2 = Vec::new();
@@ -2334,6 +2342,7 @@ fn test_find_space_id_filter() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out1 = Vec::new();
@@ -2357,6 +2366,7 @@ fn test_find_space_id_filter() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out2 = Vec::new();
@@ -2396,6 +2406,7 @@ fn test_find_first_flag() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out_all = Vec::new();
@@ -2417,6 +2428,7 @@ fn test_find_first_flag() {
         page_size: None,
         threads: 0,
         mmap: false,
+        depth: None,
     };
 
     let mut out_first = Vec::new();
@@ -2438,6 +2450,7 @@ fn test_tsid_nonexistent_directory() {
         json: false,
         page_size: None,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();
@@ -2464,6 +2477,7 @@ fn test_tsid_json_lookup() {
         json: true,
         page_size: None,
         mmap: false,
+        depth: None,
     };
 
     let mut out = Vec::new();

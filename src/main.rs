@@ -180,6 +180,7 @@ fn main() {
             first,
             json,
             page_size,
+            depth,
         } => cli::find::execute(
             &cli::find::FindOptions {
                 datadir,
@@ -192,6 +193,7 @@ fn main() {
                 page_size,
                 threads: cli.threads,
                 mmap: cli.mmap,
+                depth,
             },
             &mut writer,
         ),
@@ -202,6 +204,7 @@ fn main() {
             tablespace_id,
             json,
             page_size,
+            depth,
         } => cli::tsid::execute(
             &cli::tsid::TsidOptions {
                 datadir,
@@ -210,6 +213,7 @@ fn main() {
                 json,
                 page_size,
                 mmap: cli.mmap,
+                depth,
             },
             &mut writer,
         ),
@@ -350,6 +354,7 @@ fn main() {
             interval,
             verbose,
             json,
+            events,
             page_size,
             keyring,
         } => cli::watch::execute(
@@ -358,6 +363,7 @@ fn main() {
                 interval,
                 verbose,
                 json,
+                events,
                 page_size,
                 keyring,
                 mmap: cli.mmap,
@@ -451,6 +457,7 @@ fn main() {
             file,
             verbose,
             json,
+            prometheus,
             page_size,
             keyring,
         } => cli::health::execute(
@@ -459,6 +466,7 @@ fn main() {
                 verbose,
                 json: json || global_format == OutputFormat::Json,
                 csv: global_format == OutputFormat::Csv,
+                prometheus,
                 page_size,
                 keyring,
                 mmap: cli.mmap,
@@ -496,10 +504,12 @@ fn main() {
             checksum_mismatch,
             verbose,
             json,
+            prometheus,
             page_size,
             keyring,
             min_fill_factor,
             max_fragmentation,
+            depth,
         } => cli::audit::execute(
             &cli::audit::AuditOptions {
                 datadir,
@@ -508,11 +518,13 @@ fn main() {
                 verbose,
                 json: json || global_format == OutputFormat::Json,
                 csv: global_format == OutputFormat::Csv,
+                prometheus,
                 page_size,
                 keyring,
                 mmap: cli.mmap,
                 min_fill_factor,
                 max_fragmentation,
+                depth,
             },
             &mut writer,
         ),

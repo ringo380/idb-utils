@@ -15,6 +15,7 @@ import { createDiff } from './components/diff.js';
 import { createRecovery } from './components/recovery.js';
 import { createRedoLog } from './components/redolog.js';
 import { createHeatmap } from './components/heatmap.js';
+import { createAudit } from './components/audit.js';
 import { downloadJson } from './utils/export.js';
 
 import './style.css';
@@ -28,6 +29,7 @@ let pageCount = 0;
 let isRedoLog = false;
 let decryptedData = null;
 let encryptionInfo = null;
+let auditFiles = null;
 
 // ── Bootstrap ────────────────────────────────────────────────────────
 initTheme();
@@ -50,7 +52,7 @@ initKeyboard(switchTab);
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function tabOpts() {
-  return { showDiff: !!diffData, showRedoLog: isRedoLog };
+  return { showDiff: !!diffData, showRedoLog: isRedoLog, showAudit: !!auditFiles };
 }
 
 /** Returns the effective data for analysis (decrypted if available). */
@@ -89,7 +91,7 @@ function showDropzone() {
     <div class="text-xs text-gray-600">Press <kbd class="px-1 py-0.5 bg-surface-3 rounded">D</kbd> to toggle theme</div>
   `;
   app.appendChild(header);
-  app.appendChild(createDropzone(onFile, onDiffFiles));
+  app.appendChild(createDropzone(onFile, onDiffFiles, onMultiFiles));
 }
 
 function onFile(name, data) {
@@ -99,6 +101,7 @@ function onFile(name, data) {
   isRedoLog = false;
   decryptedData = null;
   encryptionInfo = null;
+  auditFiles = null;
 
   const wasm = getWasm();
 
@@ -137,6 +140,7 @@ function onDiffFiles(name1, data1, name2, data2) {
   isRedoLog = false;
   decryptedData = null;
   encryptionInfo = null;
+  auditFiles = null;
   try {
     const info = JSON.parse(getWasm().get_tablespace_info(data1));
     pageCount = info.page_count;
@@ -144,6 +148,26 @@ function onDiffFiles(name1, data1, name2, data2) {
     pageCount = 0;
   }
   currentTab = 0;
+  renderAnalyzer();
+}
+
+function onMultiFiles(files) {
+  auditFiles = files;
+  // Use first file as the primary for single-file tabs
+  fileName = files[0].name;
+  fileData = files[0].data;
+  diffData = null;
+  isRedoLog = false;
+  decryptedData = null;
+  encryptionInfo = null;
+  try {
+    const info = JSON.parse(getWasm().get_tablespace_info(fileData));
+    pageCount = info.page_count;
+  } catch {
+    pageCount = 0;
+  }
+  // Auto-navigate to the Audit tab (last tab when audit mode is active)
+  currentTab = getTabCount(tabOpts()) - 1;
   renderAnalyzer();
 }
 
@@ -190,6 +214,7 @@ function renderAnalyzer() {
     <h1 class="text-lg font-bold text-innodb-cyan">InnoDB Analyzer</h1>
     <span class="text-sm text-gray-400 truncate max-w-xs">${esc(fileName)}</span>
     ${diffData ? `<span class="text-xs text-innodb-amber">+ ${esc(diffData.name2)}</span>` : ''}
+    ${auditFiles ? `<span class="text-xs px-2 py-0.5 rounded bg-innodb-cyan/20 text-innodb-cyan">${auditFiles.length} files (audit)</span>` : ''}
     ${encryptionInfo && !decryptedData ? '<span class="text-xs px-2 py-0.5 rounded bg-innodb-amber/20 text-innodb-amber">Encrypted</span>' : ''}
     ${decryptedData ? '<span class="text-xs px-2 py-0.5 rounded bg-innodb-green/20 text-innodb-green">Decrypted</span>' : ''}
   `;
@@ -220,6 +245,7 @@ function renderAnalyzer() {
     isRedoLog = false;
     decryptedData = null;
     encryptionInfo = null;
+    auditFiles = null;
     showDropzone();
   });
 
@@ -316,6 +342,13 @@ function renderTab() {
         createDiff(content, diffData.name1, diffData.data1, diffData.name2, diffData.data2);
       } else {
         content.innerHTML = `<div class="p-6 text-gray-500">Drop two files to compare them.</div>`;
+      }
+      break;
+    case 'audit':
+      if (auditFiles) {
+        createAudit(content, auditFiles);
+      } else {
+        content.innerHTML = `<div class="p-6 text-gray-500">Drop 3+ files to run an audit.</div>`;
       }
       break;
     case 'redolog':

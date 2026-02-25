@@ -8,6 +8,7 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::innodb::checksum::{validate_checksum, validate_lsn, ChecksumAlgorithm};
+use crate::innodb::health::{extract_index_page_snapshot, HealthReport};
 use crate::innodb::index::IndexHeader;
 use crate::innodb::lob::{BlobPageHeader, LobFirstPageHeader};
 use crate::innodb::log::{
@@ -1073,5 +1074,56 @@ pub fn parse_redo_log(data: &[u8]) -> Result<String, JsValue> {
         checkpoint_2: cp2,
         blocks,
     };
+    to_json(&report)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_health — mirrors `inno health`
+// ---------------------------------------------------------------------------
+
+/// Analyzes B+Tree index health metrics for a tablespace and returns a report as JSON.
+///
+/// Takes raw `.ibd` file bytes, iterates over every page, extracts INDEX page
+/// snapshots, and computes per-index health metrics including fill factor,
+/// fragmentation, garbage ratio, and tree depth. Non-INDEX pages and empty
+/// (all-zero) pages are counted separately in the tablespace summary.
+///
+/// Returns a JSON string containing a [`HealthReport`] object with fields:
+/// `file` (string, always "wasm"), `summary` (object with `total_pages`,
+/// `index_pages`, `non_index_pages`, `empty_pages`, `page_size`,
+/// `avg_fill_factor`, `avg_garbage_ratio`, `avg_fragmentation`,
+/// `index_count`), and `indexes` (array of per-index health metrics, each
+/// with `index_id`, `tree_depth`, `total_pages`, `leaf_pages`,
+/// `non_leaf_pages`, `total_records`, `avg_fill_factor`, `min_fill_factor`,
+/// `max_fill_factor`, `avg_garbage_ratio`, `total_garbage_bytes`,
+/// `fragmentation`, `empty_leaf_pages`).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn analyze_health(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+    let mut snapshots = Vec::new();
+    let mut empty_pages = 0u64;
+    let mut total_pages = 0u64;
+
+    ts.for_each_page(|page_num, page_data| {
+        total_pages += 1;
+        if page_data.iter().all(|&b| b == 0) {
+            empty_pages += 1;
+        } else if let Some(snap) = extract_index_page_snapshot(page_data, page_num) {
+            snapshots.push(snap);
+        }
+        Ok(())
+    })
+    .map_err(to_js_err)?;
+
+    let report: HealthReport = crate::innodb::health::analyze_health(
+        snapshots,
+        page_size,
+        total_pages,
+        empty_pages,
+        "wasm",
+    );
     to_json(&report)
 }
