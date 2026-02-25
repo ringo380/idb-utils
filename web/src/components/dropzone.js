@@ -2,7 +2,7 @@
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
-export function createDropzone(onFile, onDiffFiles) {
+export function createDropzone(onFile, onDiffFiles, onMultiFiles) {
   const el = document.createElement('div');
   el.id = 'dropzone';
   el.className =
@@ -13,7 +13,7 @@ export function createDropzone(onFile, onDiffFiles) {
         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
     </svg>
     <p class="text-lg text-gray-400 mb-2">Drop an .ibd or redo log file to analyze</p>
-    <p class="text-sm text-gray-600 mb-4">or drop two .ibd files to diff them</p>
+    <p class="text-sm text-gray-600 mb-4">or drop two .ibd files to diff &bull; 3+ files for audit</p>
     <button id="file-btn"
       class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition-colors">
       Choose File
@@ -58,7 +58,11 @@ export function createDropzone(onFile, onDiffFiles) {
         return;
       }
     }
-    if (files.length >= 2) {
+    if (files.length >= 3 && onMultiFiles) {
+      Promise.all(Array.from(files).map((f) => readFile(f).then((data) => ({ name: f.name, data }))))
+        .then((results) => onMultiFiles(results))
+        .catch((err) => showError(`Failed to read files: ${err.message || err}`));
+    } else if (files.length >= 2) {
       Promise.all([readFile(files[0]), readFile(files[1])])
         .then(([a, b]) => onDiffFiles(files[0].name, a, files[1].name, b))
         .catch((err) => showError(`Failed to read files: ${err.message || err}`));
