@@ -101,6 +101,7 @@ fn audit_opts(datadir: &str) -> idb::cli::audit::AuditOptions {
         verbose: false,
         json: false,
         csv: false,
+        prometheus: false,
         page_size: None,
         keyring: None,
         mmap: false,
@@ -405,6 +406,71 @@ fn test_audit_checksum_mismatch_json() {
     assert!(m.get("stored_checksum").is_some());
     assert!(m.get("calculated_checksum").is_some());
     assert!(m.get("algorithm").is_some());
+}
+
+// -----------------------------------------------------------------------
+// Prometheus output tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_audit_integrity_prometheus() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.prometheus = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    assert!(
+        text.contains("# TYPE innodb_pages gauge"),
+        "missing innodb_pages TYPE line"
+    );
+    assert!(
+        text.contains("# TYPE innodb_audit_integrity_pct gauge"),
+        "missing innodb_audit_integrity_pct TYPE line"
+    );
+    assert!(
+        text.contains("innodb_scan_duration_seconds"),
+        "missing innodb_scan_duration_seconds metric"
+    );
+    assert!(
+        text.contains("# TYPE innodb_scan_duration_seconds gauge"),
+        "missing innodb_scan_duration_seconds TYPE line"
+    );
+}
+
+#[test]
+fn test_audit_health_prometheus() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.prometheus = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    assert!(
+        text.contains("# TYPE innodb_fill_factor gauge"),
+        "missing innodb_fill_factor TYPE line"
+    );
+    assert!(
+        text.contains("# TYPE innodb_fragmentation_ratio gauge"),
+        "missing innodb_fragmentation_ratio TYPE line"
+    );
+    assert!(
+        text.contains("innodb_scan_duration_seconds"),
+        "missing innodb_scan_duration_seconds metric"
+    );
+    assert!(
+        text.contains("# TYPE innodb_scan_duration_seconds gauge"),
+        "missing innodb_scan_duration_seconds TYPE line"
+    );
 }
 
 // -----------------------------------------------------------------------

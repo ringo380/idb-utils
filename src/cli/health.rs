@@ -4,11 +4,13 @@
 //! garbage ratio, tree depth) by scanning all INDEX pages in a tablespace.
 
 use std::io::Write;
+use std::time::Instant;
 
 use crate::cli::wprintln;
 use crate::innodb::health;
 use crate::innodb::schema::SdiEnvelope;
 use crate::innodb::sdi;
+use crate::util::prometheus as prom;
 use crate::IdbError;
 
 /// Options for the `inno health` subcommand.
@@ -21,6 +23,8 @@ pub struct HealthOptions {
     pub json: bool,
     /// Output as CSV.
     pub csv: bool,
+    /// Output in Prometheus exposition format.
+    pub prometheus: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -31,6 +35,14 @@ pub struct HealthOptions {
 
 /// Analyze B+Tree health metrics for all indexes in a tablespace.
 pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
+    if opts.prometheus && (opts.json || opts.csv) {
+        return Err(IdbError::Parse(
+            "--prometheus cannot be combined with JSON or CSV output".to_string(),
+        ));
+    }
+
+    let start = Instant::now();
+
     let mut ts = crate::cli::open_tablespace(&opts.file, opts.page_size, opts.mmap)?;
 
     if let Some(ref keyring_path) = opts.keyring {
@@ -69,6 +81,13 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         &opts.keyring,
         &mut report,
     );
+
+    let duration_secs = start.elapsed().as_secs_f64();
+
+    if opts.prometheus {
+        print_prometheus(writer, &report, duration_secs)?;
+        return Ok(());
+    }
 
     if opts.json {
         wprintln!(
@@ -257,6 +276,171 @@ fn print_text(
         writer,
         "  Avg fragmentation: {:.1}%",
         report.summary.avg_fragmentation * 100.0
+    )?;
+
+    Ok(())
+}
+
+/// Print health report as Prometheus exposition format.
+fn print_prometheus(
+    writer: &mut dyn Write,
+    report: &health::HealthReport,
+    duration_secs: f64,
+) -> Result<(), IdbError> {
+    let file = &report.file;
+
+    // innodb_pages
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_pages", "Total pages in the tablespace by type")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_pages", "gauge"))?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_pages",
+            &[("file", file), ("type", "index")],
+            report.summary.index_pages
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_pages",
+            &[("file", file), ("type", "non_index")],
+            report.summary.non_index_pages
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge_int(
+            "innodb_pages",
+            &[("file", file), ("type", "empty")],
+            report.summary.empty_pages
+        )
+    )?;
+
+    // innodb_fill_factor
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_fill_factor", "Average B+Tree fill factor per index")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_fill_factor", "gauge"))?;
+    for idx in &report.indexes {
+        let id_str = idx.index_id.to_string();
+        let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_fill_factor",
+                &[("file", file), ("index", index_label)],
+                idx.avg_fill_factor
+            )
+        )?;
+    }
+
+    // innodb_fragmentation_ratio
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_fragmentation_ratio",
+            "Leaf-level fragmentation ratio per index"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_fragmentation_ratio", "gauge")
+    )?;
+    for idx in &report.indexes {
+        let id_str = idx.index_id.to_string();
+        let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_fragmentation_ratio",
+                &[("file", file), ("index", index_label)],
+                idx.fragmentation
+            )
+        )?;
+    }
+
+    // innodb_garbage_ratio
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_garbage_ratio", "Average garbage ratio per index")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_garbage_ratio", "gauge")
+    )?;
+    for idx in &report.indexes {
+        let id_str = idx.index_id.to_string();
+        let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge(
+                "innodb_garbage_ratio",
+                &[("file", file), ("index", index_label)],
+                idx.avg_garbage_ratio
+            )
+        )?;
+    }
+
+    // innodb_index_pages
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line("innodb_index_pages", "Total pages per index")
+    )?;
+    wprintln!(writer, "{}", prom::type_line("innodb_index_pages", "gauge"))?;
+    for idx in &report.indexes {
+        let id_str = idx.index_id.to_string();
+        let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+        wprintln!(
+            writer,
+            "{}",
+            prom::format_gauge_int(
+                "innodb_index_pages",
+                &[("file", file), ("index", index_label)],
+                idx.total_pages
+            )
+        )?;
+    }
+
+    // innodb_scan_duration_seconds
+    wprintln!(
+        writer,
+        "{}",
+        prom::help_line(
+            "innodb_scan_duration_seconds",
+            "Time spent scanning the tablespace"
+        )
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::type_line("innodb_scan_duration_seconds", "gauge")
+    )?;
+    wprintln!(
+        writer,
+        "{}",
+        prom::format_gauge(
+            "innodb_scan_duration_seconds",
+            &[("file", file)],
+            duration_secs
+        )
     )?;
 
     Ok(())

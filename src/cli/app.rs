@@ -808,8 +808,12 @@ pub enum Commands {
         verbose: bool,
 
         /// Output in JSON format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "prometheus")]
         json: bool,
+
+        /// Output metrics in Prometheus exposition format
+        #[arg(long, conflicts_with = "json")]
+        prometheus: bool,
 
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
@@ -847,7 +851,7 @@ pub enum Commands {
         health: bool,
 
         /// List only pages with checksum mismatches (compact output)
-        #[arg(long = "checksum-mismatch")]
+        #[arg(long = "checksum-mismatch", conflicts_with = "prometheus")]
         checksum_mismatch: bool,
 
         /// Show additional details (per-page results in default mode)
@@ -855,8 +859,12 @@ pub enum Commands {
         verbose: bool,
 
         /// Output in JSON format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "prometheus")]
         json: bool,
+
+        /// Output metrics in Prometheus exposition format
+        #[arg(long, conflicts_with = "json", conflicts_with = "checksum_mismatch")]
+        prometheus: bool,
 
         /// Override page size (default: auto-detect per file)
         #[arg(long = "page-size")]
