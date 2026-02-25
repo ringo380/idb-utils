@@ -58,7 +58,7 @@ jobs:
           ARCHIVE_NAME="inno-${TAG}-${{ matrix.target }}"
           mkdir "${ARCHIVE_NAME}"
           cp inno "${ARCHIVE_NAME}/"
-          COMP_DIR=$(find ../build/innodb-utils-*/out/completions -maxdepth 0 2>/dev/null | head -1)
+          COMP_DIR=$(find ../build/innodb-utils-*/out/completions -maxdepth 0 2>/dev/null | head -1 || true)
           if [ -d "$COMP_DIR" ]; then
             mkdir "${ARCHIVE_NAME}/completions"
             cp "$COMP_DIR"/* "${ARCHIVE_NAME}/completions/"
