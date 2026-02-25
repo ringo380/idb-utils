@@ -514,7 +514,7 @@ fn execute_batch(opts: &RepairOptions, writer: &mut dyn Write) -> Result<(), Idb
         )));
     }
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], None)?;
 
     if ibd_files.is_empty() {
         if opts.json {

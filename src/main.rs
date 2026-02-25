@@ -180,6 +180,7 @@ fn main() {
             first,
             json,
             page_size,
+            depth,
         } => cli::find::execute(
             &cli::find::FindOptions {
                 datadir,
@@ -192,6 +193,7 @@ fn main() {
                 page_size,
                 threads: cli.threads,
                 mmap: cli.mmap,
+                depth,
             },
             &mut writer,
         ),
@@ -202,6 +204,7 @@ fn main() {
             tablespace_id,
             json,
             page_size,
+            depth,
         } => cli::tsid::execute(
             &cli::tsid::TsidOptions {
                 datadir,
@@ -210,6 +213,7 @@ fn main() {
                 json,
                 page_size,
                 mmap: cli.mmap,
+                depth,
             },
             &mut writer,
         ),
@@ -500,6 +504,7 @@ fn main() {
             keyring,
             min_fill_factor,
             max_fragmentation,
+            depth,
         } => cli::audit::execute(
             &cli::audit::AuditOptions {
                 datadir,
@@ -513,6 +518,7 @@ fn main() {
                 mmap: cli.mmap,
                 min_fill_factor,
                 max_fragmentation,
+                depth,
             },
             &mut writer,
         ),

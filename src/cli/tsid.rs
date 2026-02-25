@@ -24,6 +24,8 @@ pub struct TsidOptions {
     pub page_size: Option<u32>,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
+    pub depth: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -65,7 +67,7 @@ pub fn execute(opts: &TsidOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         )));
     }
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd", "ibu"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd", "ibu"], opts.depth)?;
 
     if ibd_files.is_empty() {
         if opts.json {

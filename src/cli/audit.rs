@@ -35,6 +35,8 @@ pub struct AuditOptions {
     pub min_fill_factor: Option<f64>,
     /// Show tables with fragmentation above this threshold (0-100).
     pub max_fragmentation: Option<f64>,
+    /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
+    pub depth: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +421,7 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         )));
     }
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], opts.depth)?;
 
     if ibd_files.is_empty() {
         if opts.json {

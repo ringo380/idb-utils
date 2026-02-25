@@ -33,6 +33,8 @@ pub struct FindOptions {
     pub threads: usize,
     /// Use memory-mapped I/O for file access.
     pub mmap: bool,
+    /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
+    pub depth: Option<u32>,
 }
 
 // -----------------------------------------------------------------------
@@ -158,7 +160,7 @@ fn execute_find_page(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), I
     let target_page = opts.page.unwrap();
     let datadir = Path::new(&opts.datadir);
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], opts.depth)?;
 
     if ibd_files.is_empty() {
         if opts.json {
@@ -349,7 +351,7 @@ fn search_file_corrupt(
 fn execute_find_corrupt(opts: &FindOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
     let datadir = Path::new(&opts.datadir);
 
-    let ibd_files = find_tablespace_files(datadir, &["ibd"])?;
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], opts.depth)?;
 
     if ibd_files.is_empty() {
         if opts.json {

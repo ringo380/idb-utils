@@ -327,6 +327,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// List/find tablespace IDs
@@ -357,6 +361,10 @@ pub enum Commands {
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// Extract SDI metadata (MySQL 8.0+)
@@ -865,6 +873,10 @@ pub enum Commands {
         /// Show tables with fragmentation above this threshold (0-100, --health only)
         #[arg(long = "max-fragmentation")]
         max_fragmentation: Option<f64>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
     },
 
     /// Defragment a tablespace by reclaiming free space and reordering pages

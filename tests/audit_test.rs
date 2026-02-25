@@ -106,6 +106,7 @@ fn audit_opts(datadir: &str) -> idb::cli::audit::AuditOptions {
         mmap: false,
         min_fill_factor: None,
         max_fragmentation: None,
+        depth: None,
     }
 }
 
@@ -425,4 +426,66 @@ fn test_audit_mutually_exclusive_flags() {
 
     let err = result.unwrap_err().to_string();
     assert!(err.contains("mutually exclusive"));
+}
+
+// -----------------------------------------------------------------------
+// Depth flag tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_audit_depth_limits_discovery() {
+    let dir = TempDir::new().unwrap();
+
+    // Depth 1: root-level file
+    let p0 = build_fsp_hdr_page(1, 2);
+    let p1 = build_index_page(1, 1, 2000, 100, 0, 50, 8000, 0);
+    write_ibd_file(dir.path(), "root_table.ibd", &[p0, p1]);
+
+    // Depth 2: one subdir down
+    let db1 = dir.path().join("db1");
+    fs::create_dir(&db1).unwrap();
+    let p0 = build_fsp_hdr_page(10, 2);
+    let p1 = build_index_page(1, 10, 2000, 200, 0, 30, 4000, 0);
+    write_ibd_file(&db1, "orders.ibd", &[p0, p1]);
+
+    // Depth 3: two subdirs down
+    let sub = db1.join("sub");
+    fs::create_dir(&sub).unwrap();
+    let p0 = build_fsp_hdr_page(20, 2);
+    let p1 = build_index_page(1, 20, 2000, 300, 0, 20, 3000, 0);
+    write_ibd_file(&sub, "deep.ibd", &[p0, p1]);
+
+    let datadir = dir.path().to_str().unwrap();
+
+    // depth=1: only root-level file
+    let mut opts = audit_opts(datadir);
+    opts.json = true;
+    opts.depth = Some(1);
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["summary"]["total_files"], 1);
+
+    // depth=None (default 2): root + db1
+    let mut opts2 = audit_opts(datadir);
+    opts2.json = true;
+
+    let mut output2 = Vec::new();
+    idb::cli::audit::execute(&opts2, &mut output2).unwrap();
+
+    let json2: serde_json::Value = serde_json::from_slice(&output2).unwrap();
+    assert_eq!(json2["summary"]["total_files"], 2);
+
+    // depth=0 (unlimited): all 3
+    let mut opts3 = audit_opts(datadir);
+    opts3.json = true;
+    opts3.depth = Some(0);
+
+    let mut output3 = Vec::new();
+    idb::cli::audit::execute(&opts3, &mut output3).unwrap();
+
+    let json3: serde_json::Value = serde_json::from_slice(&output3).unwrap();
+    assert_eq!(json3["summary"]["total_files"], 3);
 }
