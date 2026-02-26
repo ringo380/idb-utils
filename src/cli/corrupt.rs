@@ -128,7 +128,8 @@ pub fn execute(opts: &CorruptOptions, writer: &mut dyn Write) -> Result<(), IdbE
     // Calculate the offset to corrupt within the page
     let corrupt_offset = if opts.header {
         // Corrupt within the FIL header area (first 38 bytes)
-        let header_offset = rand::random_range(0..SIZE_FIL_HEAD as u64);
+        let max_start = SIZE_FIL_HEAD.saturating_sub(opts.bytes) as u64;
+        let header_offset = rand::random_range(0..max_start.max(1));
         byte_start + header_offset
     } else if opts.records {
         // Corrupt within the record data area (after page header, before trailer)

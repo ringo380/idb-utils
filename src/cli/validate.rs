@@ -167,20 +167,46 @@ fn execute_mysql_validate(
     disk_entries: &[(std::path::PathBuf, u32)],
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    use crate::innodb::validate::{cross_validate, TablespaceMapping, ValidationReport};
+    use crate::innodb::validate::{cross_validate, TablespaceMapping};
+    use mysql_async::prelude::*;
 
-    let rt = tokio::runtime::Runtime::new()
+    // Build MySQL config (same pattern as execute_table_validate)
+    let mut config = crate::util::mysql::MysqlConfig::default();
+
+    if let Some(ref df) = opts.defaults_file {
+        if let Some(parsed) = crate::util::mysql::parse_defaults_file(std::path::Path::new(df)) {
+            config = parsed;
+        }
+    } else if let Some(df) = crate::util::mysql::find_defaults_file() {
+        if let Some(parsed) = crate::util::mysql::parse_defaults_file(&df) {
+            config = parsed;
+        }
+    }
+
+    if let Some(ref h) = opts.host {
+        config.host = h.clone();
+    }
+    if let Some(p) = opts.port {
+        config.port = p;
+    }
+    if let Some(ref u) = opts.user {
+        config.user = u.clone();
+    }
+    if opts.password.is_some() {
+        config.password = opts.password.clone();
+    }
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
         .map_err(|e| IdbError::Io(format!("Failed to create async runtime: {}", e)))?;
 
     let mysql_mappings = rt.block_on(async {
-        let pool = crate::util::mysql::connect_mysql(
-            opts.host.as_deref(),
-            opts.port,
-            opts.user.as_deref(),
-            opts.password.as_deref(),
-            opts.defaults_file.as_deref(),
-        )
-        .await?;
+        let pool = mysql_async::Pool::new(config.to_opts());
+        let mut conn = pool
+            .get_conn()
+            .await
+            .map_err(|e| IdbError::Io(format!("MySQL connection error: {}", e)))?;
 
         let mut query = "SELECT NAME, SPACE, ROW_FORMAT FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Single'".to_string();
         if let Some(ref db) = opts.database {
@@ -188,12 +214,8 @@ fn execute_mysql_validate(
             query.push_str(&format!(" AND NAME LIKE '{}/%'", escaped));
         }
 
-        use mysql_async::prelude::*;
-        let rows: Vec<(String, u32, String)> = pool
-            .get_conn()
-            .await
-            .map_err(|e| IdbError::Io(format!("MySQL connection error: {}", e)))?
-            .query(query)
+        let rows: Vec<(String, u32, String)> = conn
+            .query(&query)
             .await
             .map_err(|e| IdbError::Io(format!("MySQL query error: {}", e)))?;
 
@@ -206,6 +228,7 @@ fn execute_mysql_validate(
             })
             .collect();
 
+        pool.disconnect().await.ok();
         Ok::<_, IdbError>(mappings)
     })?;
 
@@ -215,7 +238,7 @@ fn execute_mysql_validate(
 
 #[cfg(feature = "mysql")]
 fn output_validation_report(
-    report: &ValidationReport,
+    report: &crate::innodb::validate::ValidationReport,
     json: bool,
     verbose: bool,
     writer: &mut dyn Write,
@@ -295,12 +318,9 @@ fn output_validation_report(
 /// Deep table validation via MySQL (feature-gated).
 #[cfg(feature = "mysql")]
 fn execute_table_validate(opts: &ValidateOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
-    use colored::Colorize;
     use mysql_async::prelude::*;
 
-    use crate::innodb::validate::{
-        deep_validate_table, MysqlIndexInfo, TableValidationReport, TablespaceMapping,
-    };
+    use crate::innodb::validate::{deep_validate_table, MysqlIndexInfo, TablespaceMapping};
 
     let table_spec = opts.table.as_ref().unwrap();
 
