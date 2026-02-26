@@ -58,11 +58,11 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
     COLOR_MODES.push({ id: 'diff', label: 'Diff Status' });
   }
 
-  // Build diff lookup map for O(1) access
+  // Build diff lookup map for O(1) access — modified_pages only contains pages that differ
   let diffMap = null;
-  if (diffResult && diffResult.pages) {
+  if (diffResult && diffResult.modified_pages) {
     diffMap = new Map();
-    for (const entry of diffResult.pages) {
+    for (const entry of diffResult.modified_pages) {
       diffMap.set(entry.page_number, entry);
     }
   }
@@ -166,20 +166,22 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
   }
 
   function diffColor(pageNum) {
-    if (!diffMap) return '#1e293b';
+    if (!diffResult) return '#1e293b';
+    // Pages beyond one file's range
+    const pc1 = diffResult.page_count_1 || 0;
+    const pc2 = diffResult.page_count_2 || 0;
+    if (pageNum >= pc2 && pageNum < pc1) return '#f97316'; // only in file 1
+    if (pageNum >= pc1 && pageNum < pc2) return '#8b5cf6'; // only in file 2
+    // Modified pages are in the diffMap; absent pages are identical
+    if (!diffMap) return '#10b981';
     const entry = diffMap.get(pageNum);
-    if (!entry) return '#1e293b';
-    if (entry.status === 'identical') return '#10b981';
-    if (entry.status === 'modified') {
-      const intensity = Math.min(1, (entry.bytes_changed || 0) / pageSize);
-      const r = Math.round(127 + intensity * 112); // 127..239
-      const g = Math.round(40 + (1 - intensity) * 28); // 40..68
-      const b = Math.round(40 + (1 - intensity) * 28); // 40..68
-      return `rgb(${r},${g},${b})`;
-    }
-    if (entry.status === 'only_in_file1') return '#f97316';
-    if (entry.status === 'only_in_file2') return '#8b5cf6';
-    return '#1e293b';
+    if (!entry) return '#10b981'; // identical
+    // Modified — intensity by bytes changed
+    const intensity = Math.min(1, (entry.bytes_changed || 0) / pageSize);
+    const r = Math.round(127 + intensity * 112); // 127..239
+    const g = Math.round(40 + (1 - intensity) * 28); // 40..68
+    const b = Math.round(40 + (1 - intensity) * 28); // 40..68
+    return `rgb(${r},${g},${b})`;
   }
 
   function getColor(p) {
@@ -281,27 +283,26 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
           <span class="text-gray-400">Empty</span>
         </div>`;
     } else if (colorMode === 'diff') {
-      const summary = diffResult && diffResult.summary ? diffResult.summary : {};
       legendEl.innerHTML = `
         <div class="flex items-center gap-1">
           <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
           <span class="text-gray-400">Identical</span>
-          <span class="text-gray-600">(${summary.identical || 0})</span>
+          <span class="text-gray-600">(${diffResult.identical || 0})</span>
         </div>
         <div class="flex items-center gap-1">
           <span class="inline-block w-3 h-3 rounded-sm" style="background:rgb(239,68,68)"></span>
           <span class="text-gray-400">Modified</span>
-          <span class="text-gray-600">(${summary.modified || 0})</span>
+          <span class="text-gray-600">(${diffResult.modified || 0})</span>
         </div>
         <div class="flex items-center gap-1">
           <span class="inline-block w-3 h-3 rounded-sm" style="background:#f97316"></span>
           <span class="text-gray-400">Only in file 1</span>
-          <span class="text-gray-600">(${summary.only_in_file1 || 0})</span>
+          <span class="text-gray-600">(${diffResult.only_in_first || 0})</span>
         </div>
         <div class="flex items-center gap-1">
           <span class="inline-block w-3 h-3 rounded-sm" style="background:#8b5cf6"></span>
           <span class="text-gray-400">Only in file 2</span>
-          <span class="text-gray-600">(${summary.only_in_file2 || 0})</span>
+          <span class="text-gray-600">(${diffResult.only_in_second || 0})</span>
         </div>`;
     }
   }

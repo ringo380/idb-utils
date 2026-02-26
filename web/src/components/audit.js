@@ -164,7 +164,7 @@ function buildAuditDashboard(container, files) {
     const indexes = r.health?.indexes ?? null;
     return { name: r.name, pages, corrupt, corruptPct, fill, frag, indexCount, indexes, error: r.error };
   });
-  const expandedRows = new Set();
+  const expandedNames = new Set();
 
   function getRowStatus(r) {
     if (r.error) return 'error';
@@ -211,7 +211,7 @@ function buildAuditDashboard(container, files) {
           </tr>
         </thead>
         <tbody>
-          ${sorted.map((r, i) => fileRow(r, i, colCount)).join('')}
+          ${sorted.map((r) => fileRow(r, colCount, expandedNames)).join('')}
         </tbody>
       </table>`;
 
@@ -233,17 +233,17 @@ function buildAuditDashboard(container, files) {
     wrap.querySelectorAll('.audit-expand-toggle').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const rowIdx = btn.dataset.rowIdx;
-        const detailRow = wrap.querySelector(`#audit-detail-${rowIdx}`);
+        const rowName = btn.dataset.rowName;
+        const detailRow = wrap.querySelector(`[data-detail-name="${CSS.escape(rowName)}"]`);
         if (!detailRow) return;
         const isExpanded = !detailRow.classList.contains('hidden');
         if (isExpanded) {
           detailRow.classList.add('hidden');
-          expandedRows.delete(rowIdx);
+          expandedNames.delete(rowName);
           btn.innerHTML = expandArrow(false);
         } else {
           detailRow.classList.remove('hidden');
-          expandedRows.add(rowIdx);
+          expandedNames.add(rowName);
           btn.innerHTML = expandArrow(true);
         }
       });
@@ -275,7 +275,7 @@ function expandArrow(expanded) {
     : '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>';
 }
 
-function fileRow(r, idx, colCount) {
+function fileRow(r, colCount, expandedNames) {
   let statusClass, statusText;
   if (r.error) {
     statusClass = 'text-gray-500';
@@ -294,11 +294,12 @@ function fileRow(r, idx, colCount) {
   const dot = r.error ? 'bg-gray-500' : r.corruptPct === 0 ? 'bg-innodb-green' : r.corruptPct < 5 ? 'bg-innodb-amber' : 'bg-innodb-red';
   const hasIndexes = r.indexes && r.indexes.length > 0;
 
+  const isExpanded = hasIndexes && expandedNames.has(r.name);
   let html = `
     <tr class="border-b border-gray-800/30 hover:bg-surface-2/50">
       <td class="py-1 pr-3 text-gray-300">
         <span class="inline-flex items-center gap-1.5">
-          ${hasIndexes ? `<button class="audit-expand-toggle text-gray-500 hover:text-gray-300" data-row-idx="${idx}">${expandArrow(false)}</button>` : '<span class="w-3.5"></span>'}
+          ${hasIndexes ? `<button class="audit-expand-toggle text-gray-500 hover:text-gray-300" data-row-name="${esc(r.name)}">${expandArrow(isExpanded)}</button>` : '<span class="w-3.5"></span>'}
           ${esc(r.name)}
         </span>
       </td>
@@ -317,7 +318,7 @@ function fileRow(r, idx, colCount) {
 
   if (hasIndexes) {
     html += `
-      <tr id="audit-detail-${idx}" class="hidden">
+      <tr data-detail-name="${esc(r.name)}" class="${isExpanded ? '' : 'hidden'}">
         <td colspan="${colCount}" class="py-2 px-4 bg-surface-3/30">
           <div class="text-xs text-gray-500 mb-1">Per-Index Health for ${esc(r.name)}</div>
           <div class="overflow-x-auto">${renderIndexTable(r.indexes)}</div>
