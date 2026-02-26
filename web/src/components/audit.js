@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { renderIndexTable } from '../utils/health-ui.js';
 
 /**
  * Create the audit dashboard, analyzing multiple .ibd files.
@@ -150,7 +151,7 @@ function buildAuditDashboard(container, files) {
     exportSlot.appendChild(createExportBar(exportData, 'audit'));
   }
 
-  // Build file rows
+  // Build file rows (include indexes for expand/collapse)
   const fileRows = results.map((r) => {
     const pages = r.checksums?.total_pages ?? 0;
     const corrupt = r.checksums?.invalid_pages ?? 0;
@@ -160,8 +161,10 @@ function buildAuditDashboard(container, files) {
     const fill = r.health?.summary.avg_fill_factor ?? null;
     const frag = r.health?.summary.avg_fragmentation ?? null;
     const indexCount = r.health?.summary.index_count ?? null;
-    return { name: r.name, pages, corrupt, corruptPct, fill, frag, indexCount, error: r.error };
+    const indexes = r.health?.indexes ?? null;
+    return { name: r.name, pages, corrupt, corruptPct, fill, frag, indexCount, indexes, error: r.error };
   });
+  const expandedRows = new Set();
 
   function getRowStatus(r) {
     if (r.error) return 'error';
@@ -198,6 +201,7 @@ function buildAuditDashboard(container, files) {
       { key: 'indexCount', label: 'Indexes' },
     ];
 
+    const colCount = columns.length;
     const wrap = container.querySelector('#audit-table-wrap');
     wrap.innerHTML = `
       <table class="w-full text-xs font-mono">
@@ -207,7 +211,7 @@ function buildAuditDashboard(container, files) {
           </tr>
         </thead>
         <tbody>
-          ${sorted.map(fileRow).join('')}
+          ${sorted.map((r, i) => fileRow(r, i, colCount)).join('')}
         </tbody>
       </table>`;
 
@@ -222,6 +226,26 @@ function buildAuditDashboard(container, files) {
           sortAsc = true;
         }
         renderTable();
+      });
+    });
+
+    // Attach expand/collapse handlers
+    wrap.querySelectorAll('.audit-expand-toggle').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rowIdx = btn.dataset.rowIdx;
+        const detailRow = wrap.querySelector(`#audit-detail-${rowIdx}`);
+        if (!detailRow) return;
+        const isExpanded = !detailRow.classList.contains('hidden');
+        if (isExpanded) {
+          detailRow.classList.add('hidden');
+          expandedRows.delete(rowIdx);
+          btn.innerHTML = expandArrow(false);
+        } else {
+          detailRow.classList.remove('hidden');
+          expandedRows.add(rowIdx);
+          btn.innerHTML = expandArrow(true);
+        }
       });
     });
   }
@@ -245,7 +269,13 @@ function buildAuditDashboard(container, files) {
   }
 }
 
-function fileRow(r) {
+function expandArrow(expanded) {
+  return expanded
+    ? '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>'
+    : '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>';
+}
+
+function fileRow(r, idx, colCount) {
   let statusClass, statusText;
   if (r.error) {
     statusClass = 'text-gray-500';
@@ -262,10 +292,16 @@ function fileRow(r) {
   }
 
   const dot = r.error ? 'bg-gray-500' : r.corruptPct === 0 ? 'bg-innodb-green' : r.corruptPct < 5 ? 'bg-innodb-amber' : 'bg-innodb-red';
+  const hasIndexes = r.indexes && r.indexes.length > 0;
 
-  return `
+  let html = `
     <tr class="border-b border-gray-800/30 hover:bg-surface-2/50">
-      <td class="py-1 pr-3 text-gray-300">${esc(r.name)}</td>
+      <td class="py-1 pr-3 text-gray-300">
+        <span class="inline-flex items-center gap-1.5">
+          ${hasIndexes ? `<button class="audit-expand-toggle text-gray-500 hover:text-gray-300" data-row-idx="${idx}">${expandArrow(false)}</button>` : '<span class="w-3.5"></span>'}
+          ${esc(r.name)}
+        </span>
+      </td>
       <td class="py-1 pr-3 text-gray-400">${r.pages}</td>
       <td class="py-1 pr-3 ${r.corrupt > 0 ? 'text-innodb-red font-bold' : 'text-gray-400'}">${r.corrupt}</td>
       <td class="py-1 pr-3">
@@ -278,6 +314,18 @@ function fileRow(r) {
       <td class="py-1 pr-3 text-gray-400">${r.frag != null ? (r.frag * 100).toFixed(1) + '%' : '\u2014'}</td>
       <td class="py-1 pr-3 text-gray-400">${r.indexCount != null ? r.indexCount : '\u2014'}</td>
     </tr>`;
+
+  if (hasIndexes) {
+    html += `
+      <tr id="audit-detail-${idx}" class="hidden">
+        <td colspan="${colCount}" class="py-2 px-4 bg-surface-3/30">
+          <div class="text-xs text-gray-500 mb-1">Per-Index Health for ${esc(r.name)}</div>
+          <div class="overflow-x-auto">${renderIndexTable(r.indexes)}</div>
+        </td>
+      </tr>`;
+  }
+
+  return html;
 }
 
 function statCard(label, value, colorClass = '') {

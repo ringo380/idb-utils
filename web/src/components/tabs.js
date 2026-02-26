@@ -11,13 +11,16 @@ const TAB_DEFS = [
 ];
 
 const HEATMAP_TAB = { id: 'heatmap', label: 'Heatmap', key: '8' };
+const HEALTH_TAB = { id: 'health', label: 'Health', key: 'H' };
+const VERIFY_TAB = { id: 'verify', label: 'Verify', key: 'V' };
+const COMPAT_TAB = { id: 'compat', label: 'Compat', key: 'C' };
 const DIFF_TAB = { id: 'diff', label: 'Diff', key: '9' };
 const AUDIT_TAB = { id: 'audit', label: 'Audit', key: '0' };
 const REDOLOG_TAB = { id: 'redolog', label: 'Redo Log', key: '1' };
 
 function getVisibleTabs({ showDiff = false, showRedoLog = false, showAudit = false } = {}) {
   if (showRedoLog) return [REDOLOG_TAB];
-  const tabs = [...TAB_DEFS, HEATMAP_TAB];
+  const tabs = [...TAB_DEFS, HEATMAP_TAB, HEALTH_TAB, VERIFY_TAB, COMPAT_TAB];
   if (showDiff) tabs.push(DIFF_TAB);
   if (showAudit) tabs.push(AUDIT_TAB);
   return tabs;
@@ -86,4 +89,29 @@ export function getTabId(index, opts = {}) {
 
 export function getTabCount(opts = {}) {
   return getVisibleTabs(opts).length;
+}
+
+/**
+ * Returns a Set of all keyboard shortcut keys for currently visible tabs.
+ * Keys are stored as-is (e.g. '1', '2', 'H', 'V', 'C').
+ */
+export function getVisibleTabKeys(opts = {}) {
+  return new Set(getVisibleTabs(opts).map((t) => t.key));
+}
+
+/**
+ * Returns the tab index for a given keyboard shortcut key (case-insensitive
+ * for letters), or -1 if no visible tab matches.
+ */
+export function getTabIndexByKey(key, opts = {}) {
+  const upper = key.toUpperCase();
+  const tabs = getVisibleTabs(opts);
+  return tabs.findIndex((t) => t.key.toUpperCase() === upper);
+}
+
+/**
+ * Returns the tab index for a given tab ID string, or -1 if not found.
+ */
+export function getTabIndexById(id, opts = {}) {
+  return getVisibleTabs(opts).findIndex((t) => t.id === id);
 }

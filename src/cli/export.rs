@@ -7,13 +7,12 @@
 use std::io::Write;
 
 use crate::cli::wprintln;
-use crate::innodb::field_decode::{self, ColumnStorageInfo, FieldValue};
+use crate::innodb::export::{csv_escape, decode_page_records, extract_column_layout};
+use crate::innodb::field_decode::{ColumnStorageInfo, FieldValue};
 use crate::innodb::index::IndexHeader;
 use crate::innodb::page::FilHeader;
 use crate::innodb::page_types::PageType;
 use crate::innodb::record::walk_compact_records;
-use crate::innodb::schema::SdiEnvelope;
-use crate::innodb::sdi;
 use crate::IdbError;
 
 /// Output format for exported records.
@@ -137,154 +136,6 @@ pub fn execute(opts: &ExportOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     Ok(())
 }
 
-/// Extract column layout from SDI metadata.
-/// Returns (column_layout, clustered_index_id) or None if SDI unavailable.
-fn extract_column_layout(
-    ts: &mut crate::innodb::tablespace::Tablespace,
-) -> Option<(Vec<ColumnStorageInfo>, u64)> {
-    let sdi_pages = sdi::find_sdi_pages(ts).ok()?;
-    if sdi_pages.is_empty() {
-        return None;
-    }
-    let records = sdi::extract_sdi_from_pages(ts, &sdi_pages).ok()?;
-
-    for rec in &records {
-        if rec.sdi_type == 1 {
-            let envelope: SdiEnvelope = serde_json::from_str(&rec.data).ok()?;
-            let cols = field_decode::build_column_layout(&envelope.dd_object);
-
-            // Find clustered index ID from se_private_data
-            let raw: serde_json::Value = serde_json::from_str(&rec.data).ok()?;
-            let indexes = raw.get("dd_object")?.get("indexes")?.as_array()?;
-            for idx in indexes {
-                let idx_type = idx.get("type")?.as_u64()?;
-                if idx_type == 1 {
-                    // PRIMARY
-                    let se_data = idx.get("se_private_data")?.as_str()?;
-                    for part in se_data.split(';') {
-                        if let Some(id_str) = part.strip_prefix("id=") {
-                            if let Ok(id) = id_str.parse::<u64>() {
-                                return Some((cols, id));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // If no PRIMARY found, try any index_type 2 (UNIQUE) or fall back
-            // to first index
-            for idx in indexes {
-                let se_data = match idx.get("se_private_data").and_then(|v| v.as_str()) {
-                    Some(s) => s,
-                    None => continue,
-                };
-                for part in se_data.split(';') {
-                    if let Some(id_str) = part.strip_prefix("id=") {
-                        if let Ok(id) = id_str.parse::<u64>() {
-                            return Some((cols, id));
-                        }
-                    }
-                }
-            }
-
-            return None;
-        }
-    }
-    None
-}
-
-/// Decode records from a page using the column layout.
-fn decode_page_records(
-    page_data: &[u8],
-    columns: &[ColumnStorageInfo],
-    opts: &ExportOptions,
-    _page_size: u32,
-) -> Vec<Vec<(String, FieldValue)>> {
-    let records = walk_compact_records(page_data);
-    let mut rows = Vec::new();
-
-    for rec in &records {
-        // Filter by delete mark
-        let delete_mark = rec.header.delete_mark();
-        if opts.where_delete_mark && !delete_mark {
-            continue;
-        }
-        if !opts.where_delete_mark && delete_mark {
-            continue;
-        }
-
-        // Decode fields
-        let mut row = Vec::new();
-        let mut pos = rec.offset;
-
-        // Read nullable bitmap and variable-length headers
-        let n_nullable = columns.iter().filter(|c| c.is_nullable).count();
-        let n_variable = columns.iter().filter(|c| c.is_variable).count();
-
-        let (nulls, var_lengths) = match crate::innodb::record::read_variable_field_lengths(
-            page_data, rec.offset, n_nullable, n_variable,
-        ) {
-            Some(r) => r,
-            None => continue,
-        };
-
-        let mut null_idx = 0;
-        let mut var_idx = 0;
-
-        for col in columns {
-            // Skip system columns unless requested
-            if !opts.system_columns && col.is_system_column {
-                if col.fixed_len > 0 {
-                    pos += col.fixed_len;
-                }
-                continue;
-            }
-
-            // Check null
-            if col.is_nullable {
-                if null_idx < nulls.len() && nulls[null_idx] {
-                    row.push((col.name.clone(), FieldValue::Null));
-                    null_idx += 1;
-                    continue;
-                }
-                null_idx += 1;
-            }
-
-            if col.is_variable {
-                // Variable-length field
-                let len = if var_idx < var_lengths.len() {
-                    var_lengths[var_idx]
-                } else {
-                    0
-                };
-                var_idx += 1;
-
-                if pos + len <= page_data.len() {
-                    let val = field_decode::decode_field(&page_data[pos..pos + len], col);
-                    row.push((col.name.clone(), val));
-                    pos += len;
-                } else {
-                    row.push((col.name.clone(), FieldValue::Null));
-                }
-            } else {
-                // Fixed-length field
-                let len = col.fixed_len;
-                if len > 0 && pos + len <= page_data.len() {
-                    let val = field_decode::decode_field(&page_data[pos..pos + len], col);
-                    row.push((col.name.clone(), val));
-                    pos += len;
-                } else {
-                    row.push((col.name.clone(), FieldValue::Null));
-                }
-            }
-        }
-
-        rows.push(row);
-    }
-
-    rows
-}
-
 /// Output records as CSV.
 fn output_csv(
     writer: &mut dyn Write,
@@ -302,7 +153,13 @@ fn output_csv(
     wprintln!(writer, "{}", headers.join(","))?;
 
     for (_, page_data) in pages {
-        let rows = decode_page_records(page_data, columns, opts, page_size);
+        let rows = decode_page_records(
+            page_data,
+            columns,
+            opts.where_delete_mark,
+            opts.system_columns,
+            page_size,
+        );
         for row in &rows {
             let values: Vec<String> = row.iter().map(|(_, v)| csv_escape(v)).collect();
             wprintln!(writer, "{}", values.join(","))?;
@@ -310,25 +167,6 @@ fn output_csv(
     }
 
     Ok(())
-}
-
-/// CSV-escape a field value (RFC 4180).
-fn csv_escape(val: &FieldValue) -> String {
-    match val {
-        FieldValue::Null => String::new(),
-        FieldValue::Int(n) => n.to_string(),
-        FieldValue::Uint(n) => n.to_string(),
-        FieldValue::Float(f) => f.to_string(),
-        FieldValue::Double(d) => d.to_string(),
-        FieldValue::Str(s) => {
-            if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-                format!("\"{}\"", s.replace('"', "\"\""))
-            } else {
-                s.clone()
-            }
-        }
-        FieldValue::Hex(h) => h.clone(),
-    }
 }
 
 /// Output records as JSON (array of objects).
@@ -342,7 +180,13 @@ fn output_json(
     let mut all_rows: Vec<serde_json::Map<String, serde_json::Value>> = Vec::new();
 
     for (_, page_data) in pages {
-        let rows = decode_page_records(page_data, columns, opts, page_size);
+        let rows = decode_page_records(
+            page_data,
+            columns,
+            opts.where_delete_mark,
+            opts.system_columns,
+            page_size,
+        );
         for row in rows {
             let mut obj = serde_json::Map::new();
             for (name, val) in row {
