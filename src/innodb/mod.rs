@@ -32,6 +32,7 @@
 //! | [`constants`] | InnoDB page/file structure constants from MySQL source headers |
 
 pub mod checksum;
+pub mod compat;
 pub mod compression;
 pub mod constants;
 pub mod corruption;
@@ -50,6 +51,8 @@ pub mod schema;
 pub mod sdi;
 pub mod tablespace;
 pub mod undo;
+pub mod validate;
 pub mod vendor;
+pub mod verify;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod write;

@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::cli::{create_progress_bar, wprintln};
 use crate::innodb::constants::SIZE_FIL_HEAD;
 use crate::innodb::page::FilHeader;
+use crate::innodb::sdi;
 use crate::innodb::tablespace::Tablespace;
 use crate::IdbError;
 
@@ -21,6 +22,8 @@ pub struct DiffOptions {
     pub byte_ranges: bool,
     /// Compare a single page only.
     pub page: Option<u64>,
+    /// Annotate diff with MySQL version information from SDI metadata.
+    pub version_aware: bool,
     /// Emit output as JSON.
     pub json: bool,
     /// Override the auto-detected page size.
@@ -38,6 +41,10 @@ struct DiffReport {
     file1: FileInfo,
     file2: FileInfo,
     page_size_mismatch: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file1_mysql_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file2_mysql_version: Option<String>,
     summary: DiffSummary,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     modified_pages: Vec<PageDiff>,
@@ -100,6 +107,50 @@ struct ByteRange {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+/// Format a MySQL version ID (e.g. 80032) as "8.0.32".
+fn format_version_id(id: u64) -> String {
+    format!("{}.{}.{}", id / 10000, (id / 100) % 100, id % 100)
+}
+
+/// Extract the MySQL version string from a tablespace's SDI metadata.
+///
+/// Returns `None` if the tablespace has no SDI pages or the version cannot
+/// be determined (e.g. pre-8.0 files).
+fn extract_mysql_version(ts: &mut Tablespace) -> Option<String> {
+    let sdi_pages = sdi::find_sdi_pages(ts).ok()?;
+    if sdi_pages.is_empty() {
+        return None;
+    }
+    let records = sdi::extract_sdi_from_pages(ts, &sdi_pages).ok()?;
+    for rec in &records {
+        if rec.sdi_type != 1 {
+            continue;
+        }
+        // Parse the JSON to extract mysqld_version_id or dd_object.mysql_version_id
+        let v: serde_json::Value = match serde_json::from_str(&rec.data) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Prefer the envelope-level mysqld_version_id
+        if let Some(id) = v.get("mysqld_version_id").and_then(|v| v.as_u64()) {
+            if id > 0 {
+                return Some(format_version_id(id));
+            }
+        }
+        // Fall back to dd_object.mysql_version_id
+        if let Some(id) = v
+            .get("dd_object")
+            .and_then(|dd| dd.get("mysql_version_id"))
+            .and_then(|v| v.as_u64())
+        {
+            if id > 0 {
+                return Some(format_version_id(id));
+            }
+        }
+    }
+    None
+}
 
 fn header_to_fields(h: &FilHeader) -> HeaderFields {
     HeaderFields {
@@ -226,8 +277,28 @@ pub fn execute(opts: &DiffOptions, writer: &mut dyn Write) -> Result<(), IdbErro
 
     let page_size_mismatch = ps1 != ps2;
 
+    // Extract MySQL version info when --version-aware is set
+    let version1 = if opts.version_aware {
+        extract_mysql_version(&mut ts1)
+    } else {
+        None
+    };
+    let version2 = if opts.version_aware {
+        extract_mysql_version(&mut ts2)
+    } else {
+        None
+    };
+
     if opts.json {
-        return execute_json(opts, &mut ts1, &mut ts2, page_size_mismatch, writer);
+        return execute_json(
+            opts,
+            &mut ts1,
+            &mut ts2,
+            page_size_mismatch,
+            version1,
+            version2,
+            writer,
+        );
     }
 
     // Text output
@@ -246,6 +317,16 @@ pub fn execute(opts: &DiffOptions, writer: &mut dyn Write) -> Result<(), IdbErro
         pc2,
         ps2
     )?;
+
+    if opts.version_aware {
+        if let Some(ref v) = version1 {
+            wprintln!(writer, "  File 1 MySQL version: {}", v)?;
+        }
+        if let Some(ref v) = version2 {
+            wprintln!(writer, "  File 2 MySQL version: {}", v)?;
+        }
+    }
+
     wprintln!(writer)?;
 
     if page_size_mismatch {
@@ -427,6 +508,8 @@ fn execute_json(
     ts1: &mut Tablespace,
     ts2: &mut Tablespace,
     page_size_mismatch: bool,
+    version1: Option<String>,
+    version2: Option<String>,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
     let ps1 = ts1.page_size();
@@ -539,6 +622,8 @@ fn execute_json(
             page_size: ps2,
         },
         page_size_mismatch,
+        file1_mysql_version: version1,
+        file2_mysql_version: version2,
         summary: DiffSummary {
             identical,
             modified,

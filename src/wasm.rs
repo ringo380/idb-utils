@@ -1127,3 +1127,52 @@ pub fn analyze_health(data: &[u8]) -> Result<String, JsValue> {
     );
     to_json(&report)
 }
+
+// ---------------------------------------------------------------------------
+// verify_tablespace — mirrors `inno verify`
+// ---------------------------------------------------------------------------
+
+/// Verifies the structural integrity of an InnoDB tablespace.
+///
+/// Takes raw `.ibd` file bytes and runs structural checks: page number
+/// sequence, space ID consistency, LSN monotonicity, B+Tree level validity,
+/// page chain bounds, and FIL header/trailer LSN matching.
+///
+/// Returns a JSON string with the verification report.
+#[wasm_bindgen]
+pub fn verify_tablespace(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+    let space_id = ts.fsp_header().map(|f| f.space_id).unwrap_or(0);
+    let all_pages = ts.read_all_pages().map_err(to_js_err)?;
+
+    let config = crate::innodb::verify::VerifyConfig::default();
+    let report = crate::innodb::verify::verify_tablespace(
+        &all_pages,
+        page_size,
+        space_id,
+        "upload.ibd",
+        &config,
+    );
+    to_json(&report)
+}
+
+// ---------------------------------------------------------------------------
+// check_compatibility — mirrors `inno compat`
+// ---------------------------------------------------------------------------
+
+/// Checks tablespace compatibility with a target MySQL version.
+///
+/// Takes raw `.ibd` file bytes and a target MySQL version string (e.g.
+/// "8.0.0", "8.4.0", "9.0.0"). Extracts tablespace metadata and evaluates
+/// each attribute against the target version's requirements.
+///
+/// Returns a JSON string with the compatibility report.
+#[wasm_bindgen]
+pub fn check_compatibility(data: &[u8], target_version: &str) -> Result<String, JsValue> {
+    let target = crate::innodb::compat::MysqlVersion::parse(target_version).map_err(to_js_err)?;
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let info = crate::innodb::compat::extract_tablespace_info(&mut ts).map_err(to_js_err)?;
+    let report = crate::innodb::compat::build_compat_report(&info, &target, "upload.ibd");
+    to_json(&report)
+}

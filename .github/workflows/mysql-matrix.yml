@@ -1,0 +1,206 @@
+name: MySQL Version Matrix
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Monday at 06:00 UTC
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mysql-compat:
+    name: MySQL ${{ matrix.mysql_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mysql_version: "5.7"
+            image: mysql:5.7
+            has_sdi: false
+          - mysql_version: "8.0"
+            image: mysql:8.0
+            has_sdi: true
+          - mysql_version: "8.4"
+            image: mysql:8.4
+            has_sdi: true
+          - mysql_version: "9.0"
+            image: mysql:9.0
+            has_sdi: true
+
+    services:
+      mysql:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ptestpassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build inno with MySQL feature
+        run: cargo build --release --features mysql
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -u root -ptestpassword 2>/dev/null; then
+              echo "MySQL is ready"
+              break
+            fi
+            echo "Waiting for MySQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Create test tables
+        run: |
+          mysql -h 127.0.0.1 -u root -ptestpassword testdb <<'SQL'
+          CREATE TABLE test_basic (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            name VARCHAR(100) NOT NULL,
+            value DECIMAL(10,2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB;
+
+          INSERT INTO test_basic (name, value) VALUES
+            ('alpha', 1.23), ('beta', 4.56), ('gamma', 7.89);
+
+          CREATE TABLE test_indexes (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            email VARCHAR(255) NOT NULL,
+            status TINYINT DEFAULT 0,
+            score FLOAT,
+            INDEX idx_email (email),
+            INDEX idx_status_score (status, score)
+          ) ENGINE=InnoDB;
+
+          INSERT INTO test_indexes (email, status, score) VALUES
+            ('a@test.com', 1, 95.5), ('b@test.com', 0, 82.3);
+
+          CREATE TABLE test_types (
+            id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            tiny_col TINYINT,
+            small_col SMALLINT,
+            medium_col MEDIUMINT,
+            int_col INT,
+            big_col BIGINT,
+            float_col FLOAT,
+            double_col DOUBLE,
+            dec_col DECIMAL(12,4),
+            date_col DATE,
+            time_col TIME,
+            datetime_col DATETIME,
+            timestamp_col TIMESTAMP NULL,
+            year_col YEAR,
+            char_col CHAR(10),
+            varchar_col VARCHAR(200),
+            text_col TEXT,
+            blob_col BLOB,
+            enum_col ENUM('a','b','c'),
+            set_col SET('x','y','z')
+          ) ENGINE=InnoDB;
+
+          INSERT INTO test_types VALUES (1, 127, 32000, 8000000, 2000000000, 9000000000000,
+            3.14, 2.71828, 12345.6789, '2025-06-15', '13:30:45', '2025-06-15 13:30:45',
+            '2025-06-15 13:30:45', 2025, 'hello', 'world', 'text data', 'blob data',
+            'b', 'x,z');
+          SQL
+
+      - name: Locate MySQL data directory
+        id: datadir
+        run: |
+          DATADIR=$(mysql -h 127.0.0.1 -u root -ptestpassword -N -e "SELECT @@datadir")
+          echo "path=$DATADIR" >> "$GITHUB_OUTPUT"
+          echo "MySQL datadir: $DATADIR"
+
+      - name: Copy .ibd files from container
+        run: |
+          CONTAINER_ID=$(docker ps -q --filter "ancestor=${{ matrix.image }}")
+          mkdir -p /tmp/mysql-data/testdb
+          docker cp "$CONTAINER_ID:${{ steps.datadir.outputs.path }}testdb/." /tmp/mysql-data/testdb/
+          ls -la /tmp/mysql-data/testdb/
+
+      - name: Run inno parse on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Parsing: $(basename $f) ==="
+            ./target/release/inno parse -f "$f" || true
+          done
+
+      - name: Run inno checksum on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Checksum: $(basename $f) ==="
+            ./target/release/inno checksum -f "$f"
+          done
+
+      - name: Run inno pages on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Pages: $(basename $f) ==="
+            ./target/release/inno pages -f "$f" -l || true
+          done
+
+      - name: Run inno verify on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Verify: $(basename $f) ==="
+            ./target/release/inno verify -f "$f" --json || true
+          done
+
+      - name: Run inno compat on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Compat (target 9.0.0): $(basename $f) ==="
+            ./target/release/inno compat -f "$f" -t 9.0.0 --json || true
+          done
+
+      - name: Run inno sdi (MySQL 8.0+ only)
+        if: matrix.has_sdi
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== SDI: $(basename $f) ==="
+            ./target/release/inno sdi -f "$f" --pretty || true
+          done
+
+      - name: Run inno health on each .ibd file
+        run: |
+          for f in /tmp/mysql-data/testdb/*.ibd; do
+            echo "=== Health: $(basename $f) ==="
+            ./target/release/inno health -f "$f" --json || true
+          done
+
+      - name: Run inno validate with MySQL connection
+        run: |
+          ./target/release/inno validate \
+            -d /tmp/mysql-data \
+            --host 127.0.0.1 \
+            --user root \
+            --password testpassword \
+            -D testdb \
+            --json || true

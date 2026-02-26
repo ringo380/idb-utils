@@ -76,6 +76,7 @@ fn default_opts(file1: &str, file2: &str) -> DiffOptions {
         verbose: false,
         byte_ranges: false,
         page: None,
+        version_aware: false,
         json: false,
         page_size: None,
         keyring: None,

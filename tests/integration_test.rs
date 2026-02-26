@@ -1554,8 +1554,10 @@ fn test_info_ibdata_basic() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1590,8 +1592,10 @@ fn test_info_ibdata_json() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: true,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1625,8 +1629,10 @@ fn test_info_ibdata_with_redo_log() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1656,8 +1662,10 @@ fn test_info_lsn_check() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1692,8 +1700,10 @@ fn test_info_lsn_check_json() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: true,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1722,8 +1732,10 @@ fn test_info_nonexistent_datadir() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -1744,8 +1756,10 @@ fn test_info_no_mode() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();
@@ -2604,8 +2618,10 @@ fn test_info_missing_ibdata1() {
         user: None,
         password: None,
         defaults_file: None,
+        tablespace_map: false,
         json: false,
         page_size: None,
+        mmap: false,
     };
 
     let mut out = Vec::new();

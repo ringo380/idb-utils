@@ -1,4 +1,6 @@
+use std::collections::BTreeMap;
 use std::io::Write;
+use std::path::Path;
 
 use byteorder::{BigEndian, ByteOrder};
 use colored::Colorize;
@@ -7,6 +9,7 @@ use serde::Serialize;
 use crate::cli::wprintln;
 use crate::innodb::constants::*;
 use crate::innodb::page::FilHeader;
+use crate::util::fs::find_tablespace_files;
 use crate::IdbError;
 
 /// Options for the `inno info` subcommand.
@@ -31,10 +34,14 @@ pub struct InfoOptions {
     pub password: Option<String>,
     /// Path to a MySQL defaults file (`.my.cnf`).
     pub defaults_file: Option<String>,
+    /// Scan data directory and produce a tablespace ID mapping.
+    pub tablespace_map: bool,
     /// Emit output as JSON.
     pub json: bool,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
+    /// Use memory-mapped I/O for file access.
+    pub mmap: bool,
 }
 
 #[derive(Serialize)]
@@ -59,9 +66,21 @@ struct LsnCheckJson {
     in_sync: bool,
 }
 
+#[derive(Serialize)]
+struct TablespaceMapJson {
+    datadir: String,
+    tablespaces: Vec<TablespaceMapEntryJson>,
+}
+
+#[derive(Serialize)]
+struct TablespaceMapEntryJson {
+    file: String,
+    space_id: u32,
+}
+
 /// Display InnoDB system-level information from the data directory or a live instance.
 ///
-/// Operates in three mutually exclusive modes:
+/// Operates in four mutually exclusive modes:
 ///
 /// - **`--ibdata`**: Reads page 0 of `ibdata1` (the system tablespace) and
 ///   decodes its FIL header — checksum, page type, LSN, flush LSN, and space ID.
@@ -75,6 +94,9 @@ struct LsnCheckJson {
 ///   if not, the difference in bytes is reported. This is useful for diagnosing
 ///   whether InnoDB shut down cleanly or needs crash recovery.
 ///
+/// - **`--tablespace-map`**: Scans all `.ibd` files in the data directory and
+///   builds a mapping of file paths to space IDs from page 0 of each file.
+///
 /// - **`-D <database> -t <table>`** (requires the `mysql` feature): Connects to
 ///   a live MySQL instance and queries `INFORMATION_SCHEMA.INNODB_TABLES` and
 ///   `INNODB_INDEXES` for the space ID, table ID, index names, and root page
@@ -82,6 +104,10 @@ struct LsnCheckJson {
 ///   sequence number and transaction ID counter. Connection parameters come
 ///   from CLI flags or a `.my.cnf` defaults file.
 pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
+    if opts.tablespace_map {
+        return execute_tablespace_map(opts, writer);
+    }
+
     if opts.ibdata || opts.lsn_check {
         let datadir = opts.datadir.as_deref().unwrap_or("/var/lib/mysql");
         let datadir_path = std::path::Path::new(datadir);
@@ -122,13 +148,132 @@ pub fn execute(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     wprintln!(writer, "Usage:")?;
     wprintln!(
         writer,
-        "  idb info --ibdata -d <datadir>          Read ibdata1 page 0 header"
+        "  inno info --ibdata -d <datadir>          Read ibdata1 page 0 header"
     )?;
     wprintln!(
         writer,
-        "  idb info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs"
+        "  inno info --lsn-check -d <datadir>       Compare ibdata1 and redo log LSNs"
     )?;
-    wprintln!(writer, "  idb info -D <database> -t <table>       Show table/index info (requires --features mysql)")?;
+    wprintln!(
+        writer,
+        "  inno info --tablespace-map -d <datadir>  Map .ibd files to tablespace IDs"
+    )?;
+    wprintln!(writer, "  inno info -D <database> -t <table>       Show table/index info (requires --features mysql)")?;
+    Ok(())
+}
+
+fn execute_tablespace_map(opts: &InfoOptions, writer: &mut dyn Write) -> Result<(), IdbError> {
+    let datadir_str = opts.datadir.as_deref().ok_or_else(|| {
+        IdbError::Argument("--tablespace-map requires a data directory (-d <datadir>)".to_string())
+    })?;
+    let datadir = Path::new(datadir_str);
+    if !datadir.is_dir() {
+        return Err(IdbError::Argument(format!(
+            "Data directory does not exist: {}",
+            datadir_str
+        )));
+    }
+
+    let ibd_files = find_tablespace_files(datadir, &["ibd"], None)?;
+
+    if ibd_files.is_empty() {
+        if opts.json {
+            let result = TablespaceMapJson {
+                datadir: datadir_str.to_string(),
+                tablespaces: Vec::new(),
+            };
+            let json = serde_json::to_string_pretty(&result)
+                .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+            wprintln!(writer, "{}", json)?;
+        } else {
+            wprintln!(writer, "No .ibd files found in {}", datadir_str)?;
+        }
+        return Ok(());
+    }
+
+    // Collect file → space_id mapping
+    let mut results: BTreeMap<String, u32> = BTreeMap::new();
+
+    for ibd_path in &ibd_files {
+        let path_str = ibd_path.to_string_lossy();
+        let mut ts = match crate::cli::open_tablespace(&path_str, opts.page_size, opts.mmap) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let space_id = match ts.fsp_header() {
+            Some(fsp) => fsp.space_id,
+            None => {
+                // Try reading space_id directly from FSP header position
+                match ts.read_page(0) {
+                    Ok(page0) => {
+                        if page0.len() >= FIL_PAGE_DATA + 4 {
+                            BigEndian::read_u32(&page0[FIL_PAGE_DATA..])
+                        } else {
+                            continue;
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+        };
+
+        let display_path = ibd_path
+            .strip_prefix(datadir)
+            .unwrap_or(ibd_path)
+            .to_string_lossy()
+            .to_string();
+
+        results.insert(display_path, space_id);
+    }
+
+    if opts.json {
+        let tablespaces: Vec<TablespaceMapEntryJson> = results
+            .iter()
+            .map(|(path, &space_id)| TablespaceMapEntryJson {
+                file: path.clone(),
+                space_id,
+            })
+            .collect();
+
+        let result = TablespaceMapJson {
+            datadir: datadir_str.to_string(),
+            tablespaces,
+        };
+
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+        wprintln!(writer, "{}", json)?;
+    } else {
+        // Calculate column widths for aligned output
+        let max_path_len = results.keys().map(|p| p.len()).max().unwrap_or(4);
+        let header_path = "FILE";
+        let header_id = "SPACE_ID";
+        let path_width = max_path_len.max(header_path.len());
+
+        wprintln!(
+            writer,
+            "{:<width$}  {}",
+            header_path,
+            header_id,
+            width = path_width
+        )?;
+        wprintln!(
+            writer,
+            "{:<width$}  {}",
+            "-".repeat(path_width),
+            "-".repeat(header_id.len()),
+            width = path_width
+        )?;
+
+        for (path, space_id) in &results {
+            wprintln!(writer, "{:<width$}  {}", path, space_id, width = path_width)?;
+        }
+
+        wprintln!(writer)?;
+        wprintln!(writer, "Total: {} tablespace(s)", results.len())?;
+    }
+
     Ok(())
 }
 
