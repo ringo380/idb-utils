@@ -56,6 +56,7 @@
 pub mod app;
 pub mod audit;
 pub mod checksum;
+pub mod compat;
 pub mod corrupt;
 pub mod defrag;
 pub mod diff;
@@ -73,6 +74,8 @@ pub mod schema;
 pub mod sdi;
 pub mod transplant;
 pub mod tsid;
+pub mod validate;
+pub mod verify;
 pub mod watch;
 
 /// Write a line to the given writer, converting io::Error to IdbError.

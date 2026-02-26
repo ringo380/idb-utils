@@ -511,6 +511,10 @@ pub enum Commands {
         #[arg(long = "defaults-file")]
         defaults_file: Option<String>,
 
+        /// Scan data directory and produce a tablespace ID mapping
+        #[arg(long = "tablespace-map")]
+        tablespace_map: bool,
+
         /// Output in JSON format
         #[arg(long)]
         json: bool,
@@ -731,6 +735,10 @@ pub enum Commands {
         #[arg(short, long)]
         page: Option<u64>,
 
+        /// Annotate diff with MySQL version information from SDI metadata
+        #[arg(long = "version-aware")]
+        version_aware: bool,
+
         /// Output in JSON format
         #[arg(long)]
         json: bool,
@@ -891,6 +899,56 @@ pub enum Commands {
         depth: Option<u32>,
     },
 
+    /// Check tablespace compatibility with a target MySQL version
+    ///
+    /// Analyzes tablespace files to determine whether they are compatible
+    /// with a target MySQL version. Checks include page size support, row
+    /// format, encryption, compression, SDI presence, and vendor
+    /// compatibility (MariaDB tablespaces are flagged as incompatible).
+    ///
+    /// **Single-file mode** (`--file`): checks one tablespace and reports
+    /// all compatibility findings with severity levels (info/warning/error).
+    ///
+    /// **Directory scan mode** (`--scan`): discovers all `.ibd` files under
+    /// a data directory, runs compatibility checks on each in parallel, and
+    /// produces a per-file summary plus an overall compatible/incompatible
+    /// count.
+    ///
+    /// `--file` and `--scan` are mutually exclusive.
+    Compat {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: Option<String>,
+
+        /// Scan a data directory for compatibility issues (mutually exclusive with --file)
+        #[arg(short, long)]
+        scan: Option<String>,
+
+        /// Target MySQL version (e.g., "8.4.0", "9.0.0")
+        #[arg(short, long)]
+        target: String,
+
+        /// Show detailed check information
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
+    },
+
     /// Defragment a tablespace by reclaiming free space and reordering pages
     ///
     /// Reads all pages from a source tablespace, removes empty and corrupt
@@ -922,6 +980,99 @@ pub enum Commands {
         /// Path to MySQL keyring file for decrypting encrypted tablespaces
         #[arg(long)]
         keyring: Option<String>,
+    },
+
+    /// Cross-validate tablespace files against live MySQL metadata
+    ///
+    /// Scans a data directory for .ibd files and compares their space IDs
+    /// against MySQL's INFORMATION_SCHEMA.INNODB_TABLESPACES. Detects
+    /// orphan files (on disk but not in MySQL), missing tablespaces (in
+    /// MySQL but not on disk), and space ID mismatches. Requires --host
+    /// and --user for MySQL connection (mysql feature must be compiled).
+    Validate {
+        /// Path to MySQL data directory
+        #[arg(short, long)]
+        datadir: String,
+
+        /// Database name to filter (optional)
+        #[arg(short = 'D', long)]
+        database: Option<String>,
+
+        /// Deep-validate a specific table (format: db.table or db/table)
+        #[arg(short = 't', long)]
+        table: Option<String>,
+
+        /// MySQL host
+        #[arg(long)]
+        host: Option<String>,
+
+        /// MySQL port
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// MySQL user
+        #[arg(short, long)]
+        user: Option<String>,
+
+        /// MySQL password
+        #[arg(short, long)]
+        password: Option<String>,
+
+        /// Path to MySQL defaults file (.my.cnf)
+        #[arg(long = "defaults-file")]
+        defaults_file: Option<String>,
+
+        /// Show detailed output
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
+    },
+
+    /// Verify structural integrity of a tablespace
+    ///
+    /// Runs pure structural checks on a tablespace file without requiring
+    /// valid checksums. Checks page number sequence, space ID consistency,
+    /// LSN monotonicity, B+Tree level validity, page chain bounds, and
+    /// trailer LSN matching. Exits with code 1 if any check fails.
+    Verify {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Show per-page findings
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+
+        /// Path to redo log file to verify LSN continuity against the tablespace
+        #[arg(long)]
+        redo: Option<String>,
+
+        /// Verify backup chain continuity across multiple tablespace files
+        #[arg(long = "chain", num_args = 1..)]
+        chain: Vec<String>,
     },
 
     /// Generate shell completion scripts

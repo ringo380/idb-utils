@@ -20,6 +20,16 @@
 - [sdi](cli/sdi.md)
 - [log](cli/log.md)
 - [info](cli/info.md)
+- [repair](cli/repair.md)
+- [defrag](cli/defrag.md)
+- [transplant](cli/transplant.md)
+- [schema](cli/schema.md)
+- [export](cli/export.md)
+- [health](cli/health.md)
+- [audit](cli/audit.md)
+- [compat](cli/compat.md)
+- [verify](cli/verify.md)
+- [validate](cli/validate.md)
 
 # Library API
 
@@ -41,6 +51,12 @@
 - [Encrypted Tablespaces](guides/encrypted-tablespaces.md)
 - [JSON Output](guides/json-output.md)
 - [Vendor Support](guides/vendor-support.md)
+- [Upgrade Compatibility](guides/upgrade-compatibility.md)
+- [Backup Verification](guides/backup-verification.md)
+- [Live MySQL Validation](guides/live-validation.md)
+- [Data Type Decoding](guides/data-type-decoding.md)
+- [Audit Logging](guides/audit-logging.md)
+- [MySQL Version Matrix](guides/version-matrix.md)
 
 # Reference
 

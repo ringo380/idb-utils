@@ -586,6 +586,7 @@ fn test_diff_subcommand_with_keyring() {
             verbose: false,
             byte_ranges: false,
             page: None,
+            version_aware: false,
             json: false,
             page_size: None,
             keyring: Some(keyring_file.path().to_str().unwrap().to_string()),
