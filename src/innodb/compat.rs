@@ -282,7 +282,7 @@ pub fn extract_tablespace_info(
     // Try to extract SDI for version info and row format
     let mut mysql_version_id = None;
     let mut row_format = None;
-    let mut has_instant_columns = false;
+    let has_instant_columns = false;
 
     if has_sdi {
         if let Ok(records) = crate::innodb::sdi::extract_sdi_from_pages(ts, &sdi_pages) {
@@ -295,12 +295,8 @@ pub fn extract_tablespace_info(
                         let rf_code = envelope.dd_object.row_format;
                         row_format =
                             Some(crate::innodb::schema::row_format_name(rf_code).to_string());
-                        // Check for instant columns: any column with a non-empty
-                        // default_option or generation_expression hints at schema
-                        // evolution features.
-                        has_instant_columns = envelope.dd_object.columns.iter().any(|c| {
-                            !c.default_option.is_empty() || !c.generation_expression.is_empty()
-                        });
+                        // Note: reliable instant ADD COLUMN detection requires
+                        // se_private_data from the DD, which is not exposed in SDI.
                     }
                 }
             }

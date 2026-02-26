@@ -80,7 +80,7 @@ struct TablespaceMapEntryJson {
 
 /// Display InnoDB system-level information from the data directory or a live instance.
 ///
-/// Operates in three mutually exclusive modes:
+/// Operates in four mutually exclusive modes:
 ///
 /// - **`--ibdata`**: Reads page 0 of `ibdata1` (the system tablespace) and
 ///   decodes its FIL header — checksum, page type, LSN, flush LSN, and space ID.
@@ -93,6 +93,9 @@ struct TablespaceMapEntryJson {
 ///   the latest redo log checkpoint LSN. If they match, the system is "in sync";
 ///   if not, the difference in bytes is reported. This is useful for diagnosing
 ///   whether InnoDB shut down cleanly or needs crash recovery.
+///
+/// - **`--tablespace-map`**: Scans all `.ibd` files in the data directory and
+///   builds a mapping of file paths to space IDs from page 0 of each file.
 ///
 /// - **`-D <database> -t <table>`** (requires the `mysql` feature): Connects to
 ///   a live MySQL instance and queries `INFORMATION_SCHEMA.INNODB_TABLES` and

@@ -752,8 +752,9 @@ fn decode_decimal(data: &[u8], precision: u64, scale: u64) -> FieldValue {
 
 /// Decode a TIME2 field (3 + fsp bytes).
 ///
-/// Packed as big-endian integer with XOR'd sign bit:
-/// - sign (1 bit): 1 = positive, 0 = negative (after XOR)
+/// Stored as big-endian 3-byte integer with offset encoding:
+/// stored_value = signed_value + 0x800000.
+/// The signed value packs:
 /// - hours (10 bits)
 /// - minutes (6 bits)
 /// - seconds (6 bits)
@@ -1199,6 +1200,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_decode_decimal_multi_group() {
+        // DECIMAL(20,4) value 1234567890.1234
+        // intg = 16: 1 full group (9 digits) + 7 leftover (4 bytes)
+        // frac = 4: 0 full groups + 4 leftover (2 bytes)
+        // Total: 4 + 4 + 2 = 10 bytes
+        //
+        // Integer part: 1234567890 (10 digits in 16-digit field)
+        //   leftover 7 digits: 0000001 → value 1 (stored in 4 bytes)
+        //   full group: 234567890 (stored in 4 bytes)
+        // Fractional part: .1234
+        //   leftover 4 digits: 1234 (stored in 2 bytes)
+        //
+        // Positive: XOR sign bit on first byte
+        // leftover value 1 → 4 bytes: [0x00, 0x00, 0x00, 0x01] → with sign: [0x80, 0x00, 0x00, 0x01]
+        // full group: 234567890 = 0x0DFB38D2 → [0x0D, 0xFB, 0x38, 0xD2]
+        // frac leftover: 1234 = 0x04D2 → [0x04, 0xD2]
+        let mut col = make_col(DD_TYPE_NEWDECIMAL, false);
+        col.numeric_precision = 20;
+        col.numeric_scale = 4;
+
+        let data = [0x80, 0x00, 0x00, 0x01, 0x0D, 0xFB, 0x38, 0xD2, 0x04, 0xD2];
+        match decode_field(&data, &col) {
+            FieldValue::Str(s) => assert_eq!(s, "1234567890.1234"),
+            other => panic!("Expected Str(1234567890.1234), got {:?}", other),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // TIME decoder tests
     // -----------------------------------------------------------------------
@@ -1206,14 +1235,12 @@ mod tests {
     #[test]
     fn test_decode_time_positive() {
         // TIME value 12:30:45
-        // Packed: sign=1, hours=12, minutes=30, seconds=45
-        // val = (1 << 23) | (12 << 12) | (30 << 6) | 45
-        //     = 0x800000 | 0x00C000 | 0x0780 | 0x2D
-        //     = 0x80C7AD
-        // Stored with XOR: 0x80C7AD ^ 0x800000 = 0x00C7AD
+        // Packed: hours=12, minutes=30, seconds=45
+        // signed_val = (12 << 12) | (30 << 6) | 45 = 0xC7AD = 51117
+        // Stored with offset: signed_val + 0x800000 = 0x80C7AD
         let mut col = make_col(DD_TYPE_TIME2, false);
         col.datetime_precision = 0;
-        let data = [0x80, 0xC7, 0xAD]; // 12:30:45 after XOR
+        let data = [0x80, 0xC7, 0xAD]; // 12:30:45 with offset encoding
         match decode_field(&data, &col) {
             FieldValue::Str(s) => assert_eq!(s, "12:30:45"),
             other => panic!("Expected Str(12:30:45), got {:?}", other),
@@ -1223,25 +1250,7 @@ mod tests {
     #[test]
     fn test_decode_time_zero() {
         // TIME value 00:00:00
-        // val = (1 << 23) | 0 = 0x800000
-        // Stored with XOR: 0x800000 ^ 0x800000 = 0x000000
-        // Wait, that's wrong. Let me reconsider.
-        // The XOR is on the high bit. If val=0x800000 (positive zero),
-        // stored = 0x800000 ^ 0x800000 = 0x000000... No.
-        // Actually: raw stored byte has high bit XOR'd.
-        // Positive zero: all time fields = 0, sign bit = 1
-        // Before XOR: 0x800000 (sign bit set = positive)
-        // After XOR for storage: 0x800000 ^ 0x800000 = 0x000000
-        // Hmm, that means reading back: val ^ 0x800000 = 0x000000 ^ 0x800000 = 0x800000
-        // Then: negative = (val & 0x800000 == 0) → false, hour=0, min=0, sec=0
-        // Actually wait, I need to re-examine. The stored format has XOR on sign bit.
-        // To store positive 00:00:00: val with sign=1 → bit 23 set → 0x800000
-        // XOR bit 23 for storage: 0x800000 ^ 0x800000 = 0x000000
-        // Hmm that gives all zeros. Let me verify against InnoDB source.
-        //
-        // From MySQL source: TIME2 uses the same approach as DATETIME2
-        // The sign bit is the MSB. After XOR, positive times have MSB set.
-        // So stored positive 00:00:00 = 0x800000
+        // signed_val = 0, stored = 0 + 0x800000 = 0x800000
         let mut col = make_col(DD_TYPE_TIME2, false);
         col.datetime_precision = 0;
         let data = [0x80, 0x00, 0x00]; // positive zero stored

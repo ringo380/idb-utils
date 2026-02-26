@@ -167,7 +167,7 @@ fn execute_mysql_validate(
     disk_entries: &[(std::path::PathBuf, u32)],
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    use crate::innodb::validate::{cross_validate, TablespaceMapping};
+    use crate::innodb::validate::{cross_validate, TablespaceMapping, ValidationReport};
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| IdbError::Io(format!("Failed to create async runtime: {}", e)))?;
@@ -184,7 +184,8 @@ fn execute_mysql_validate(
 
         let mut query = "SELECT NAME, SPACE, ROW_FORMAT FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE SPACE_TYPE = 'Single'".to_string();
         if let Some(ref db) = opts.database {
-            query.push_str(&format!(" AND NAME LIKE '{db}/%'"));
+            let escaped = db.replace('\'', "''");
+            query.push_str(&format!(" AND NAME LIKE '{}/%'", escaped));
         }
 
         use mysql_async::prelude::*;
@@ -285,7 +286,7 @@ fn output_validation_report(
     }
 
     if !report.passed {
-        return Err(IdbError::Argument("Validation failed".to_string()));
+        return Err(IdbError::Parse("Validation failed".to_string()));
     }
 
     Ok(())
@@ -362,9 +363,10 @@ fn execute_table_validate(opts: &ValidateOptions, writer: &mut dyn Write) -> Res
             .map_err(|e| IdbError::Io(format!("MySQL connection failed: {}", e)))?;
 
         // Query tablespace mapping
+        let escaped_name = table_name.replace('\'', "''");
         let ts_query = format!(
             "SELECT NAME, SPACE, ROW_FORMAT FROM INFORMATION_SCHEMA.INNODB_TABLESPACES WHERE NAME = '{}'",
-            table_name
+            escaped_name
         );
         let ts_rows: Vec<(String, u32, String)> =
             conn.query(&ts_query).await.unwrap_or_default();
@@ -390,7 +392,7 @@ fn execute_table_validate(opts: &ValidateOptions, writer: &mut dyn Write) -> Res
              FROM INFORMATION_SCHEMA.INNODB_INDEXES I \
              JOIN INFORMATION_SCHEMA.INNODB_TABLES T ON I.TABLE_ID = T.TABLE_ID \
              WHERE T.NAME = '{}'",
-            table_name
+            escaped_name
         );
         let idx_rows: Vec<(String, u64, u32, u64)> =
             conn.query(&idx_query).await.unwrap_or_default();

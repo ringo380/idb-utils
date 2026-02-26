@@ -128,7 +128,10 @@ fn extract_mysql_version(ts: &mut Tablespace) -> Option<String> {
             continue;
         }
         // Parse the JSON to extract mysqld_version_id or dd_object.mysql_version_id
-        let v: serde_json::Value = serde_json::from_str(&rec.data).ok()?;
+        let v: serde_json::Value = match serde_json::from_str(&rec.data) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
         // Prefer the envelope-level mysqld_version_id
         if let Some(id) = v.get("mysqld_version_id").and_then(|v| v.as_u64()) {
             if id > 0 {

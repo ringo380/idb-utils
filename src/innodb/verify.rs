@@ -115,6 +115,7 @@ pub struct VerifyReport {
     /// Whether all checks passed.
     pub passed: bool,
     /// Individual findings (issues found).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<VerifyFinding>,
     /// Per-check summaries.
     pub summary: Vec<CheckSummary>,

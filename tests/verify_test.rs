@@ -293,7 +293,8 @@ fn test_verify_json_output_valid_tablespace() {
     assert_eq!(json["total_pages"], 3);
     assert_eq!(json["page_size"], 16384);
     assert_eq!(json["passed"], true);
-    assert!(json["findings"].as_array().unwrap().is_empty());
+    // findings is omitted from JSON when empty (skip_serializing_if)
+    assert!(json.get("findings").is_none());
     assert!(!json["summary"].as_array().unwrap().is_empty());
 
     // Check that all summary entries have the expected fields
