@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-02-26
+
+### Added
+
+- **`inno compat` subcommand** — MySQL version compatibility checking for InnoDB tablespaces. Analyzes page size, row format, SDI presence, encryption, vendor compatibility, compression, and instant columns against a target MySQL version. Reports errors, warnings, and info-level findings. `--scan <datadir>` mode checks all tablespaces in a directory in parallel. (Closes #97, #98)
+- **`inno verify` subcommand** — Structural integrity validation for tablespace files. Six checks: page number sequence, space ID consistency, LSN monotonicity, B+Tree level consistency, page chain bounds, and trailer LSN match. `--redo <path>` verifies redo log continuity against tablespace LSNs. `--chain <files>` verifies backup chain ordering by LSN with gap detection. (Closes #100, #101, #102)
+- **`inno validate` subcommand** — Live MySQL cross-validation (requires `--features mysql`). Compares on-disk tablespace files against `INFORMATION_SCHEMA.INNODB_TABLESPACES` to detect orphan files, missing tablespaces, and space ID mismatches. `--table <db.table>` deep mode verifies index root pages and page types against MySQL metadata. (Closes #103, #104)
+- **`inno diff --version-aware`** — Annotates diff output with MySQL version information extracted from SDI metadata on both files. (Closes #99)
+- **`inno info --tablespace-map`** — Scans data directory and builds a mapping of file paths to space IDs from page 0 of each `.ibd` file. (Closes #105)
+- **Comprehensive data type decoding** — Added decoders for DECIMAL (packed BCD), TIME2 (offset-encoded packed bit-field), BLOB/TEXT (off-page pointer detection), ENUM (1-2 byte index into element list), SET (bitmask), JSON (length-prefixed binary), and GEOMETRY (WKB) in `field_decode.rs`. (Closes #107)
+- **WASM bindings** — `verify_tablespace()` and `check_compatibility()` functions for the web UI. (Closes #108)
+- **MySQL version matrix CI** — GitHub Actions workflow testing against MySQL 5.7, 8.0, 8.4, and 9.0 Docker containers. Runs checksum, parse, pages, SDI, verify, and compat against real tablespace files from each version. (Closes #110)
+- **Documentation** — 6 new guides (upgrade compatibility, backup verification, live validation, data type decoding, audit logging, version matrix) and 10 CLI reference pages for mdBook site. (Closes #109)
+- 100+ new unit and integration tests across compat, verify, validate, field_decode, and diff
+
+### Changed
+
+- `inno info` doc comment updated to document all four modes including `--tablespace-map`
+- `extract_mysql_version()` in diff now continues to next SDI record on parse failure instead of aborting early
+
+### Fixed
+
+- Incorrect `has_instant_columns` heuristic in compat that falsely flagged tables with standard DEFAULT values
+- TIME2 decoder documentation and test comments incorrectly described XOR encoding instead of offset encoding
+
 ## [3.2.0] - 2026-02-25
 
 ### Added
