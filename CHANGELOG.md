@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-02-27
+
 ### Added
 
 - **Web UI Health tab** — Interactive B+Tree health dashboard with sortable per-index metrics table (fill factor, fragmentation, garbage ratio, depth, records) and index name resolution from raw SDI. Click a row to filter the Pages tab by index ID.
