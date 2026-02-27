@@ -20,7 +20,7 @@ import { createHealth } from './components/health.js';
 import { createVerify } from './components/verify.js';
 import { createCompat } from './components/compat.js';
 import { downloadJson } from './utils/export.js';
-import { initNavigation } from './utils/navigation.js';
+import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
 import './style.css';
 
@@ -347,10 +347,9 @@ function renderTab() {
           diffResult = JSON.parse(w.diff_tablespaces(diffData.data1, diffData.data2));
         } catch { /* diff parsing optional */ }
       }
-      createHeatmap(content, data, (_pageNum) => {
-        // Navigate to Pages tab with selected page
-        const pagesIndex = tabOpts().showRedoLog ? 0 : 1;
-        switchTab(pagesIndex);
+      createHeatmap(content, data, (pageNum) => {
+        requestPage(pageNum);
+        navigateToTab('pages');
       }, diffResult);
       break;
     }

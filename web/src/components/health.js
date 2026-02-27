@@ -165,30 +165,34 @@ export function createHealth(container, fileData) {
         btreeContainer.innerHTML = `<div class="p-4 text-red-400 text-sm">Error loading B+Tree: ${esc(String(e))}</div>`;
       }
     }
-    const shown = btreeContainer.classList.toggle('hidden');
-    btreeBtn.textContent = shown ? 'Show B+Tree' : 'Hide B+Tree';
+    const isHidden = btreeContainer.classList.toggle('hidden');
+    btreeBtn.textContent = isHidden ? 'Show B+Tree' : 'Hide B+Tree';
   });
 }
 
 /**
- * Build a map of index_id -> index name by joining health index IDs with
- * schema SDI se_private_data id= values.
+ * Build a map of index_id -> index name by parsing raw SDI JSON.
+ * The extract_schema output (TableSchema/IndexDef) does not include
+ * se_private_data, so we use extract_sdi which returns the raw SDI records
+ * containing dd_object.indexes with se_private_data "id=N;root=M;..." strings.
  */
 function buildIndexNameMap(wasm, fileData) {
   const map = new Map();
   try {
-    const raw = wasm.extract_schema(fileData);
-    const schema = JSON.parse(raw);
-    if (schema && schema.indexes) {
-      for (const idx of schema.indexes) {
+    const raw = wasm.extract_sdi(fileData);
+    const records = JSON.parse(raw);
+    for (const rec of records) {
+      const dd = rec.dd_object;
+      if (!dd || !dd.indexes) continue;
+      for (const idx of dd.indexes) {
         const match = (idx.se_private_data || '').match(/id=(\d+)/);
-        if (match) {
+        if (match && idx.name) {
           map.set(parseInt(match[1], 10), idx.name);
         }
       }
     }
   } catch {
-    // Schema extraction is optional — may not be available for pre-8.0 files
+    // SDI extraction is optional — may not be available for pre-8.0 files
   }
   return map;
 }

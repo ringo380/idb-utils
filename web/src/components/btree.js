@@ -7,10 +7,9 @@ const NODE_H = 50;
 const GAP_X = 10;
 const GAP_Y = 60;
 const BORDER_R = 4;
-const PAGE_SIZE = 16384;
-const FIL_HEADER_SIZE = 38;
+const DEFAULT_PAGE_SIZE = 16384;
+const PAGE_DATA_OFFSET = 94; // FIL header (38) + INDEX header (36) + FSEG headers (20)
 const FIL_TRAILER_SIZE = 8;
-const PAGE_DATA_SPACE = PAGE_SIZE - FIL_HEADER_SIZE - FIL_TRAILER_SIZE;
 const NULL_PAGE = 4294967295; // 0xFFFFFFFF
 
 /**
@@ -108,10 +107,19 @@ function orderLeafPages(leaves) {
 
 /**
  * Compute fill factor for an INDEX page.
+ * Matches the canonical formula from src/innodb/health.rs:
+ *   usable = page_size - PAGE_DATA_OFFSET - FIL_TRAILER_SIZE
+ *   used   = heap_top - PAGE_DATA_OFFSET - garbage
  */
 function fillFactor(p) {
-  const garbage = p.index_header ? p.index_header.garbage : 0;
-  return Math.max(0, Math.min(1, 1 - garbage / PAGE_DATA_SPACE));
+  if (!p.index_header) return 0;
+  const pageSize = DEFAULT_PAGE_SIZE;
+  const usable = pageSize - PAGE_DATA_OFFSET - FIL_TRAILER_SIZE;
+  if (usable <= 0) return 0;
+  const heapTop = p.index_header.heap_top || 0;
+  const garbage = p.index_header.garbage || 0;
+  const used = heapTop - PAGE_DATA_OFFSET - garbage;
+  return Math.max(0, Math.min(1, used / usable));
 }
 
 /**

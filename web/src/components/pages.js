@@ -16,6 +16,15 @@ export function createPages(container, fileData) {
     return;
   }
 
+  // Build page_number -> analysis lookup for O(1) access by page number.
+  // This handles gaps from corrupt/unparseable pages where array indices
+  // would not match page numbers.
+  const pageMap = new Map();
+  for (const p of analysisAll) pageMap.set(p.page_number, p);
+  const maxPageNum = analysisAll.length > 0
+    ? Math.max(...analysisAll.map((p) => p.page_number))
+    : 0;
+
   // Check for cross-tab navigation requests
   const requestedPage = consumeRequestedPage();
   const indexFilter = consumeIndexFilter();
@@ -38,9 +47,9 @@ export function createPages(container, fileData) {
         <span id="pages-export"></span>
         <div class="flex items-center gap-2">
           <label class="text-sm text-gray-500">Page:</label>
-          <input id="page-select" type="number" min="0" max="${analysisAll.length - 1}" value="0"
+          <input id="page-select" type="number" min="0" max="${maxPageNum}" value="0"
             class="w-24 px-2 py-1 bg-surface-2 border border-gray-700 rounded text-sm text-gray-200 focus:border-innodb-cyan focus:outline-none" />
-          <span class="text-xs text-gray-600">of ${analysisAll.length - 1}</span>
+          <span class="text-xs text-gray-600">of ${maxPageNum}</span>
         </div>
       </div>
       <div id="page-detail"></div>
@@ -88,8 +97,8 @@ export function createPages(container, fileData) {
   const decodedCache = {};
 
   function showPage(num) {
-    if (num < 0 || num >= analysisAll.length) return;
-    const p = analysisAll[num];
+    const p = pageMap.get(num);
+    if (!p) return;
     detail.innerHTML = renderDetail(p);
 
     // Wire up "View Records" button for INDEX pages (raw records)
