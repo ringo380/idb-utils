@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Web UI Health tab** — Interactive B+Tree health dashboard with sortable per-index metrics table (fill factor, fragmentation, garbage ratio, depth, records) and index name resolution from raw SDI. Click a row to filter the Pages tab by index ID.
+- **Web UI Verify tab** — Structural verification results with pass/fail banner, paginated findings list (50 per page), and click-to-navigate to specific pages.
+- **Web UI Compat tab** — Upgrade compatibility checker with auto-detected source version from SDI `mysqld_version_id`, version selector dropdown, and categorized findings (errors/warnings/info).
+- **Web UI B+Tree canvas visualization** — Interactive canvas-based B+Tree rendering in the Health tab. Zoom/pan support, fill-factor color coding (green/yellow/red matching `health.rs` formula), leaf sibling link arrows, index selector for multi-index tablespaces, and click-to-navigate to page detail.
+- **Web UI decoded records** — "Decoded Records" button on INDEX pages in the Pages tab. Renders typed column values in a table with CSV download, JSON download, and SQL INSERT copy-to-clipboard.
+- **Web UI heatmap diff overlay** — "Diff Status" color mode when two files are loaded, showing identical/modified/only-in-file-1/only-in-file-2 pages with intensity scaled by bytes changed. Diff legend with counts from WASM `diff_tablespaces` output.
+- **Web UI LSN timeline** — Scatter plot sub-view in the heatmap showing page LSN values over page numbers. Click a dot to navigate to that page.
+- **Web UI cross-tab navigation** — Pub/sub navigation system (`navigation.js`) enabling click-to-navigate between tabs (e.g., heatmap cell → Pages tab, health row → Pages tab with index filter, B+Tree node → page detail).
+- **Web UI keyboard navigation** — Letter-key shortcuts for new tabs (H=Health, V=Verify, C=Compat) and improved tab switching via `keyboard.js`.
+- **WASM `export_records()` binding** — Decodes INDEX page records using SDI metadata and returns typed column values as JSON. Extracted export logic from `src/cli/export.rs` into reusable `src/innodb/export.rs` library module.
+- New `src/innodb/export.rs` module with `extract_column_layout()`, `extract_table_name()`, `decode_page_records()`
+- New `web/src/utils/navigation.js` cross-tab navigation module
+- New `web/src/utils/health-ui.js` shared health rendering helpers
+- New `web/src/components/health.js`, `verify.js`, `compat.js`, `btree.js` components
+
 ## [4.0.0] - 2026-02-26
 
 ### Added
