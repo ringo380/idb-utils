@@ -1176,3 +1176,148 @@ pub fn check_compatibility(data: &[u8], target_version: &str) -> Result<String, 
     let report = crate::innodb::compat::build_compat_report(&info, &target, "upload.ibd");
     to_json(&report)
 }
+
+// ---------------------------------------------------------------------------
+// export_records — mirrors `inno export`
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ExportResult {
+    table_name: String,
+    columns: Vec<String>,
+    rows: Vec<Vec<serde_json::Value>>,
+    total_rows: usize,
+}
+
+/// Exports decoded records from clustered index leaf pages as JSON.
+///
+/// Takes raw `.ibd` file bytes and returns a JSON string containing the table
+/// name, column names, and decoded row data. Uses SDI metadata for typed field
+/// decoding.
+///
+/// # Arguments
+///
+/// * `data` - Raw `.ibd` file bytes.
+/// * `page_num` - Page number to export from, or `-1` for all leaf pages.
+/// * `where_delete_mark` - If `true`, only include delete-marked records.
+/// * `system_columns` - If `true`, include system columns (DB_TRX_ID, DB_ROLL_PTR).
+///
+/// Returns a JSON string: `{ "table_name": "...", "columns": [...],
+/// "rows": [[val, ...], ...], "total_rows": N }`.
+///
+/// Returns `"null"` if no SDI metadata is found (pre-8.0 tablespaces).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn export_records(
+    data: &[u8],
+    page_num: i64,
+    where_delete_mark: bool,
+    system_columns: bool,
+) -> Result<String, JsValue> {
+    use crate::innodb::export::{decode_page_records, extract_column_layout, extract_table_name};
+
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+
+    // Extract table name
+    let table_name = extract_table_name(&mut ts).unwrap_or_else(|| "unknown".to_string());
+
+    // Extract column layout and clustered index ID
+    let (columns, clustered_index_id) = match extract_column_layout(&mut ts) {
+        Some(pair) => pair,
+        None => return Ok("null".to_string()),
+    };
+
+    // Build column name list (respecting system_columns filter)
+    let col_names: Vec<String> = columns
+        .iter()
+        .filter(|c| system_columns || !c.is_system_column)
+        .map(|c| c.name.clone())
+        .collect();
+
+    // Collect leaf INDEX pages matching the clustered index
+    let mut pages_data: Vec<(u64, Vec<u8>)> = Vec::new();
+    let target_page: Option<u64> = if page_num < 0 {
+        None
+    } else {
+        Some(page_num as u64)
+    };
+
+    ts.for_each_page(|pn, pdata| {
+        if let Some(specific) = target_page {
+            if pn != specific {
+                return Ok(());
+            }
+        }
+        let fil = match FilHeader::parse(pdata) {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+        if fil.page_type != PageType::Index {
+            return Ok(());
+        }
+        let idx = match IndexHeader::parse(pdata) {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+        if !idx.is_leaf() {
+            return Ok(());
+        }
+        if idx.index_id != clustered_index_id {
+            return Ok(());
+        }
+        pages_data.push((pn, pdata.to_vec()));
+        Ok(())
+    })
+    .map_err(to_js_err)?;
+
+    // Decode records from each page
+    let mut all_rows: Vec<Vec<serde_json::Value>> = Vec::new();
+
+    for (_, page_data) in &pages_data {
+        let rows = decode_page_records(
+            page_data,
+            &columns,
+            where_delete_mark,
+            system_columns,
+            page_size,
+        );
+        for row in rows {
+            let json_row: Vec<serde_json::Value> = row
+                .into_iter()
+                .map(|(_, val)| match val {
+                    crate::innodb::field_decode::FieldValue::Null => serde_json::Value::Null,
+                    crate::innodb::field_decode::FieldValue::Int(n) => {
+                        serde_json::Value::Number(n.into())
+                    }
+                    crate::innodb::field_decode::FieldValue::Uint(n) => {
+                        serde_json::Value::Number(n.into())
+                    }
+                    crate::innodb::field_decode::FieldValue::Float(f) => {
+                        serde_json::Number::from_f64(f as f64)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null)
+                    }
+                    crate::innodb::field_decode::FieldValue::Double(d) => {
+                        serde_json::Number::from_f64(d)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null)
+                    }
+                    crate::innodb::field_decode::FieldValue::Str(s) => serde_json::Value::String(s),
+                    crate::innodb::field_decode::FieldValue::Hex(h) => serde_json::Value::String(h),
+                })
+                .collect();
+            all_rows.push(json_row);
+        }
+    }
+
+    let total = all_rows.len();
+    let result = ExportResult {
+        table_name,
+        columns: col_names,
+        rows: all_rows,
+        total_rows: total,
+    };
+    to_json(&result)
+}

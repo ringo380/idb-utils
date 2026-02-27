@@ -4,7 +4,7 @@ import { esc } from './utils/html.js';
 import { initTheme, createThemeToggle } from './utils/theme.js';
 import { initKeyboard } from './utils/keyboard.js';
 import { createDropzone } from './components/dropzone.js';
-import { createTabs, setActiveTab, getTabId, getTabCount } from './components/tabs.js';
+import { createTabs, setActiveTab, getTabId, getTabCount, getVisibleTabKeys, getTabIndexByKey, getTabIndexById } from './components/tabs.js';
 import { createOverview } from './components/overview.js';
 import { createPages } from './components/pages.js';
 import { createChecksums } from './components/checksums.js';
@@ -16,7 +16,11 @@ import { createRecovery } from './components/recovery.js';
 import { createRedoLog } from './components/redolog.js';
 import { createHeatmap } from './components/heatmap.js';
 import { createAudit } from './components/audit.js';
+import { createHealth } from './components/health.js';
+import { createVerify } from './components/verify.js';
+import { createCompat } from './components/compat.js';
 import { downloadJson } from './utils/export.js';
+import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
 import './style.css';
 
@@ -47,7 +51,12 @@ initTheme();
   showDropzone();
 })();
 
-initKeyboard(switchTab);
+initKeyboard(
+  switchTab,
+  () => getVisibleTabKeys(tabOpts()),
+  (key) => getTabIndexByKey(key, tabOpts()),
+);
+initNavigation(switchTab, (id) => getTabIndexById(id, tabOpts()));
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -330,13 +339,20 @@ function renderTab() {
     case 'recovery':
       createRecovery(content, data);
       break;
-    case 'heatmap':
-      createHeatmap(content, data, (_pageNum) => {
-        // Navigate to Pages tab with selected page
-        const pagesIndex = tabOpts().showRedoLog ? 0 : 1;
-        switchTab(pagesIndex);
-      });
+    case 'heatmap': {
+      let diffResult = null;
+      if (diffData) {
+        try {
+          const w = getWasm();
+          diffResult = JSON.parse(w.diff_tablespaces(diffData.data1, diffData.data2));
+        } catch { /* diff parsing optional */ }
+      }
+      createHeatmap(content, data, (pageNum) => {
+        requestPage(pageNum);
+        navigateToTab('pages');
+      }, diffResult);
       break;
+    }
     case 'diff':
       if (diffData) {
         createDiff(content, diffData.name1, diffData.data1, diffData.name2, diffData.data2);
@@ -350,6 +366,15 @@ function renderTab() {
       } else {
         content.innerHTML = `<div class="p-6 text-gray-500">Drop 3+ files to run an audit.</div>`;
       }
+      break;
+    case 'health':
+      createHealth(content, data);
+      break;
+    case 'verify':
+      createVerify(content, data);
+      break;
+    case 'compat':
+      createCompat(content, data);
       break;
     case 'redolog':
       createRedoLog(content, fileData);
@@ -367,6 +392,8 @@ function exportAll() {
   try { result.sdi = JSON.parse(wasm.extract_sdi(data)); } catch { /* skip */ }
   try { const s = wasm.extract_schema(data); if (s !== 'null') result.schema = JSON.parse(s); } catch { /* skip */ }
   try { result.recovery = JSON.parse(wasm.assess_recovery(data)); } catch { /* skip */ }
+  try { result.health = JSON.parse(wasm.analyze_health(data)); } catch { /* skip */ }
+  try { result.verify = JSON.parse(wasm.verify_tablespace(data)); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
   downloadJson(result, `${baseName}_analysis`);

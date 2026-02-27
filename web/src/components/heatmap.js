@@ -1,6 +1,7 @@
 // Page type heatmap — canvas-based visualization of page types
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
+import { requestPage, navigateToTab } from '../utils/navigation.js';
 
 const PAGE_COLORS = {
   'INDEX': '#3b82f6',
@@ -28,13 +29,13 @@ const PAGE_COLORS = {
 };
 const DEFAULT_COLOR = '#6b7280';
 
-const COLOR_MODES = [
+const BASE_COLOR_MODES = [
   { id: 'type', label: 'Page Type' },
   { id: 'lsn', label: 'LSN Age' },
   { id: 'checksum', label: 'Checksum Status' },
 ];
 
-export function createHeatmap(container, fileData, onPageClick) {
+export function createHeatmap(container, fileData, onPageClick, diffResult = null) {
   const wasm = getWasm();
   let parsed;
   try {
@@ -50,6 +51,24 @@ export function createHeatmap(container, fileData, onPageClick) {
     container.innerHTML = `<div class="p-6 text-gray-500">No pages to display.</div>`;
     return;
   }
+
+  // Build color modes list — include diff when diff data is available
+  const COLOR_MODES = [...BASE_COLOR_MODES];
+  if (diffResult) {
+    COLOR_MODES.push({ id: 'diff', label: 'Diff Status' });
+  }
+
+  // Build diff lookup map for O(1) access — modified_pages only contains pages that differ
+  let diffMap = null;
+  if (diffResult && diffResult.modified_pages) {
+    diffMap = new Map();
+    for (const entry of diffResult.modified_pages) {
+      diffMap.set(entry.page_number, entry);
+    }
+  }
+
+  // Page size for intensity scaling (default 16384)
+  const pageSize = parsed.page_size || 16384;
 
   // Build type→color map and count
   const typeCounts = {};
@@ -89,7 +108,12 @@ export function createHeatmap(container, fileData, onPageClick) {
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         ${N > 1000 ? '<button id="heatmap-reset" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Reset Zoom</button>' : ''}
+        <button id="lsn-timeline-toggle" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">LSN Timeline</button>
         <span class="text-xs text-gray-600">Click a cell to inspect the page</span>
+      </div>
+      <div id="lsn-timeline-wrap" class="hidden relative bg-surface-1 rounded-lg overflow-hidden" style="height:200px;">
+        <canvas id="lsn-timeline-canvas"></canvas>
+        <div id="lsn-timeline-tooltip" class="absolute hidden pointer-events-none bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 z-10"></div>
       </div>
       <div id="heatmap-legend" class="flex flex-wrap gap-3 text-xs"></div>
     </div>
@@ -141,7 +165,27 @@ export function createHeatmap(container, fileData, onPageClick) {
     return entry.status === 'valid' ? '#10b981' : '#ef4444';
   }
 
+  function diffColor(pageNum) {
+    if (!diffResult) return '#1e293b';
+    // Pages beyond one file's range
+    const pc1 = diffResult.page_count_1 || 0;
+    const pc2 = diffResult.page_count_2 || 0;
+    if (pageNum >= pc2 && pageNum < pc1) return '#f97316'; // only in file 1
+    if (pageNum >= pc1 && pageNum < pc2) return '#8b5cf6'; // only in file 2
+    // Modified pages are in the diffMap; absent pages are identical
+    if (!diffMap) return '#10b981';
+    const entry = diffMap.get(pageNum);
+    if (!entry) return '#10b981'; // identical
+    // Modified — intensity by bytes changed
+    const intensity = Math.min(1, (entry.bytes_changed || 0) / pageSize);
+    const r = Math.round(127 + intensity * 112); // 127..239
+    const g = Math.round(40 + (1 - intensity) * 28); // 40..68
+    const b = Math.round(40 + (1 - intensity) * 28); // 40..68
+    return `rgb(${r},${g},${b})`;
+  }
+
   function getColor(p) {
+    if (colorMode === 'diff') return diffColor(p.page_number);
     if (colorMode === 'lsn') return lsnColor(p.lsn);
     if (colorMode === 'checksum') return checksumColor(p.page_number);
     return PAGE_COLORS[p.page_type_name] || DEFAULT_COLOR;
@@ -238,6 +282,28 @@ export function createHeatmap(container, fileData, onPageClick) {
           <span class="inline-block w-3 h-3 rounded-sm" style="background:#1e293b"></span>
           <span class="text-gray-400">Empty</span>
         </div>`;
+    } else if (colorMode === 'diff') {
+      legendEl.innerHTML = `
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#10b981"></span>
+          <span class="text-gray-400">Identical</span>
+          <span class="text-gray-600">(${diffResult.identical || 0})</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:rgb(239,68,68)"></span>
+          <span class="text-gray-400">Modified</span>
+          <span class="text-gray-600">(${diffResult.modified || 0})</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#f97316"></span>
+          <span class="text-gray-400">Only in file 1</span>
+          <span class="text-gray-600">(${diffResult.only_in_first || 0})</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="inline-block w-3 h-3 rounded-sm" style="background:#8b5cf6"></span>
+          <span class="text-gray-400">Only in file 2</span>
+          <span class="text-gray-600">(${diffResult.only_in_second || 0})</span>
+        </div>`;
     }
   }
 
@@ -333,7 +399,166 @@ export function createHeatmap(container, fileData, onPageClick) {
     }
   }
 
-  // Initial render + legend
+  // ── LSN Timeline ──────────────────────────────────────────────────────
+  const tlToggle = container.querySelector('#lsn-timeline-toggle');
+  const tlWrap = container.querySelector('#lsn-timeline-wrap');
+  const tlCanvas = container.querySelector('#lsn-timeline-canvas');
+  const tlTooltip = container.querySelector('#lsn-timeline-tooltip');
+  const tlCtx = tlCanvas.getContext('2d');
+  let tlVisible = false;
+
+  // Filter out pages with LSN === 0 for the scatter plot
+  const tlPages = pages.filter(p => p.lsn > 0);
+
+  // Compute LSN range with 5% padding
+  let tlMinLsn = Infinity, tlMaxLsn = 0;
+  for (const p of tlPages) {
+    if (p.lsn < tlMinLsn) tlMinLsn = p.lsn;
+    if (p.lsn > tlMaxLsn) tlMaxLsn = p.lsn;
+  }
+  const tlLsnSpan = tlMaxLsn - tlMinLsn || 1;
+  const tlPadding = tlLsnSpan * 0.05;
+  const tlLsnMin = tlMinLsn - tlPadding;
+  const tlLsnMax = tlMaxLsn + tlPadding;
+  const tlLsnRange = tlLsnMax - tlLsnMin || 1;
+
+  // Layout constants for timeline
+  const TL_LEFT_MARGIN = 80;
+  const TL_RIGHT_MARGIN = 16;
+  const TL_TOP_MARGIN = 12;
+  const TL_BOTTOM_MARGIN = 24;
+
+  function renderTimeline() {
+    if (!tlVisible) return;
+    const w = tlWrap.clientWidth;
+    const h = tlWrap.clientHeight;
+    tlCanvas.width = w;
+    tlCanvas.height = h;
+
+    const plotW = w - TL_LEFT_MARGIN - TL_RIGHT_MARGIN;
+    const plotH = h - TL_TOP_MARGIN - TL_BOTTOM_MARGIN;
+    if (plotW <= 0 || plotH <= 0) return;
+
+    // Background
+    tlCtx.fillStyle = '#0f172a';
+    tlCtx.fillRect(0, 0, w, h);
+
+    // Grid lines
+    tlCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+    tlCtx.lineWidth = 1;
+    const numTicks = 4;
+    for (let i = 0; i <= numTicks; i++) {
+      const y = TL_TOP_MARGIN + (plotH * i) / numTicks;
+      tlCtx.beginPath();
+      tlCtx.moveTo(TL_LEFT_MARGIN, y);
+      tlCtx.lineTo(w - TL_RIGHT_MARGIN, y);
+      tlCtx.stroke();
+    }
+
+    // Y axis labels (LSN values)
+    tlCtx.fillStyle = '#9ca3af';
+    tlCtx.font = '10px monospace';
+    tlCtx.textAlign = 'right';
+    tlCtx.textBaseline = 'middle';
+    for (let i = 0; i <= numTicks; i++) {
+      const y = TL_TOP_MARGIN + (plotH * i) / numTicks;
+      // i=0 is top (max LSN), i=numTicks is bottom (min LSN)
+      const lsnVal = tlLsnMax - ((tlLsnMax - tlLsnMin) * i) / numTicks;
+      tlCtx.fillText(formatLsnLabel(lsnVal), TL_LEFT_MARGIN - 6, y);
+    }
+
+    // X axis label
+    tlCtx.fillStyle = '#6b7280';
+    tlCtx.font = '10px sans-serif';
+    tlCtx.textAlign = 'center';
+    tlCtx.textBaseline = 'top';
+    tlCtx.fillText('Page Number', TL_LEFT_MARGIN + plotW / 2, h - 12);
+
+    // Plot dots
+    const maxPage = N - 1 || 1;
+    for (const p of tlPages) {
+      const x = TL_LEFT_MARGIN + (p.page_number / maxPage) * plotW;
+      const y = TL_TOP_MARGIN + plotH - ((p.lsn - tlLsnMin) / tlLsnRange) * plotH;
+      tlCtx.fillStyle = PAGE_COLORS[p.page_type_name] || DEFAULT_COLOR;
+      tlCtx.beginPath();
+      tlCtx.arc(x, y, 2, 0, Math.PI * 2);
+      tlCtx.fill();
+    }
+  }
+
+  function formatLsnLabel(val) {
+    if (val >= 1e9) return (val / 1e9).toFixed(1) + 'G';
+    if (val >= 1e6) return (val / 1e6).toFixed(1) + 'M';
+    if (val >= 1e3) return (val / 1e3).toFixed(1) + 'K';
+    return Math.round(val).toString();
+  }
+
+  function getTimelinePageAt(mx, my) {
+    const w = tlWrap.clientWidth;
+    const h = tlWrap.clientHeight;
+    const plotW = w - TL_LEFT_MARGIN - TL_RIGHT_MARGIN;
+    const plotH = h - TL_TOP_MARGIN - TL_BOTTOM_MARGIN;
+    if (plotW <= 0 || plotH <= 0) return null;
+
+    const maxPage = N - 1 || 1;
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const p of tlPages) {
+      const x = TL_LEFT_MARGIN + (p.page_number / maxPage) * plotW;
+      const y = TL_TOP_MARGIN + plotH - ((p.lsn - tlLsnMin) / tlLsnRange) * plotH;
+      const dist = Math.sqrt((mx - x) ** 2 + (my - y) ** 2);
+      if (dist < closestDist && dist < 10) {
+        closestDist = dist;
+        closest = p;
+      }
+    }
+    return closest;
+  }
+
+  tlToggle.addEventListener('click', () => {
+    tlVisible = !tlVisible;
+    tlWrap.classList.toggle('hidden', !tlVisible);
+    tlToggle.textContent = tlVisible ? 'Hide LSN Timeline' : 'LSN Timeline';
+    if (tlVisible) requestAnimationFrame(renderTimeline);
+  });
+
+  tlCanvas.addEventListener('mousemove', (e) => {
+    const rect = tlCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const p = getTimelinePageAt(mx, my);
+    if (p) {
+      tlTooltip.classList.remove('hidden');
+      tlTooltip.innerHTML = `<strong>Page ${esc(String(p.page_number))}</strong><br>${esc(p.page_type_name)}<br>LSN: ${esc(String(p.lsn))}`;
+      tlTooltip.style.left = `${Math.min(mx + 12, tlWrap.clientWidth - 160)}px`;
+      tlTooltip.style.top = `${Math.min(my + 12, tlWrap.clientHeight - 50)}px`;
+    } else {
+      tlTooltip.classList.add('hidden');
+    }
+  });
+
+  tlCanvas.addEventListener('mouseleave', () => {
+    tlTooltip.classList.add('hidden');
+  });
+
+  tlCanvas.addEventListener('click', (e) => {
+    const rect = tlCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const p = getTimelinePageAt(mx, my);
+    if (p) {
+      requestPage(p.page_number);
+      navigateToTab('pages');
+    }
+  });
+
+  const tlRo = new ResizeObserver(() => {
+    if (tlVisible) requestAnimationFrame(renderTimeline);
+  });
+  tlRo.observe(tlWrap);
+
+  // ── Initial render + legend ───────────────────────────────────────────
   updateLegend();
   requestAnimationFrame(render);
   const ro = new ResizeObserver(() => requestAnimationFrame(render));
