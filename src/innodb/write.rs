@@ -322,7 +322,6 @@ mod tests {
 
     #[test]
     fn test_fix_page_checksum_crc32c() {
-        let ps = PS as usize;
         let mut page = make_test_page(1, 42, 5000);
 
         // Corrupt checksum
