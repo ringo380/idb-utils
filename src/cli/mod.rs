@@ -55,6 +55,7 @@
 
 pub mod app;
 pub mod audit;
+pub mod binlog;
 pub mod checksum;
 pub mod compat;
 pub mod corrupt;
@@ -74,6 +75,7 @@ pub mod schema;
 pub mod sdi;
 pub mod transplant;
 pub mod tsid;
+pub mod undo;
 pub mod validate;
 pub mod verify;
 pub mod watch;

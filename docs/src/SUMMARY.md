@@ -30,6 +30,8 @@
 - [compat](cli/compat.md)
 - [verify](cli/verify.md)
 - [validate](cli/validate.md)
+- [undo](cli/undo.md)
+- [binlog](cli/binlog.md)
 
 # Library API
 
@@ -57,6 +59,10 @@
 - [Data Type Decoding](guides/data-type-decoding.md)
 - [Audit Logging](guides/audit-logging.md)
 - [MySQL Version Matrix](guides/version-matrix.md)
+- [Undo Log Analysis](guides/undo-log-analysis.md)
+- [LOB Chain Traversal](guides/lob-chain-traversal.md)
+- [Binary Log Parsing](guides/binlog-parsing.md)
+- [Spatial & FTS Indexes](guides/spatial-fts-indexes.md)
 
 # Reference
 

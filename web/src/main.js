@@ -19,6 +19,9 @@ import { createAudit } from './components/audit.js';
 import { createHealth } from './components/health.js';
 import { createVerify } from './components/verify.js';
 import { createCompat } from './components/compat.js';
+import { createUndo } from './components/undo.js';
+import { createBinlog } from './components/binlog.js';
+import { createSpatial } from './components/spatial.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
@@ -31,6 +34,7 @@ let fileName = null;
 let diffData = null; // { name1, data1, name2, data2 }
 let pageCount = 0;
 let isRedoLog = false;
+let isBinlog = false;
 let decryptedData = null;
 let encryptionInfo = null;
 let auditFiles = null;
@@ -61,7 +65,7 @@ initNavigation(switchTab, (id) => getTabIndexById(id, tabOpts()));
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function tabOpts() {
-  return { showDiff: !!diffData, showRedoLog: isRedoLog, showAudit: !!auditFiles };
+  return { showDiff: !!diffData, showRedoLog: isRedoLog, showBinlog: isBinlog, showAudit: !!auditFiles };
 }
 
 /** Returns the effective data for analysis (decrypted if available). */
@@ -108,11 +112,21 @@ function onFile(name, data) {
   fileData = data;
   diffData = null;
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
 
   const wasm = getWasm();
+
+  // Check for binlog magic bytes: 0xfe 0x62 0x69 0x6e
+  if (data.length >= 4 && data[0] === 0xfe && data[1] === 0x62 && data[2] === 0x69 && data[3] === 0x6e) {
+    isBinlog = true;
+    pageCount = 0;
+    currentTab = 0;
+    renderAnalyzer();
+    return;
+  }
 
   // Try tablespace first, then redo log
   try {
@@ -147,6 +161,7 @@ function onDiffFiles(name1, data1, name2, data2) {
   fileData = data1;
   diffData = { name1, data1, name2, data2 };
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
@@ -167,6 +182,7 @@ function onMultiFiles(files) {
   fileData = files[0].data;
   diffData = null;
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   try {
@@ -252,6 +268,7 @@ function renderAnalyzer() {
     fileData = null;
     diffData = null;
     isRedoLog = false;
+    isBinlog = false;
     decryptedData = null;
     encryptionInfo = null;
     auditFiles = null;
@@ -376,6 +393,15 @@ function renderTab() {
     case 'compat':
       createCompat(content, data);
       break;
+    case 'undo':
+      createUndo(content, data);
+      break;
+    case 'binlog':
+      createBinlog(content, data);
+      break;
+    case 'spatial':
+      createSpatial(content, data);
+      break;
     case 'redolog':
       createRedoLog(content, fileData);
       break;
@@ -394,6 +420,7 @@ function exportAll() {
   try { result.recovery = JSON.parse(wasm.assess_recovery(data)); } catch { /* skip */ }
   try { result.health = JSON.parse(wasm.analyze_health(data)); } catch { /* skip */ }
   try { result.verify = JSON.parse(wasm.verify_tablespace(data)); } catch { /* skip */ }
+  try { result.undo = JSON.parse(wasm.analyze_undo(data)); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
   downloadJson(result, `${baseName}_analysis`);

@@ -81,6 +81,9 @@ pub struct DdTable {
     /// MySQL server version ID.
     #[serde(default)]
     pub mysql_version_id: u64,
+    /// Storage engine private data (e.g., "instant_col=3;version_added=1;").
+    #[serde(default)]
+    pub se_private_data: Option<String>,
 }
 
 /// Data dictionary column definition.
@@ -159,6 +162,9 @@ pub struct DdColumn {
     /// Whether the column is zerofill.
     #[serde(default)]
     pub is_zerofill: bool,
+    /// Storage engine private data (e.g., "version_added=1;physical_pos=5;").
+    #[serde(default)]
+    pub se_private_data: Option<String>,
 }
 
 /// ENUM or SET value element.
@@ -315,6 +321,12 @@ pub struct ColumnDef {
     /// Column comment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    /// Instant ADD COLUMN version (MySQL 8.0.29+).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_added: Option<u32>,
+    /// Instant DROP COLUMN version (MySQL 8.0.29+).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_dropped: Option<u32>,
 }
 
 fn is_false(v: &bool) -> bool {
@@ -813,6 +825,16 @@ fn build_column_def(col: &DdColumn) -> ColumnDef {
         Some(col.comment.clone())
     };
 
+    let (version_added, version_dropped) = if let Some(ref spd) = col.se_private_data {
+        let map = parse_se_private_data(spd);
+        (
+            map.get("version_added").and_then(|v| v.parse().ok()),
+            map.get("version_dropped").and_then(|v| v.parse().ok()),
+        )
+    } else {
+        (None, None)
+    };
+
     ColumnDef {
         name: col.name.clone(),
         column_type,
@@ -823,6 +845,8 @@ fn build_column_def(col: &DdColumn) -> ColumnDef {
         is_invisible: col.hidden == 4,
         is_virtual,
         comment,
+        version_added,
+        version_dropped,
     }
 }
 
@@ -941,6 +965,58 @@ fn build_fk_def(fk: &DdForeignKey, columns: &HashMap<u64, &DdColumn>) -> Foreign
         on_update: fk_rule_name(fk.update_rule).to_string(),
         on_delete: fk_rule_name(fk.delete_rule).to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// se_private_data parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a semicolon-delimited `key=value` string into a HashMap.
+///
+/// InnoDB stores metadata in `se_private_data` fields using the format
+/// `"key1=value1;key2=value2;"`. This parser handles the format used
+/// by both table-level and column-level private data.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::schema::parse_se_private_data;
+///
+/// let map = parse_se_private_data("version_added=1;physical_pos=5;");
+/// assert_eq!(map.get("version_added"), Some(&"1".to_string()));
+/// assert_eq!(map.get("physical_pos"), Some(&"5".to_string()));
+///
+/// let empty = parse_se_private_data("");
+/// assert!(empty.is_empty());
+/// ```
+pub fn parse_se_private_data(data: &str) -> HashMap<String, String> {
+    data.split(';')
+        .filter(|s| !s.is_empty())
+        .filter_map(|kv| {
+            let mut parts = kv.splitn(2, '=');
+            let k = parts.next()?.to_string();
+            let v = parts.next()?.to_string();
+            Some((k, v))
+        })
+        .collect()
+}
+
+/// Check whether a table's `se_private_data` indicates instant columns.
+///
+/// MySQL 8.0.12+ stores `instant_col=N` in the table's `se_private_data`
+/// when columns have been added via instant DDL.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::schema::has_instant_columns;
+///
+/// assert!(has_instant_columns("instant_col=3;table_id=1234;"));
+/// assert!(!has_instant_columns("table_id=1234;"));
+/// assert!(!has_instant_columns(""));
+/// ```
+pub fn has_instant_columns(se_private_data: &str) -> bool {
+    parse_se_private_data(se_private_data).contains_key("instant_col")
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,6 +1262,77 @@ pub fn infer_schema_from_pages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_se_private_data() {
+        let data = "version_added=1;physical_pos=5;";
+        let map = parse_se_private_data(data);
+        assert_eq!(map.get("version_added"), Some(&"1".to_string()));
+        assert_eq!(map.get("physical_pos"), Some(&"5".to_string()));
+    }
+
+    #[test]
+    fn test_parse_se_private_data_empty() {
+        let map = parse_se_private_data("");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_has_instant_columns() {
+        assert!(has_instant_columns("instant_col=3;table_id=1234;"));
+        assert!(!has_instant_columns("table_id=1234;"));
+        assert!(!has_instant_columns(""));
+    }
+
+    #[test]
+    fn test_extract_schema_with_instant_columns() {
+        let json = r#"{
+            "mysqld_version_id": 80040,
+            "dd_object_type": "Table",
+            "dd_object": {
+                "name": "t",
+                "engine": "InnoDB",
+                "collation_id": 255,
+                "row_format": 2,
+                "se_private_data": "instant_col=1;",
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": 4,
+                        "column_type_utf8": "int",
+                        "ordinal_position": 1,
+                        "hidden": 1,
+                        "is_nullable": false,
+                        "is_auto_increment": true,
+                        "has_no_default": true
+                    },
+                    {
+                        "name": "added_col",
+                        "type": 4,
+                        "column_type_utf8": "int",
+                        "ordinal_position": 2,
+                        "hidden": 1,
+                        "is_nullable": true,
+                        "se_private_data": "version_added=1;physical_pos=2;"
+                    }
+                ],
+                "indexes": [],
+                "foreign_keys": []
+            }
+        }"#;
+
+        let schema = extract_schema_from_sdi(json).unwrap();
+        assert_eq!(schema.columns.len(), 2);
+        assert_eq!(schema.columns[1].name, "added_col");
+        assert_eq!(schema.columns[1].version_added, Some(1));
+        assert_eq!(schema.columns[1].version_dropped, None);
+
+        // Table-level instant detection
+        let envelope: SdiEnvelope = serde_json::from_str(json).unwrap();
+        assert!(has_instant_columns(
+            envelope.dd_object.se_private_data.as_deref().unwrap_or("")
+        ));
+    }
 
     #[test]
     fn test_collation_name() {
@@ -1510,6 +1657,8 @@ mod tests {
                 is_invisible: false,
                 is_virtual: None,
                 comment: None,
+                version_added: None,
+                version_dropped: None,
             }],
             indexes: vec![IndexDef {
                 name: "PRIMARY".to_string(),

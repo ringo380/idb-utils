@@ -134,6 +134,10 @@ pub enum Commands {
         #[arg(long)]
         deleted: bool,
 
+        /// Traverse and display LOB/BLOB chain details for LOB first pages
+        #[arg(long = "lob-chain")]
+        lob_chain: bool,
+
         /// Output in JSON format
         #[arg(long)]
         json: bool,
@@ -1073,6 +1077,66 @@ pub enum Commands {
         /// Verify backup chain continuity across multiple tablespace files
         #[arg(long = "chain", num_args = 1..)]
         chain: Vec<String>,
+    },
+
+    /// Parse and analyze MySQL binary log files
+    ///
+    /// Reads the format description event, then iterates all events in the
+    /// binary log to produce type distribution statistics, table map details,
+    /// and an event listing. Supports filtering by event type and limiting
+    /// the number of events displayed.
+    Binlog {
+        /// Path to MySQL binary log file
+        #[arg(short, long)]
+        file: String,
+
+        /// Maximum number of events to display
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Filter events by type name (e.g. TABLE_MAP, WRITE_ROWS)
+        #[arg(long = "filter-type")]
+        filter_type: Option<String>,
+
+        /// Show additional detail (column types for TABLE_MAP events)
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Analyze undo tablespace files (.ibu or .ibd)
+    ///
+    /// Reads rollback segment arrays, rollback segment headers, and undo
+    /// segment pages to report transaction history and segment states.
+    /// Supports MySQL 8.0+ dedicated undo tablespaces (.ibu) and legacy
+    /// system tablespace undo logs.
+    Undo {
+        /// Path to InnoDB undo tablespace file (.ibu or .ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Show a specific undo page only
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Show additional detail including undo records
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
     },
 
     /// Generate shell completion scripts

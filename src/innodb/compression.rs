@@ -42,6 +42,8 @@ pub enum CompressionAlgorithm {
     Bzip2,
     /// MariaDB Snappy compression (detection only — not decompressed).
     Snappy,
+    /// MySQL 8.0.14+ ZSTD compression (decompressed via ruzstd).
+    Zstd,
 }
 
 /// Detect the compression algorithm from FSP space flags.
@@ -102,6 +104,7 @@ pub fn detect_compression(
     match comp_bits {
         1 => CompressionAlgorithm::Zlib,
         2 => CompressionAlgorithm::Lz4,
+        3 => CompressionAlgorithm::Zstd,
         _ => CompressionAlgorithm::None,
     }
 }
@@ -207,6 +210,25 @@ pub fn decompress_lz4(compressed: &[u8], uncompressed_len: usize) -> Option<Vec<
     lz4_flex::decompress(compressed, uncompressed_len).ok()
 }
 
+/// Decompress ZSTD-compressed page data.
+///
+/// Returns the decompressed data, or None if decompression fails.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::compression::decompress_zstd;
+///
+/// // Invalid data returns None
+/// assert!(decompress_zstd(&[0xFF, 0xFE]).is_none());
+/// ```
+pub fn decompress_zstd(compressed: &[u8]) -> Option<Vec<u8>> {
+    let mut decoder = ruzstd::decoding::StreamingDecoder::new(compressed).ok()?;
+    let mut decompressed = Vec::new();
+    std::io::Read::read_to_end(&mut decoder, &mut decompressed).ok()?;
+    Some(decompressed)
+}
+
 /// Check if a page appears to be a hole-punched page.
 ///
 /// Hole-punched pages have their data zeroed out after the compressed content.
@@ -255,6 +277,7 @@ impl std::fmt::Display for CompressionAlgorithm {
             CompressionAlgorithm::Lzma => write!(f, "LZMA"),
             CompressionAlgorithm::Bzip2 => write!(f, "bzip2"),
             CompressionAlgorithm::Snappy => write!(f, "Snappy"),
+            CompressionAlgorithm::Zstd => write!(f, "ZSTD"),
         }
     }
 }
@@ -274,7 +297,7 @@ mod tests {
         assert_eq!(detect_compression(2 << 11, None), CompressionAlgorithm::Lz4);
         assert_eq!(
             detect_compression(3 << 11, None),
-            CompressionAlgorithm::None
+            CompressionAlgorithm::Zstd
         );
         // Other bits set shouldn't affect compression detection
         assert_eq!(
@@ -345,6 +368,37 @@ mod tests {
         let result = lz4_flex::decompress(&compressed[4..], original.len());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), original);
+    }
+
+    #[test]
+    fn test_detect_compression_mysql_zstd() {
+        // MySQL 8.0.14+: bits 11-12 = 3 → ZSTD
+        assert_eq!(
+            detect_compression(3 << 11, None),
+            CompressionAlgorithm::Zstd
+        );
+    }
+
+    #[test]
+    fn test_decompress_zstd() {
+        // Use ruzstd to compress, then decompress
+        let original = b"Hello, ZSTD compression test data for InnoDB!";
+        let compressed = ruzstd::encoding::compress_to_vec(
+            &original[..],
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        let result = decompress_zstd(&compressed).unwrap();
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_zstd_display() {
+        assert_eq!(format!("{}", CompressionAlgorithm::Zstd), "ZSTD");
+    }
+
+    #[test]
+    fn test_decompress_zstd_invalid() {
+        assert!(decompress_zstd(&[0xFF, 0xFE]).is_none());
     }
 
     #[test]

@@ -550,6 +550,7 @@ fn test_pages_subcommand_shows_encryption_info() {
             mmap: false,
             deleted: false,
             csv: false,
+            lob_chain: false,
         },
         &mut buf,
     );

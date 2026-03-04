@@ -285,7 +285,11 @@ pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
         };
         let lob_header = if matches!(
             hdr.page_type,
-            PageType::ZBlob | PageType::ZBlob2 | PageType::Unknown(_)
+            PageType::Blob
+                | PageType::ZBlob
+                | PageType::ZBlob2
+                | PageType::LobFirst
+                | PageType::Unknown(_)
         ) {
             LobFirstPageHeader::parse(&page_data)
         } else {
@@ -1320,4 +1324,92 @@ pub fn export_records(
         total_rows: total,
     };
     to_json(&result)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_undo — mirrors `inno undo`
+// ---------------------------------------------------------------------------
+
+/// Analyzes undo log segments in an InnoDB tablespace and returns a report as JSON.
+///
+/// Takes raw `.ibd` or `.ibu` file bytes, reads rollback segment arrays and
+/// undo segment headers, and returns per-segment details including state,
+/// transaction IDs, and record counts.
+///
+/// Returns a JSON string containing an [`UndoAnalysis`] object with fields:
+/// `rseg_slots` (array of page numbers), `rseg_headers` (array of RSEG info),
+/// `segments` (array of per-segment details), `total_transactions` (count of
+/// undo log headers), and `active_transactions` (count of ACTIVE segments).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn analyze_undo(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let analysis = crate::innodb::undo::analyze_undo_tablespace(&mut ts).map_err(to_js_err)?;
+    to_json(&analysis)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_rtree — extract R-tree spatial index data
+// ---------------------------------------------------------------------------
+
+/// Extracts R-tree (spatial index) page data from a tablespace.
+///
+/// Scans all pages for RTREE page types and extracts MBR (Minimum Bounding
+/// Rectangle) data from each. Returns a JSON array of objects with `page_no`,
+/// `level`, `record_count`, `mbrs`, and `enclosing_mbr` fields.
+///
+/// Returns an empty array if no RTREE pages are found.
+#[wasm_bindgen]
+pub fn analyze_rtree(data: &[u8]) -> Result<String, JsValue> {
+    use crate::innodb::page::FilHeader;
+    use crate::innodb::page_types::PageType;
+    use crate::innodb::rtree;
+
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+
+    #[derive(Serialize)]
+    struct RtreePageResult {
+        page_no: u64,
+        #[serde(flatten)]
+        info: rtree::RtreePageInfo,
+    }
+
+    let mut results: Vec<RtreePageResult> = Vec::new();
+
+    ts.for_each_page(|page_num, page_data| {
+        if let Some(fil) = FilHeader::parse(page_data) {
+            if fil.page_type == PageType::Rtree || fil.page_type == PageType::EncryptedRtree {
+                if let Some(info) = rtree::parse_rtree_page(page_data) {
+                    results.push(RtreePageResult {
+                        page_no: page_num,
+                        info,
+                    });
+                }
+            }
+        }
+        Ok(())
+    })
+    .map_err(to_js_err)?;
+
+    to_json(&results)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_binlog — mirrors `inno binlog`
+// ---------------------------------------------------------------------------
+
+/// Analyzes a MySQL binary log file and returns event summaries as JSON.
+///
+/// Takes raw binlog file bytes and returns format description, event type
+/// distribution, table maps, and per-event summaries.
+///
+/// Returns a JSON string containing a [`BinlogAnalysis`] object.
+///
+/// Returns an error string if the input is not a valid MySQL binary log.
+#[wasm_bindgen]
+pub fn analyze_binlog(data: &[u8]) -> Result<String, JsValue> {
+    let cursor = std::io::Cursor::new(data.to_vec());
+    let analysis = crate::binlog::analyze_binlog(cursor).map_err(to_js_err)?;
+    to_json(&analysis)
 }
