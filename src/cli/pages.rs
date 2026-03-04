@@ -824,7 +824,7 @@ fn print_lob_chain_if_applicable(
 
     let is_lob_start = matches!(
         header.page_type,
-        PageType::Blob | PageType::ZBlob | PageType::ZBlob2 | PageType::LobFirst
+        PageType::Blob | PageType::ZBlob | PageType::LobFirst
     );
 
     // Only start chain traversal from chain-start pages

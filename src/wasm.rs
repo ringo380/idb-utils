@@ -285,7 +285,11 @@ pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
         };
         let lob_header = if matches!(
             hdr.page_type,
-            PageType::ZBlob | PageType::ZBlob2 | PageType::Unknown(_)
+            PageType::Blob
+                | PageType::ZBlob
+                | PageType::ZBlob2
+                | PageType::LobFirst
+                | PageType::Unknown(_)
         ) {
             LobFirstPageHeader::parse(&page_data)
         } else {

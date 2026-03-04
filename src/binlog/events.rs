@@ -421,8 +421,10 @@ pub struct BinlogAnalysis {
     /// Count of events by type name.
     pub event_type_counts: std::collections::HashMap<String, usize>,
     /// TABLE_MAP events found.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub table_maps: Vec<TableMapEvent>,
     /// Individual event summaries.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<BinlogEventSummary>,
 }
 
