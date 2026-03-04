@@ -496,6 +496,134 @@ pub fn walk_undo_log_headers(page_data: &[u8], start_offset: u16) -> Vec<UndoLog
 }
 
 // ---------------------------------------------------------------------------
+// Undo record type classification and chain traversal
+// ---------------------------------------------------------------------------
+
+/// Undo record operation types from trx0undo.h.
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::undo::UndoRecordType;
+///
+/// assert_eq!(UndoRecordType::from_type_byte(11), UndoRecordType::InsertRec);
+/// assert_eq!(UndoRecordType::from_type_byte(14), UndoRecordType::DelMarkRec);
+/// assert_eq!(UndoRecordType::InsertRec.name(), "INSERT");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum UndoRecordType {
+    /// TRX_UNDO_INSERT_REC — fresh insert record
+    InsertRec,
+    /// TRX_UNDO_UPD_EXIST_REC — update of a non-delete-marked record
+    UpdExistRec,
+    /// TRX_UNDO_UPD_DEL_REC — update of a previously delete-marked record (undelete)
+    UpdDelRec,
+    /// TRX_UNDO_DEL_MARK_REC — delete marking of a record
+    DelMarkRec,
+    /// Unrecognized type code
+    Unknown(u8),
+}
+
+impl UndoRecordType {
+    /// Classify an undo record from the type/compilation info byte.
+    ///
+    /// The type code is stored in the lower 4 bits of the first byte of
+    /// each undo record (the upper bits contain compilation info flags).
+    pub fn from_type_byte(byte: u8) -> Self {
+        match byte & 0x0F {
+            11 => UndoRecordType::InsertRec,
+            12 => UndoRecordType::UpdExistRec,
+            13 => UndoRecordType::UpdDelRec,
+            14 => UndoRecordType::DelMarkRec,
+            other => UndoRecordType::Unknown(other),
+        }
+    }
+
+    /// Returns the MySQL source-style name for this record type.
+    pub fn name(&self) -> &'static str {
+        match self {
+            UndoRecordType::InsertRec => "INSERT",
+            UndoRecordType::UpdExistRec => "UPD_EXIST",
+            UndoRecordType::UpdDelRec => "UPD_DEL",
+            UndoRecordType::DelMarkRec => "DEL_MARK",
+            UndoRecordType::Unknown(_) => "UNKNOWN",
+        }
+    }
+}
+
+/// A parsed undo record within an undo log page.
+#[derive(Debug, Clone, Serialize)]
+pub struct UndoRecord {
+    /// Byte offset of this record within the page.
+    pub offset: usize,
+    /// Operation type.
+    pub record_type: UndoRecordType,
+    /// Info bits (compilation info flags from upper bits of type byte).
+    pub info_bits: u8,
+    /// Offset of the next undo record (2-byte pointer), 0 if last.
+    pub next_offset: u16,
+    /// Approximate data length of this record (bytes until next record or free pointer).
+    pub data_len: usize,
+}
+
+/// Walk the chain of undo records within a single page.
+///
+/// Starts at `start_offset` (typically `UndoPageHeader::start` or
+/// `UndoLogHeader::log_start`) and follows 2-byte "next record" pointers.
+/// Terminates at offset 0 or when reaching `free_offset` (from `UndoPageHeader::free`).
+///
+/// Returns records in forward order (oldest first).
+pub fn walk_undo_records(
+    page_data: &[u8],
+    start_offset: u16,
+    free_offset: u16,
+    max_records: usize,
+) -> Vec<UndoRecord> {
+    let mut records = Vec::new();
+    let mut offset = start_offset as usize;
+
+    for _ in 0..max_records {
+        if offset == 0 || offset >= page_data.len() || offset as u16 >= free_offset {
+            break;
+        }
+
+        // Each undo record starts with a 2-byte "next record" pointer
+        // followed by a type/compilation_info byte
+        if offset + 3 > page_data.len() {
+            break;
+        }
+
+        let next_offset = BigEndian::read_u16(&page_data[offset..]);
+        let type_byte = page_data[offset + 2];
+        let record_type = UndoRecordType::from_type_byte(type_byte);
+        let info_bits = type_byte >> 4;
+
+        // Estimate data length: from current offset to next record or free pointer
+        let end = if next_offset > 0 && (next_offset as usize) < page_data.len() {
+            next_offset as usize
+        } else {
+            free_offset as usize
+        };
+        let data_len = if end > offset + 3 { end - offset - 3 } else { 0 };
+
+        records.push(UndoRecord {
+            offset,
+            record_type,
+            info_bits,
+            next_offset,
+            data_len,
+        });
+
+        if next_offset == 0 {
+            break;
+        }
+        offset = next_offset as usize;
+    }
+
+    records
+}
+
+// ---------------------------------------------------------------------------
 // Undo segment and tablespace analysis
 // ---------------------------------------------------------------------------
 
@@ -510,6 +638,8 @@ pub struct UndoSegmentInfo {
     pub segment_header: UndoSegmentHeader,
     /// Undo log headers found by walking the chain.
     pub log_headers: Vec<UndoLogHeader>,
+    /// Number of undo records found on this page.
+    pub record_count: usize,
 }
 
 /// Top-level analysis result for an undo tablespace.
@@ -651,12 +781,15 @@ fn analyze_via_scan(ts: &mut Tablespace) -> Result<UndoAnalysis, IdbError> {
         }
 
         let log_headers = walk_undo_log_headers(&page_data, seg_hdr.last_log);
+        let record_count =
+            walk_undo_records(&page_data, page_hdr.start, page_hdr.free, 10000).len();
 
         segments.push(UndoSegmentInfo {
             page_no: page_num,
             page_header: page_hdr,
             segment_header: seg_hdr,
             log_headers,
+            record_count,
         });
     }
 
@@ -687,11 +820,15 @@ fn read_undo_segment(ts: &mut Tablespace, page_no: u64) -> Result<UndoSegmentInf
 
     let log_headers = walk_undo_log_headers(&page_data, segment_header.last_log);
 
+    let record_count =
+        walk_undo_records(&page_data, page_header.start, page_header.free, 10000).len();
+
     Ok(UndoSegmentInfo {
         page_no,
         page_header,
         segment_header,
         log_headers,
+        record_count,
     })
 }
 
@@ -823,5 +960,142 @@ mod tests {
         let hdr = UndoSegmentHeader::parse(&page).unwrap();
         assert_eq!(hdr.state, UndoState::Active);
         assert_eq!(hdr.last_log, 150);
+    }
+
+    #[test]
+    fn test_undo_record_type_classification() {
+        assert_eq!(
+            UndoRecordType::from_type_byte(11),
+            UndoRecordType::InsertRec
+        );
+        assert_eq!(
+            UndoRecordType::from_type_byte(12),
+            UndoRecordType::UpdExistRec
+        );
+        assert_eq!(
+            UndoRecordType::from_type_byte(13),
+            UndoRecordType::UpdDelRec
+        );
+        assert_eq!(
+            UndoRecordType::from_type_byte(14),
+            UndoRecordType::DelMarkRec
+        );
+        assert_eq!(
+            UndoRecordType::from_type_byte(0),
+            UndoRecordType::Unknown(0)
+        );
+    }
+
+    #[test]
+    fn test_undo_record_type_masks_upper_bits() {
+        // Upper 4 bits are compilation info flags — should be masked off
+        assert_eq!(
+            UndoRecordType::from_type_byte(0xFB), // 0xF0 | 11
+            UndoRecordType::InsertRec
+        );
+        assert_eq!(
+            UndoRecordType::from_type_byte(0x2E), // 0x20 | 14
+            UndoRecordType::DelMarkRec
+        );
+    }
+
+    #[test]
+    fn test_undo_record_type_names() {
+        assert_eq!(UndoRecordType::InsertRec.name(), "INSERT");
+        assert_eq!(UndoRecordType::UpdExistRec.name(), "UPD_EXIST");
+        assert_eq!(UndoRecordType::UpdDelRec.name(), "UPD_DEL");
+        assert_eq!(UndoRecordType::DelMarkRec.name(), "DEL_MARK");
+        assert_eq!(UndoRecordType::Unknown(0).name(), "UNKNOWN");
+    }
+
+    #[test]
+    fn test_walk_undo_records_single() {
+        // Build a page with one undo record at offset 100
+        let mut page = vec![0u8; 256];
+        let offset = 100usize;
+
+        // next_offset = 0 (last record)
+        BigEndian::write_u16(&mut page[offset..], 0);
+        // type byte = 11 (INSERT)
+        page[offset + 2] = 11;
+
+        let records = walk_undo_records(&page, offset as u16, 200, 100);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].offset, 100);
+        assert_eq!(records[0].record_type, UndoRecordType::InsertRec);
+        assert_eq!(records[0].next_offset, 0);
+    }
+
+    #[test]
+    fn test_walk_undo_records_chain() {
+        // Build a page with 3 chained undo records
+        let mut page = vec![0u8; 512];
+        let o1 = 100usize;
+        let o2 = 150usize;
+        let o3 = 200usize;
+
+        // Record 1: next → o2, type INSERT
+        BigEndian::write_u16(&mut page[o1..], o2 as u16);
+        page[o1 + 2] = 11;
+
+        // Record 2: next → o3, type UPD_EXIST
+        BigEndian::write_u16(&mut page[o2..], o3 as u16);
+        page[o2 + 2] = 12;
+
+        // Record 3: next → 0 (end), type DEL_MARK
+        BigEndian::write_u16(&mut page[o3..], 0);
+        page[o3 + 2] = 14;
+
+        let records = walk_undo_records(&page, o1 as u16, 300, 100);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].record_type, UndoRecordType::InsertRec);
+        assert_eq!(records[1].record_type, UndoRecordType::UpdExistRec);
+        assert_eq!(records[2].record_type, UndoRecordType::DelMarkRec);
+        assert_eq!(records[0].data_len, 47); // 150 - 100 - 3
+        assert_eq!(records[1].data_len, 47); // 200 - 150 - 3
+    }
+
+    #[test]
+    fn test_walk_undo_records_respects_free_offset() {
+        // Record chain continues past free_offset — should stop
+        let mut page = vec![0u8; 512];
+        let o1 = 100usize;
+        let o2 = 200usize;
+
+        BigEndian::write_u16(&mut page[o1..], o2 as u16);
+        page[o1 + 2] = 11;
+        BigEndian::write_u16(&mut page[o2..], 0);
+        page[o2 + 2] = 12;
+
+        // free_offset = 150, so o2 (200) is past free — should get only 1 record
+        let records = walk_undo_records(&page, o1 as u16, 150, 100);
+        assert_eq!(records.len(), 1);
+    }
+
+    #[test]
+    fn test_walk_undo_records_respects_max() {
+        // Chain of 3 but max_records = 2
+        let mut page = vec![0u8; 512];
+        let o1 = 100usize;
+        let o2 = 150usize;
+        let o3 = 200usize;
+
+        BigEndian::write_u16(&mut page[o1..], o2 as u16);
+        page[o1 + 2] = 11;
+        BigEndian::write_u16(&mut page[o2..], o3 as u16);
+        page[o2 + 2] = 12;
+        BigEndian::write_u16(&mut page[o3..], 0);
+        page[o3 + 2] = 14;
+
+        let records = walk_undo_records(&page, o1 as u16, 300, 2);
+        assert_eq!(records.len(), 2);
+    }
+
+    #[test]
+    fn test_walk_undo_records_empty() {
+        let page = vec![0u8; 256];
+        // start_offset = 0 means no records
+        let records = walk_undo_records(&page, 0, 200, 100);
+        assert_eq!(records.len(), 0);
     }
 }
