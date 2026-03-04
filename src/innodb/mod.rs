@@ -49,6 +49,7 @@ pub mod log;
 pub mod page;
 pub mod page_types;
 pub mod record;
+pub mod rtree;
 pub mod schema;
 pub mod sdi;
 pub mod tablespace;
