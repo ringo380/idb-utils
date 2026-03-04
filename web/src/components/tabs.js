@@ -15,6 +15,7 @@ const HEALTH_TAB = { id: 'health', label: 'Health', key: 'H' };
 const VERIFY_TAB = { id: 'verify', label: 'Verify', key: 'V' };
 const COMPAT_TAB = { id: 'compat', label: 'Compat', key: 'C' };
 const UNDO_TAB = { id: 'undo', label: 'Undo', key: 'U' };
+const SPATIAL_TAB = { id: 'spatial', label: 'Spatial', key: 'S' };
 const DIFF_TAB = { id: 'diff', label: 'Diff', key: '9' };
 const AUDIT_TAB = { id: 'audit', label: 'Audit', key: '0' };
 const BINLOG_TAB = { id: 'binlog', label: 'Binary Log', key: '1' };
@@ -23,7 +24,7 @@ const REDOLOG_TAB = { id: 'redolog', label: 'Redo Log', key: '1' };
 function getVisibleTabs({ showDiff = false, showRedoLog = false, showAudit = false, showBinlog = false } = {}) {
   if (showBinlog) return [BINLOG_TAB];
   if (showRedoLog) return [REDOLOG_TAB];
-  const tabs = [...TAB_DEFS, HEATMAP_TAB, HEALTH_TAB, VERIFY_TAB, COMPAT_TAB, UNDO_TAB];
+  const tabs = [...TAB_DEFS, HEATMAP_TAB, HEALTH_TAB, VERIFY_TAB, COMPAT_TAB, UNDO_TAB, SPATIAL_TAB];
   if (showDiff) tabs.push(DIFF_TAB);
   if (showAudit) tabs.push(AUDIT_TAB);
   return tabs;

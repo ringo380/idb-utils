@@ -21,6 +21,7 @@ import { createVerify } from './components/verify.js';
 import { createCompat } from './components/compat.js';
 import { createUndo } from './components/undo.js';
 import { createBinlog } from './components/binlog.js';
+import { createSpatial } from './components/spatial.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
@@ -397,6 +398,9 @@ function renderTab() {
       break;
     case 'binlog':
       createBinlog(content, data);
+      break;
+    case 'spatial':
+      createSpatial(content, data);
       break;
     case 'redolog':
       createRedoLog(content, fileData);

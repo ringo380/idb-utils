@@ -1346,6 +1346,52 @@ pub fn analyze_undo(data: &[u8]) -> Result<String, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// analyze_rtree — extract R-tree spatial index data
+// ---------------------------------------------------------------------------
+
+/// Extracts R-tree (spatial index) page data from a tablespace.
+///
+/// Scans all pages for RTREE page types and extracts MBR (Minimum Bounding
+/// Rectangle) data from each. Returns a JSON array of objects with `page_no`,
+/// `level`, `record_count`, `mbrs`, and `enclosing_mbr` fields.
+///
+/// Returns an empty array if no RTREE pages are found.
+#[wasm_bindgen]
+pub fn analyze_rtree(data: &[u8]) -> Result<String, JsValue> {
+    use crate::innodb::page::FilHeader;
+    use crate::innodb::page_types::PageType;
+    use crate::innodb::rtree;
+
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+
+    #[derive(Serialize)]
+    struct RtreePageResult {
+        page_no: u64,
+        #[serde(flatten)]
+        info: rtree::RtreePageInfo,
+    }
+
+    let mut results: Vec<RtreePageResult> = Vec::new();
+
+    ts.for_each_page(|page_num, page_data| {
+        if let Some(fil) = FilHeader::parse(page_data) {
+            if fil.page_type == PageType::Rtree || fil.page_type == PageType::EncryptedRtree {
+                if let Some(info) = rtree::parse_rtree_page(page_data) {
+                    results.push(RtreePageResult {
+                        page_no: page_num,
+                        info,
+                    });
+                }
+            }
+        }
+        Ok(())
+    })
+    .map_err(to_js_err)?;
+
+    to_json(&results)
+}
+
+// ---------------------------------------------------------------------------
 // analyze_binlog — mirrors `inno binlog`
 // ---------------------------------------------------------------------------
 
