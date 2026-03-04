@@ -41,6 +41,7 @@ pub mod decryption;
 pub mod encryption;
 pub mod export;
 pub mod field_decode;
+pub mod fts;
 pub mod health;
 pub mod index;
 pub mod keyring;
