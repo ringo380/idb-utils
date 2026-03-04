@@ -635,6 +635,24 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Binlog {
+            file,
+            limit,
+            filter_type,
+            verbose,
+            json,
+        } => cli::binlog::execute(
+            &cli::binlog::BinlogOptions {
+                file,
+                limit,
+                filter_type,
+                verbose,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
+            },
+            &mut writer,
+        ),
+
         Commands::Undo {
             file,
             page,

@@ -1079,6 +1079,34 @@ pub enum Commands {
         chain: Vec<String>,
     },
 
+    /// Parse and analyze MySQL binary log files
+    ///
+    /// Reads the format description event, then iterates all events in the
+    /// binary log to produce type distribution statistics, table map details,
+    /// and an event listing. Supports filtering by event type and limiting
+    /// the number of events displayed.
+    Binlog {
+        /// Path to MySQL binary log file
+        #[arg(short, long)]
+        file: String,
+
+        /// Maximum number of events to display
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Filter events by type name (e.g. TABLE_MAP, WRITE_ROWS)
+        #[arg(long = "filter-type")]
+        filter_type: Option<String>,
+
+        /// Show additional detail (column types for TABLE_MAP events)
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Analyze undo tablespace files (.ibu or .ibd)
     ///
     /// Reads rollback segment arrays, rollback segment headers, and undo

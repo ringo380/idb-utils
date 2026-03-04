@@ -55,6 +55,7 @@
 
 pub mod app;
 pub mod audit;
+pub mod binlog;
 pub mod checksum;
 pub mod compat;
 pub mod corrupt;
