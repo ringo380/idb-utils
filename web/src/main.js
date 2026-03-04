@@ -22,6 +22,7 @@ import { createCompat } from './components/compat.js';
 import { createUndo } from './components/undo.js';
 import { createBinlog } from './components/binlog.js';
 import { createSpatial } from './components/spatial.js';
+import { createUndelete } from './components/undelete.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
@@ -402,6 +403,9 @@ function renderTab() {
     case 'spatial':
       createSpatial(content, data);
       break;
+    case 'undelete':
+      createUndelete(content, data);
+      break;
     case 'redolog':
       createRedoLog(content, fileData);
       break;
@@ -421,6 +425,7 @@ function exportAll() {
   try { result.health = JSON.parse(wasm.analyze_health(data)); } catch { /* skip */ }
   try { result.verify = JSON.parse(wasm.verify_tablespace(data)); } catch { /* skip */ }
   try { result.undo = JSON.parse(wasm.analyze_undo(data)); } catch { /* skip */ }
+  try { const u = wasm.scan_deleted_records(data, -1n); if (u !== 'null') result.undelete = JSON.parse(u); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
   downloadJson(result, `${baseName}_analysis`);

@@ -461,6 +461,76 @@ impl RollbackSegmentHeader {
 }
 
 // ---------------------------------------------------------------------------
+// InnoDB compressed integer reader (mach0data.h encoding)
+// ---------------------------------------------------------------------------
+
+/// Read an InnoDB compressed integer from `data` at the given `offset`.
+///
+/// Returns `(value, bytes_consumed)` or `None` if insufficient data.
+///
+/// Encoding rules (from `mach0data.h`):
+/// - `byte < 0x80`: 1 byte, value = byte
+/// - `byte < 0xC0`: 2 bytes, value = `(byte-0x80)<<8 | next`
+/// - `byte < 0xE0`: 3 bytes, value = `(byte-0xC0)<<16 | next_2`
+/// - `byte < 0xF0`: 4 bytes, value = `(byte-0xE0)<<24 | next_3`
+/// - `byte == 0xF0`: 5 bytes, value = `next_4_bytes`
+///
+/// # Examples
+///
+/// ```
+/// use idb::innodb::undo::read_compressed;
+///
+/// // 1-byte: value 0x7F = 127
+/// assert_eq!(read_compressed(&[0x7F], 0), Some((127, 1)));
+///
+/// // 2-byte: (0x80 - 0x80) << 8 | 0x01 = 1
+/// assert_eq!(read_compressed(&[0x80, 0x01], 0), Some((1, 2)));
+///
+/// // Insufficient data
+/// assert_eq!(read_compressed(&[0x80], 0), None);
+/// ```
+pub fn read_compressed(data: &[u8], offset: usize) -> Option<(u64, usize)> {
+    if offset >= data.len() {
+        return None;
+    }
+    let b = data[offset];
+    if b < 0x80 {
+        Some((b as u64, 1))
+    } else if b < 0xC0 {
+        if offset + 2 > data.len() {
+            return None;
+        }
+        let val = ((b as u64 - 0x80) << 8) | data[offset + 1] as u64;
+        Some((val, 2))
+    } else if b < 0xE0 {
+        if offset + 3 > data.len() {
+            return None;
+        }
+        let val =
+            ((b as u64 - 0xC0) << 16) | (data[offset + 1] as u64) << 8 | data[offset + 2] as u64;
+        Some((val, 3))
+    } else if b < 0xF0 {
+        if offset + 4 > data.len() {
+            return None;
+        }
+        let val = ((b as u64 - 0xE0) << 24)
+            | (data[offset + 1] as u64) << 16
+            | (data[offset + 2] as u64) << 8
+            | data[offset + 3] as u64;
+        Some((val, 4))
+    } else if b == 0xF0 {
+        if offset + 5 > data.len() {
+            return None;
+        }
+        let val = BigEndian::read_u32(&data[offset + 1..]) as u64;
+        Some((val, 5))
+    } else {
+        // Invalid leading byte (0xF1..0xFF not defined)
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Undo log header chain traversal
 // ---------------------------------------------------------------------------
 
@@ -508,17 +578,18 @@ pub fn walk_undo_log_headers(page_data: &[u8], start_offset: u16) -> Vec<UndoLog
 ///
 /// assert_eq!(UndoRecordType::from_type_byte(11), UndoRecordType::InsertRec);
 /// assert_eq!(UndoRecordType::from_type_byte(14), UndoRecordType::DelMarkRec);
+/// assert_eq!(UndoRecordType::from_u8(11), UndoRecordType::InsertRec);
 /// assert_eq!(UndoRecordType::InsertRec.name(), "INSERT");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UndoRecordType {
-    /// TRX_UNDO_INSERT_REC — fresh insert record
+    /// TRX_UNDO_INSERT_REC (11) — fresh insert record
     InsertRec,
-    /// TRX_UNDO_UPD_EXIST_REC — update of a non-delete-marked record
+    /// TRX_UNDO_UPD_EXIST_REC (12) — update of a non-delete-marked record
     UpdExistRec,
-    /// TRX_UNDO_UPD_DEL_REC — update of a previously delete-marked record (undelete)
+    /// TRX_UNDO_UPD_DEL_REC (13) — update of a previously delete-marked record (undelete)
     UpdDelRec,
-    /// TRX_UNDO_DEL_MARK_REC — delete marking of a record
+    /// TRX_UNDO_DEL_MARK_REC (14) — delete marking of a record
     DelMarkRec,
     /// Unrecognized type code
     Unknown(u8),
@@ -539,6 +610,20 @@ impl UndoRecordType {
         }
     }
 
+    /// Convert a raw type code to an `UndoRecordType`.
+    ///
+    /// Unlike `from_type_byte`, this does NOT mask the upper bits.
+    /// Caller is responsible for extracting the lower 4 bits if needed.
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            11 => UndoRecordType::InsertRec,
+            12 => UndoRecordType::UpdExistRec,
+            13 => UndoRecordType::UpdDelRec,
+            14 => UndoRecordType::DelMarkRec,
+            v => UndoRecordType::Unknown(v),
+        }
+    }
+
     /// Returns the MySQL source-style name for this record type.
     pub fn name(&self) -> &'static str {
         match self {
@@ -555,6 +640,15 @@ impl std::fmt::Display for UndoRecordType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
     }
+}
+
+/// A single field update from an undo record's update vector.
+#[derive(Debug, Clone, Serialize)]
+pub struct UndoUpdateField {
+    /// Field number within the row (0-based).
+    pub field_no: u64,
+    /// Raw field data bytes.
+    pub data: Vec<u8>,
 }
 
 /// A parsed undo record within an undo log page.
@@ -628,6 +722,203 @@ pub fn walk_undo_records(
             break;
         }
         offset = next_offset as usize;
+    }
+
+    records
+}
+
+// ---------------------------------------------------------------------------
+// Detailed undo record parsing (with compressed field decoding)
+// ---------------------------------------------------------------------------
+
+/// A fully-parsed undo record with decoded fields.
+///
+/// Unlike [`UndoRecord`] which only captures offsets and type info, this struct
+/// decodes compressed integers (undo_no, table_id), primary key fields,
+/// transaction IDs, roll pointers, and update vector fields.
+#[derive(Debug, Clone, Serialize)]
+pub struct DetailedUndoRecord {
+    /// Byte offset of this record within the page.
+    pub offset: usize,
+    /// Undo operation type.
+    pub record_type: UndoRecordType,
+    /// Undo record sequence number within the transaction.
+    pub undo_no: u64,
+    /// Table ID this record belongs to.
+    pub table_id: u64,
+    /// Raw primary key field bytes.
+    pub pk_fields: Vec<Vec<u8>>,
+    /// Transaction ID (for DEL_MARK and UPD_EXIST records).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trx_id: Option<u64>,
+    /// Roll pointer (7 bytes, for DEL_MARK and UPD_EXIST records).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roll_ptr: Option<[u8; 7]>,
+    /// Update vector fields (for UPD_EXIST/UPD_DEL/DEL_MARK).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub update_fields: Vec<UndoUpdateField>,
+}
+
+/// Parse undo records on a single UNDO_LOG page with full field decoding.
+///
+/// Iterates from `UndoPageHeader::start` to `free`, parsing each record
+/// including compressed undo_no, table_id, PK fields, trx_id, roll_ptr,
+/// and update vector. Returns all successfully parsed records; stops on
+/// parse failure or when reaching the free pointer.
+///
+/// # Format (from `trx0rec.cc`)
+///
+/// Each undo record starts with:
+/// 1. 2 bytes: next record offset
+/// 2. 1 byte: `type_cmpl` (lower 4 bits = type code)
+/// 3. Compressed: `undo_no`
+/// 4. Compressed: `table_id`
+/// 5. For each PK column: compressed length + raw bytes
+///    (we read 1 PK field; multi-column PKs need schema info)
+/// 6. For UPD_EXIST/DEL_MARK: 6-byte compressed `trx_id` + 7-byte `roll_ptr`
+/// 7. Update vector: compressed field count, then per-field
+///    (compressed field_no, compressed len, raw data)
+pub fn parse_undo_records(page_data: &[u8]) -> Vec<DetailedUndoRecord> {
+    let mut records = Vec::new();
+
+    let page_hdr = match UndoPageHeader::parse(page_data) {
+        Some(h) => h,
+        None => return records,
+    };
+
+    let start = page_hdr.start as usize;
+    let free = page_hdr.free as usize;
+
+    if start == 0 || start >= page_data.len() || free == 0 || start >= free {
+        return records;
+    }
+
+    let mut pos = start;
+    let mut visited = std::collections::HashSet::new();
+
+    while pos >= start && pos < free && pos + 3 <= page_data.len() {
+        if !visited.insert(pos) {
+            break; // cycle detection
+        }
+
+        let rec_offset = pos;
+
+        // 2 bytes: next record offset
+        if pos + 2 > page_data.len() {
+            break;
+        }
+        let next = BigEndian::read_u16(&page_data[pos..]) as usize;
+        pos += 2;
+
+        // 1 byte: type_cmpl
+        if pos >= page_data.len() {
+            break;
+        }
+        let type_cmpl = page_data[pos];
+        let rec_type = UndoRecordType::from_u8(type_cmpl & 0x0F);
+        pos += 1;
+
+        // Compressed: undo_no
+        let (undo_no, consumed) = match read_compressed(page_data, pos) {
+            Some(v) => v,
+            None => break,
+        };
+        pos += consumed;
+
+        // Compressed: table_id
+        let (table_id, consumed) = match read_compressed(page_data, pos) {
+            Some(v) => v,
+            None => break,
+        };
+        pos += consumed;
+
+        // Read one PK field: compressed length + raw bytes
+        let mut pk_fields = Vec::new();
+        if let Some((pk_len, consumed)) = read_compressed(page_data, pos) {
+            pos += consumed;
+            let pk_len = pk_len as usize;
+            if pk_len > 0 && pos + pk_len <= page_data.len() && pk_len < 8192 {
+                pk_fields.push(page_data[pos..pos + pk_len].to_vec());
+                pos += pk_len;
+            }
+        }
+
+        let mut trx_id = None;
+        let mut roll_ptr = None;
+        let mut update_fields = Vec::new();
+
+        // For UPD_EXIST/UPD_DEL/DEL_MARK: read trx_id + roll_ptr + update vector
+        if matches!(
+            rec_type,
+            UndoRecordType::UpdExistRec | UndoRecordType::UpdDelRec | UndoRecordType::DelMarkRec
+        ) {
+            // Compressed trx_id (stored as 6-byte big-endian in undo, but encoded compressed)
+            if let Some((tid, consumed)) = read_compressed(page_data, pos) {
+                trx_id = Some(tid);
+                pos += consumed;
+            }
+
+            // 7-byte roll_ptr
+            if pos + 7 <= page_data.len() {
+                let mut rp = [0u8; 7];
+                rp.copy_from_slice(&page_data[pos..pos + 7]);
+                roll_ptr = Some(rp);
+                pos += 7;
+            }
+
+            // Update vector: compressed field count
+            if let Some((n_fields, consumed)) = read_compressed(page_data, pos) {
+                pos += consumed;
+                for _ in 0..n_fields.min(256) {
+                    // compressed field_no
+                    let (field_no, c1) = match read_compressed(page_data, pos) {
+                        Some(v) => v,
+                        None => break,
+                    };
+                    pos += c1;
+
+                    // compressed length
+                    let (flen, c2) = match read_compressed(page_data, pos) {
+                        Some(v) => v,
+                        None => break,
+                    };
+                    pos += c2;
+
+                    let flen = flen as usize;
+                    if flen > 0 && pos + flen <= page_data.len() && flen < 65536 {
+                        update_fields.push(UndoUpdateField {
+                            field_no,
+                            data: page_data[pos..pos + flen].to_vec(),
+                        });
+                        pos += flen;
+                    } else if flen == 0 {
+                        update_fields.push(UndoUpdateField {
+                            field_no,
+                            data: Vec::new(),
+                        });
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        records.push(DetailedUndoRecord {
+            offset: rec_offset,
+            record_type: rec_type,
+            undo_no,
+            table_id,
+            pk_fields,
+            trx_id,
+            roll_ptr,
+            update_fields,
+        });
+
+        // Advance to next record
+        if next == 0 || next >= free || next <= rec_offset {
+            break;
+        }
+        pos = next;
     }
 
     records
@@ -990,6 +1281,42 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // read_compressed tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_read_compressed_1byte() {
+        // Values 0..0x7F are encoded as a single byte
+        assert_eq!(read_compressed(&[0x00], 0), Some((0, 1)));
+        assert_eq!(read_compressed(&[0x7F], 0), Some((127, 1)));
+        assert_eq!(read_compressed(&[0x42], 0), Some((0x42, 1)));
+    }
+
+    #[test]
+    fn test_read_compressed_2byte() {
+        // 0x80..0xBF: (b-0x80)<<8 | next
+        assert_eq!(read_compressed(&[0x80, 0x01], 0), Some((1, 2)));
+        assert_eq!(read_compressed(&[0xBF, 0xFF], 0), Some((0x3FFF, 2)));
+    }
+
+    #[test]
+    fn test_read_compressed_3byte() {
+        // 0xC0..0xDF: (b-0xC0)<<16 | next_2
+        assert_eq!(read_compressed(&[0xC0, 0x00, 0x01], 0), Some((1, 3)));
+        assert_eq!(read_compressed(&[0xDF, 0xFF, 0xFF], 0), Some((0x1FFFFF, 3)));
+    }
+
+    #[test]
+    fn test_read_compressed_4byte() {
+        // 0xE0..0xEF: (b-0xE0)<<24 | next_3
+        assert_eq!(read_compressed(&[0xE0, 0x00, 0x00, 0x01], 0), Some((1, 4)));
+        assert_eq!(
+            read_compressed(&[0xEF, 0xFF, 0xFF, 0xFF], 0),
+            Some((0x0FFFFFFF, 4))
+        );
+    }
+
     #[test]
     fn test_undo_record_type_masks_upper_bits() {
         // Upper 4 bits are compilation info flags — should be masked off
@@ -1000,6 +1327,19 @@ mod tests {
         assert_eq!(
             UndoRecordType::from_type_byte(0x2E), // 0x20 | 14
             UndoRecordType::DelMarkRec
+        );
+    }
+
+    #[test]
+    fn test_read_compressed_5byte() {
+        // 0xF0: next 4 bytes as u32
+        assert_eq!(
+            read_compressed(&[0xF0, 0x00, 0x00, 0x00, 0x42], 0),
+            Some((0x42, 5))
+        );
+        assert_eq!(
+            read_compressed(&[0xF0, 0xFF, 0xFF, 0xFF, 0xFF], 0),
+            Some((0xFFFFFFFF, 5))
         );
     }
 
@@ -1038,15 +1378,15 @@ mod tests {
         let o2 = 150usize;
         let o3 = 200usize;
 
-        // Record 1: next → o2, type INSERT
+        // Record 1: next -> o2, type INSERT
         BigEndian::write_u16(&mut page[o1..], o2 as u16);
         page[o1 + 2] = 11;
 
-        // Record 2: next → o3, type UPD_EXIST
+        // Record 2: next -> o3, type UPD_EXIST
         BigEndian::write_u16(&mut page[o2..], o3 as u16);
         page[o2 + 2] = 12;
 
-        // Record 3: next → 0 (end), type DEL_MARK
+        // Record 3: next -> 0 (end), type DEL_MARK
         BigEndian::write_u16(&mut page[o3..], 0);
         page[o3 + 2] = 14;
 
@@ -1061,7 +1401,7 @@ mod tests {
 
     #[test]
     fn test_walk_undo_records_respects_free_offset() {
-        // Record chain continues past free_offset — should stop
+        // Record chain continues past free_offset -- should stop
         let mut page = vec![0u8; 512];
         let o1 = 100usize;
         let o2 = 200usize;
@@ -1071,7 +1411,7 @@ mod tests {
         BigEndian::write_u16(&mut page[o2..], 0);
         page[o2 + 2] = 12;
 
-        // free_offset = 150, so o2 (200) is past free — should get only 1 record
+        // free_offset = 150, so o2 (200) is past free -- should get only 1 record
         let records = walk_undo_records(&page, o1 as u16, 150, 100);
         assert_eq!(records.len(), 1);
     }
@@ -1101,5 +1441,183 @@ mod tests {
         // start_offset = 0 means no records
         let records = walk_undo_records(&page, 0, 200, 100);
         assert_eq!(records.len(), 0);
+    }
+
+    #[test]
+    fn test_read_compressed_insufficient_data() {
+        assert_eq!(read_compressed(&[], 0), None);
+        assert_eq!(read_compressed(&[0x80], 0), None); // needs 2 bytes
+        assert_eq!(read_compressed(&[0xC0, 0x00], 0), None); // needs 3 bytes
+        assert_eq!(read_compressed(&[0xE0, 0x00, 0x00], 0), None); // needs 4 bytes
+        assert_eq!(read_compressed(&[0xF0, 0x00, 0x00, 0x00], 0), None); // needs 5 bytes
+    }
+
+    #[test]
+    fn test_read_compressed_with_offset() {
+        let data = [0x00, 0x00, 0x42];
+        assert_eq!(read_compressed(&data, 2), Some((0x42, 1)));
+    }
+
+    #[test]
+    fn test_read_compressed_invalid_leading_byte() {
+        // 0xF1..0xFF are not valid leading bytes
+        assert_eq!(read_compressed(&[0xF1], 0), None);
+        assert_eq!(read_compressed(&[0xFF], 0), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // UndoRecordType from_u8 tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_undo_record_type_from_u8() {
+        assert_eq!(UndoRecordType::from_u8(11), UndoRecordType::InsertRec);
+        assert_eq!(UndoRecordType::from_u8(12), UndoRecordType::UpdExistRec);
+        assert_eq!(UndoRecordType::from_u8(13), UndoRecordType::UpdDelRec);
+        assert_eq!(UndoRecordType::from_u8(14), UndoRecordType::DelMarkRec);
+        assert_eq!(UndoRecordType::from_u8(99), UndoRecordType::Unknown(99));
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_undo_records tests (detailed undo record parsing)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_undo_records_empty_page() {
+        // Page where start == free (no records)
+        let mut page = vec![0u8; 256];
+        let base = FIL_PAGE_DATA;
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_TYPE..], 2); // UPDATE
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_START..], 100);
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_FREE..], 100); // start == free
+        assert!(parse_undo_records(&page).is_empty());
+    }
+
+    #[test]
+    fn test_parse_undo_records_single_insert() {
+        let mut page = vec![0u8; 512];
+        let base = FIL_PAGE_DATA;
+
+        let start_offset: u16 = 100;
+        let free_offset: u16 = 120;
+
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_TYPE..], 1); // INSERT
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_START..], start_offset);
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_FREE..], free_offset);
+
+        let mut pos = start_offset as usize;
+
+        // next record offset = 0 (last record)
+        BigEndian::write_u16(&mut page[pos..], 0);
+        pos += 2;
+
+        // type_cmpl = 11 (InsertRec)
+        page[pos] = 11;
+        pos += 1;
+
+        // undo_no = 5 (single byte compressed)
+        page[pos] = 5;
+        pos += 1;
+
+        // table_id = 42 (single byte compressed)
+        page[pos] = 42;
+        pos += 1;
+
+        // PK field: length=4, data=[0,0,0,1]
+        page[pos] = 4; // compressed length
+        pos += 1;
+        BigEndian::write_u32(&mut page[pos..], 1);
+
+        let records = parse_undo_records(&page);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_type, UndoRecordType::InsertRec);
+        assert_eq!(records[0].undo_no, 5);
+        assert_eq!(records[0].table_id, 42);
+        assert_eq!(records[0].pk_fields.len(), 1);
+        assert_eq!(records[0].pk_fields[0], vec![0, 0, 0, 1]);
+        assert!(records[0].trx_id.is_none());
+    }
+
+    #[test]
+    fn test_parse_undo_records_del_mark() {
+        let mut page = vec![0u8; 512];
+        let base = FIL_PAGE_DATA;
+
+        let start_offset: u16 = 100;
+        let free_offset: u16 = 200;
+
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_TYPE..], 2); // UPDATE
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_START..], start_offset);
+        BigEndian::write_u16(&mut page[base + TRX_UNDO_PAGE_FREE..], free_offset);
+
+        let mut pos = start_offset as usize;
+
+        // next = 0 (last)
+        BigEndian::write_u16(&mut page[pos..], 0);
+        pos += 2;
+
+        // type_cmpl = 14 (DelMarkRec)
+        page[pos] = 14;
+        pos += 1;
+
+        // undo_no = 10
+        page[pos] = 10;
+        pos += 1;
+
+        // table_id = 7
+        page[pos] = 7;
+        pos += 1;
+
+        // PK field: length=2, data=[0x00, 0x05]
+        page[pos] = 2;
+        pos += 1;
+        page[pos] = 0x00;
+        page[pos + 1] = 0x05;
+        pos += 2;
+
+        // trx_id = 100 (compressed)
+        page[pos] = 100;
+        pos += 1;
+
+        // roll_ptr = 7 bytes
+        for i in 0..7 {
+            page[pos + i] = (i + 1) as u8;
+        }
+        pos += 7;
+
+        // update vector: 0 fields
+        page[pos] = 0;
+
+        let records = parse_undo_records(&page);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_type, UndoRecordType::DelMarkRec);
+        assert_eq!(records[0].table_id, 7);
+        assert_eq!(records[0].trx_id, Some(100));
+        assert_eq!(records[0].roll_ptr, Some([1, 2, 3, 4, 5, 6, 7]));
+    }
+
+    #[test]
+    fn test_parse_undo_records_bounds_safety() {
+        // Page too small to parse even the header
+        let page = vec![0u8; 30];
+        assert!(parse_undo_records(&page).is_empty());
+    }
+
+    #[test]
+    fn test_detailed_undo_record_serialization() {
+        let rec = DetailedUndoRecord {
+            offset: 100,
+            record_type: UndoRecordType::DelMarkRec,
+            undo_no: 5,
+            table_id: 42,
+            pk_fields: vec![vec![0, 0, 0, 1]],
+            trx_id: Some(100),
+            roll_ptr: Some([1, 2, 3, 4, 5, 6, 7]),
+            update_fields: vec![],
+        };
+        let json = serde_json::to_string(&rec).unwrap();
+        assert!(json.contains("\"record_type\":\"DelMarkRec\""));
+        assert!(json.contains("\"table_id\":42"));
+        assert!(json.contains("\"trx_id\":100"));
     }
 }

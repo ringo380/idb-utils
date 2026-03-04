@@ -1139,6 +1139,65 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Recover deleted records from a tablespace
+    ///
+    /// Scans InnoDB tablespace files for deleted records using three strategies:
+    /// delete-marked records still in the active B+Tree chain (confidence 1.0),
+    /// records in the page free list (confidence 0.3-0.7), and optionally
+    /// DEL_MARK_REC entries in undo log pages (confidence 0.1-0.3).
+    ///
+    /// Output formats include CSV (default), JSON array of record objects,
+    /// SQL INSERT statements, or hex dump. Use `--json` for a full metadata
+    /// envelope including summary statistics.
+    ///
+    /// With `--undo-file`, provide an undo tablespace (ibdata1 or .ibu) to
+    /// enable undo log scanning for additional PK-only recovery.
+    Undelete {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Path to undo tablespace (ibdata1 or .ibu) for undo log scanning
+        #[arg(long = "undo-file")]
+        undo_file: Option<String>,
+
+        /// Filter by table name
+        #[arg(short, long)]
+        table: Option<String>,
+
+        /// Minimum transaction ID to include
+        #[arg(long = "min-trx-id")]
+        min_trx_id: Option<u64>,
+
+        /// Minimum confidence threshold (0.0-1.0, default: 0.0)
+        #[arg(long, default_value = "0.0")]
+        confidence: f64,
+
+        /// Record output format: csv, json, sql, hex
+        #[arg(long, default_value = "csv")]
+        format: String,
+
+        /// Show additional details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Recover from a specific page only
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Output full metadata JSON envelope
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for

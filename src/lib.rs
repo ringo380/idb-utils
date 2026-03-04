@@ -2,7 +2,8 @@
 //!
 //! The `innodb-utils` crate (library name `idb`) provides Rust types and
 //! functions for parsing, inspecting, and manipulating InnoDB tablespace
-//! files (`.ibd`), redo log files, and system tablespace data (`ibdata1`).
+//! files (`.ibd`), redo log files, system tablespace data (`ibdata1`), and
+//! MySQL binary log files.
 //!
 //! # CLI Reference
 //!
@@ -86,6 +87,7 @@
 //! | [`extract_sdi_from_pages`](innodb::sdi::extract_sdi_from_pages) | SDI metadata extraction (MySQL 8.0+) |
 //! | [`LogFile`](innodb::log::LogFile) | Read and inspect redo log files |
 //! | [`VendorInfo`](innodb::vendor::VendorInfo) | Detected vendor (MySQL / Percona / MariaDB) and format details |
+//! | [`BinlogFile`](binlog::BinlogFile) | Read and iterate MySQL binary log events |
 //!
 //! ## Module overview
 //!
@@ -107,6 +109,7 @@
 //! | [`innodb::keyring`] | MySQL `keyring_file` plugin binary format reader |
 //! | [`innodb::vendor`] | Vendor detection (MySQL, Percona, MariaDB) and format info |
 //! | [`innodb::constants`] | InnoDB page/file structure constants |
+//! | [`binlog`] | MySQL binary log file parsing, event types, and checksum validation |
 //!
 //! ## Feature flags
 //!
