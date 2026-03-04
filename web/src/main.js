@@ -20,6 +20,7 @@ import { createHealth } from './components/health.js';
 import { createVerify } from './components/verify.js';
 import { createCompat } from './components/compat.js';
 import { createUndo } from './components/undo.js';
+import { createBinlog } from './components/binlog.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
@@ -32,6 +33,7 @@ let fileName = null;
 let diffData = null; // { name1, data1, name2, data2 }
 let pageCount = 0;
 let isRedoLog = false;
+let isBinlog = false;
 let decryptedData = null;
 let encryptionInfo = null;
 let auditFiles = null;
@@ -62,7 +64,7 @@ initNavigation(switchTab, (id) => getTabIndexById(id, tabOpts()));
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function tabOpts() {
-  return { showDiff: !!diffData, showRedoLog: isRedoLog, showAudit: !!auditFiles };
+  return { showDiff: !!diffData, showRedoLog: isRedoLog, showBinlog: isBinlog, showAudit: !!auditFiles };
 }
 
 /** Returns the effective data for analysis (decrypted if available). */
@@ -109,11 +111,21 @@ function onFile(name, data) {
   fileData = data;
   diffData = null;
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
 
   const wasm = getWasm();
+
+  // Check for binlog magic bytes: 0xfe 0x62 0x69 0x6e
+  if (data.length >= 4 && data[0] === 0xfe && data[1] === 0x62 && data[2] === 0x69 && data[3] === 0x6e) {
+    isBinlog = true;
+    pageCount = 0;
+    currentTab = 0;
+    renderAnalyzer();
+    return;
+  }
 
   // Try tablespace first, then redo log
   try {
@@ -148,6 +160,7 @@ function onDiffFiles(name1, data1, name2, data2) {
   fileData = data1;
   diffData = { name1, data1, name2, data2 };
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
@@ -168,6 +181,7 @@ function onMultiFiles(files) {
   fileData = files[0].data;
   diffData = null;
   isRedoLog = false;
+  isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
   try {
@@ -253,6 +267,7 @@ function renderAnalyzer() {
     fileData = null;
     diffData = null;
     isRedoLog = false;
+    isBinlog = false;
     decryptedData = null;
     encryptionInfo = null;
     auditFiles = null;
@@ -379,6 +394,9 @@ function renderTab() {
       break;
     case 'undo':
       createUndo(content, data);
+      break;
+    case 'binlog':
+      createBinlog(content, data);
       break;
     case 'redolog':
       createRedoLog(content, fileData);
