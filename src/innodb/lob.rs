@@ -489,6 +489,202 @@ pub fn walk_blob_chain(
     Ok(chain)
 }
 
+// ---------------------------------------------------------------------------
+// End-to-end LOB chain traversal
+// ---------------------------------------------------------------------------
+
+use crate::innodb::page::FilHeader;
+use crate::innodb::page_types::PageType;
+
+/// Summary of a single page in a LOB chain.
+#[derive(Debug, Clone, Serialize)]
+pub struct LobChainPage {
+    /// Page number.
+    pub page_no: u64,
+    /// Page type name.
+    pub page_type: String,
+    /// Data length stored on this page.
+    pub data_len: u32,
+}
+
+/// End-to-end LOB chain traversal result.
+#[derive(Debug, Clone, Serialize)]
+pub struct LobChainInfo {
+    /// Page number of the first page in the chain.
+    pub first_page: u64,
+    /// Total data length across all pages.
+    pub total_data_len: u64,
+    /// Number of pages in the chain.
+    pub page_count: usize,
+    /// Chain type: "old_blob", "lob", or "zlob".
+    pub chain_type: String,
+    /// Per-page summaries.
+    pub pages: Vec<LobChainPage>,
+}
+
+/// Walk a LOB chain starting from the given page.
+///
+/// Dispatches to old-style blob chain or new LOB traversal based on the
+/// first page's type. Supports:
+/// - Old-style: Blob (10), ZBlob (11), ZBlob2 (12)
+/// - New-style: LobFirst (24) with LOB index entries
+/// - Compressed: ZlobFirst (25)
+///
+/// Returns `None` if the start page isn't a recognized LOB page type.
+pub fn walk_lob_chain(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    start_page: u64,
+    max_pages: usize,
+) -> Result<Option<LobChainInfo>, crate::IdbError> {
+    let page_data = ts.read_page(start_page)?;
+    let fil_hdr = match FilHeader::parse(&page_data) {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+
+    match fil_hdr.page_type {
+        PageType::Blob | PageType::ZBlob | PageType::ZBlob2 => {
+            walk_old_blob_chain(ts, start_page, max_pages)
+        }
+        PageType::LobFirst => walk_new_lob_chain(ts, start_page, &page_data, max_pages),
+        PageType::ZlobFirst => walk_zlob_chain(ts, start_page, &page_data, max_pages),
+        _ => Ok(None),
+    }
+}
+
+/// Walk old-style BLOB chain (types 10-12).
+fn walk_old_blob_chain(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    start_page: u64,
+    max_pages: usize,
+) -> Result<Option<LobChainInfo>, crate::IdbError> {
+    let chain = walk_blob_chain(ts, start_page, max_pages)?;
+
+    let pages: Vec<LobChainPage> = chain
+        .iter()
+        .map(|(page_no, part_len)| LobChainPage {
+            page_no: *page_no,
+            page_type: "BLOB".to_string(),
+            data_len: *part_len,
+        })
+        .collect();
+
+    let total_data_len: u64 = pages.iter().map(|p| p.data_len as u64).sum();
+
+    Ok(Some(LobChainInfo {
+        first_page: start_page,
+        total_data_len,
+        page_count: pages.len(),
+        chain_type: "old_blob".to_string(),
+        pages,
+    }))
+}
+
+/// Walk new-style LOB chain (LOB_FIRST → LOB_INDEX entries → LOB_DATA pages).
+fn walk_new_lob_chain(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    start_page: u64,
+    first_page_data: &[u8],
+    max_pages: usize,
+) -> Result<Option<LobChainInfo>, crate::IdbError> {
+    let lob_hdr = match LobFirstPageHeader::parse(first_page_data) {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+
+    let mut pages = vec![LobChainPage {
+        page_no: start_page,
+        page_type: "LOB_FIRST".to_string(),
+        data_len: lob_hdr.data_len,
+    }];
+
+    // Parse LOB index entries from the first page (after the LOB first header)
+    let index_start = FIL_PAGE_DATA + LOB_FIRST_HDR_SIZE;
+    let entries = LobIndexEntry::parse_all(first_page_data, index_start);
+
+    for entry in entries.iter().take(max_pages.saturating_sub(1)) {
+        let data_page = match ts.read_page(entry.page_no as u64) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        let page_type_name = match FilHeader::parse(&data_page).map(|h| h.page_type) {
+            Some(PageType::LobData) => "LOB_DATA",
+            Some(PageType::LobIndex) => "LOB_INDEX",
+            _ => "LOB_PAGE",
+        };
+
+        pages.push(LobChainPage {
+            page_no: entry.page_no as u64,
+            page_type: page_type_name.to_string(),
+            data_len: entry.data_len,
+        });
+    }
+
+    let total_data_len: u64 = pages.iter().map(|p| p.data_len as u64).sum();
+
+    Ok(Some(LobChainInfo {
+        first_page: start_page,
+        total_data_len,
+        page_count: pages.len(),
+        chain_type: "lob".to_string(),
+        pages,
+    }))
+}
+
+/// Walk compressed LOB chain (ZLOB_FIRST → index entries).
+fn walk_zlob_chain(
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    start_page: u64,
+    first_page_data: &[u8],
+    max_pages: usize,
+) -> Result<Option<LobChainInfo>, crate::IdbError> {
+    let zlob_hdr = match ZlobFirstPageHeader::parse(first_page_data) {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+
+    let mut pages = vec![LobChainPage {
+        page_no: start_page,
+        page_type: "ZLOB_FIRST".to_string(),
+        data_len: zlob_hdr.data_len,
+    }];
+
+    // Parse index entries from the first page
+    let index_start = FIL_PAGE_DATA + ZLOB_FIRST_HDR_SIZE;
+    let entries = LobIndexEntry::parse_all(first_page_data, index_start);
+
+    for entry in entries.iter().take(max_pages.saturating_sub(1)) {
+        let data_page = match ts.read_page(entry.page_no as u64) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        let page_type_name = match FilHeader::parse(&data_page).map(|h| h.page_type) {
+            Some(PageType::ZlobData) => "ZLOB_DATA",
+            Some(PageType::ZlobFrag) => "ZLOB_FRAG",
+            Some(PageType::ZlobFragEntry) => "ZLOB_FRAG_ENTRY",
+            _ => "ZLOB_PAGE",
+        };
+
+        pages.push(LobChainPage {
+            page_no: entry.page_no as u64,
+            page_type: page_type_name.to_string(),
+            data_len: entry.data_len,
+        });
+    }
+
+    let total_data_len: u64 = pages.iter().map(|p| p.data_len as u64).sum();
+
+    Ok(Some(LobChainInfo {
+        first_page: start_page,
+        total_data_len,
+        page_count: pages.len(),
+        chain_type: "zlob".to_string(),
+        pages,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
