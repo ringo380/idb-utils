@@ -44,6 +44,8 @@ pub struct PagesOptions {
     pub deleted: bool,
     /// Output as CSV.
     pub csv: bool,
+    /// Traverse and display LOB chain details for BLOB/LOB first pages.
+    pub lob_chain: bool,
 }
 
 /// JSON-serializable detailed page info.
@@ -119,6 +121,9 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             opts.deleted,
             writer,
         )?;
+        if opts.lob_chain {
+            print_lob_chain_if_applicable(&page_data, page_num, &mut ts, writer)?;
+        }
         return Ok(());
     }
 
@@ -160,6 +165,9 @@ pub fn execute(opts: &PagesOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                 opts.deleted,
                 writer,
             )?;
+            if opts.lob_chain {
+                print_lob_chain_if_applicable(&page_data, page_num, &mut ts, writer)?;
+            }
         }
     }
 
@@ -754,6 +762,59 @@ fn print_fsp_header_detail(
         use byteorder::ByteOrder;
         let seg_id = byteorder::BigEndian::read_u64(&page0[seg_id_offset..]);
         wprintln!(writer, "First Unused Segment ID: {}", seg_id)?;
+    }
+
+    Ok(())
+}
+
+/// Print LOB chain information if the given page is a BLOB/LOB first page.
+fn print_lob_chain_if_applicable(
+    page_data: &[u8],
+    page_num: u64,
+    ts: &mut Tablespace,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    use crate::innodb::lob;
+
+    let header = match FilHeader::parse(page_data) {
+        Some(h) => h,
+        None => return Ok(()),
+    };
+
+    let is_lob_start = matches!(
+        header.page_type,
+        PageType::Blob | PageType::ZBlob | PageType::ZBlob2 | PageType::LobFirst
+    );
+
+    // Only start chain traversal from chain-start pages
+    if !is_lob_start {
+        return Ok(());
+    }
+
+    // For old-style BLOB, only start from the first page (no prev pointer
+    // indicator in the header, so we always traverse from this page forward).
+    // For LobFirst, it is by definition the first page.
+
+    match lob::walk_lob_chain(ts, page_num, 10000) {
+        Ok(Some(chain)) => {
+            wprintln!(writer)?;
+            wprintln!(
+                writer,
+                "=== LOB Chain: Page {} ({}, {} pages, {} bytes total)",
+                page_num, chain.chain_type, chain.page_count, chain.total_data_len
+            )?;
+            for (i, cp) in chain.pages.iter().enumerate() {
+                wprintln!(
+                    writer,
+                    "  [{:>3}] Page {:<8} {:.<20} {} bytes",
+                    i, cp.page_no, cp.page_type, cp.data_len
+                )?;
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            wprintln!(writer, "  LOB chain error: {}", e)?;
+        }
     }
 
     Ok(())

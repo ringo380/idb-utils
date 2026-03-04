@@ -406,6 +406,7 @@ fn test_pages_execute_succeeds() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();
@@ -437,6 +438,7 @@ fn test_pages_list_mode() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();
@@ -469,6 +471,7 @@ fn test_pages_json_output() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();
@@ -1862,6 +1865,7 @@ fn test_pages_single_page() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();
@@ -1894,6 +1898,7 @@ fn test_pages_verbose_output() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();
@@ -1932,6 +1937,7 @@ fn test_pages_show_empty() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out1 = Vec::new();
@@ -1952,6 +1958,7 @@ fn test_pages_show_empty() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out2 = Vec::new();
@@ -1990,6 +1997,7 @@ fn test_pages_filter_type() {
         mmap: false,
         deleted: false,
         csv: false,
+        lob_chain: false,
     };
 
     let mut out = Vec::new();

@@ -134,6 +134,10 @@ pub enum Commands {
         #[arg(long)]
         deleted: bool,
 
+        /// Traverse and display LOB/BLOB chain details for LOB first pages
+        #[arg(long = "lob-chain")]
+        lob_chain: bool,
+
         /// Output in JSON format
         #[arg(long)]
         json: bool,
