@@ -1321,3 +1321,45 @@ pub fn export_records(
     };
     to_json(&result)
 }
+
+// ---------------------------------------------------------------------------
+// analyze_undo — mirrors `inno undo`
+// ---------------------------------------------------------------------------
+
+/// Analyzes undo log segments in an InnoDB tablespace and returns a report as JSON.
+///
+/// Takes raw `.ibd` or `.ibu` file bytes, reads rollback segment arrays and
+/// undo segment headers, and returns per-segment details including state,
+/// transaction IDs, and record counts.
+///
+/// Returns a JSON string containing an [`UndoAnalysis`] object with fields:
+/// `rseg_slots` (array of page numbers), `rseg_headers` (array of RSEG info),
+/// `segments` (array of per-segment details), `total_transactions` (count of
+/// undo log headers), and `active_transactions` (count of ACTIVE segments).
+///
+/// Returns an error string if the input is not a valid InnoDB tablespace.
+#[wasm_bindgen]
+pub fn analyze_undo(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let analysis = crate::innodb::undo::analyze_undo_tablespace(&mut ts).map_err(to_js_err)?;
+    to_json(&analysis)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_binlog — mirrors `inno binlog`
+// ---------------------------------------------------------------------------
+
+/// Analyzes a MySQL binary log file and returns event summaries as JSON.
+///
+/// Takes raw binlog file bytes and returns format description, event type
+/// distribution, table maps, and per-event summaries.
+///
+/// Returns a JSON string containing a [`BinlogAnalysis`] object.
+///
+/// Returns an error string if the input is not a valid MySQL binary log.
+#[wasm_bindgen]
+pub fn analyze_binlog(data: &[u8]) -> Result<String, JsValue> {
+    let cursor = std::io::Cursor::new(data.to_vec());
+    let analysis = crate::binlog::analyze_binlog(cursor).map_err(to_js_err)?;
+    to_json(&analysis)
+}

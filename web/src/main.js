@@ -19,6 +19,7 @@ import { createAudit } from './components/audit.js';
 import { createHealth } from './components/health.js';
 import { createVerify } from './components/verify.js';
 import { createCompat } from './components/compat.js';
+import { createUndo } from './components/undo.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 
@@ -376,6 +377,9 @@ function renderTab() {
     case 'compat':
       createCompat(content, data);
       break;
+    case 'undo':
+      createUndo(content, data);
+      break;
     case 'redolog':
       createRedoLog(content, fileData);
       break;
@@ -394,6 +398,7 @@ function exportAll() {
   try { result.recovery = JSON.parse(wasm.assess_recovery(data)); } catch { /* skip */ }
   try { result.health = JSON.parse(wasm.analyze_health(data)); } catch { /* skip */ }
   try { result.verify = JSON.parse(wasm.verify_tablespace(data)); } catch { /* skip */ }
+  try { result.undo = JSON.parse(wasm.analyze_undo(data)); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
   downloadJson(result, `${baseName}_analysis`);
