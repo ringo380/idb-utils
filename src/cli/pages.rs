@@ -478,6 +478,39 @@ fn print_full_page(
         }
     }
 
+    // RTREE page-specific detail
+    if pt == PageType::Rtree {
+        if let Some(info) = crate::innodb::rtree::parse_rtree_page(page_data) {
+            wprintln!(writer)?;
+            wprintln!(writer, "=== RTREE Detail: Page {}", header.page_number)?;
+            wprintln!(
+                writer,
+                "Level: {} ({})",
+                info.level,
+                if info.level == 0 { "leaf" } else { "non-leaf" }
+            )?;
+            wprintln!(writer, "Records: {}", info.record_count)?;
+            wprintln!(writer, "MBRs Extracted: {}", info.mbrs.len())?;
+            if let Some(ref enc) = info.enclosing_mbr {
+                wprintln!(
+                    writer,
+                    "MBR Coverage: ({:.6}, {:.6}) \u{2014} ({:.6}, {:.6})",
+                    enc.min_x, enc.min_y, enc.max_x, enc.max_y
+                )?;
+                wprintln!(writer, "MBR Area: {:.6}", enc.area())?;
+            }
+            if verbose {
+                for (i, mbr) in info.mbrs.iter().enumerate() {
+                    wprintln!(
+                        writer,
+                        "  [{:>3}] ({:.6}, {:.6}) \u{2014} ({:.6}, {:.6})  area={:.6}",
+                        i, mbr.min_x, mbr.min_y, mbr.max_x, mbr.max_y, mbr.area()
+                    )?;
+                }
+            }
+        }
+    }
+
     // BLOB page-specific headers (old-style)
     if matches!(pt, PageType::Blob | PageType::ZBlob | PageType::ZBlob2) {
         if let Some(blob_hdr) = BlobPageHeader::parse(page_data) {

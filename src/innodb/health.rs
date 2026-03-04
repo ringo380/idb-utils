@@ -115,6 +115,19 @@ pub struct TablespaceHealth {
     pub avg_fragmentation: f64,
     /// Number of distinct indexes found.
     pub index_count: u64,
+    /// Number of RTREE (spatial index) pages.
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub rtree_pages: u64,
+    /// Number of BLOB/LOB pages.
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub lob_pages: u64,
+    /// Number of UNDO log pages.
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub undo_pages: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 /// Top-level health report for a tablespace.
@@ -333,6 +346,9 @@ pub fn analyze_health(
             avg_garbage_ratio: avg_garbage,
             avg_fragmentation: avg_frag,
             index_count: indexes.len() as u64,
+            rtree_pages: 0,
+            lob_pages: 0,
+            undo_pages: 0,
         },
         indexes,
     }

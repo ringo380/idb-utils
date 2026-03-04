@@ -55,12 +55,36 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     // Single-pass collection
     let mut snapshots = Vec::new();
     let mut empty_pages = 0u64;
+    let mut rtree_pages = 0u64;
+    let mut lob_pages = 0u64;
+    let mut undo_pages = 0u64;
 
     ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             empty_pages += 1;
         } else if let Some(snap) = health::extract_index_page_snapshot(data, page_num) {
             snapshots.push(snap);
+        }
+
+        // Count special page types
+        if let Some(fil) = crate::innodb::page::FilHeader::parse(data) {
+            use crate::innodb::page_types::PageType;
+            match fil.page_type {
+                PageType::Rtree | PageType::EncryptedRtree => rtree_pages += 1,
+                PageType::Blob
+                | PageType::ZBlob
+                | PageType::ZBlob2
+                | PageType::LobFirst
+                | PageType::LobData
+                | PageType::LobIndex
+                | PageType::ZlobFirst
+                | PageType::ZlobData
+                | PageType::ZlobFrag
+                | PageType::ZlobFragEntry
+                | PageType::ZlobIndex => lob_pages += 1,
+                PageType::UndoLog => undo_pages += 1,
+                _ => {}
+            }
         }
         Ok(())
     })?;
@@ -72,6 +96,9 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         empty_pages,
         &opts.file,
     );
+    report.summary.rtree_pages = rtree_pages;
+    report.summary.lob_pages = lob_pages;
+    report.summary.undo_pages = undo_pages;
 
     // Best-effort SDI index name resolution
     resolve_index_names(
@@ -261,6 +288,15 @@ fn print_text(
         report.summary.page_size
     )?;
     wprintln!(writer, "  Indexes:          {}", report.summary.index_count)?;
+    if report.summary.rtree_pages > 0 {
+        wprintln!(writer, "  RTREE pages:      {}", report.summary.rtree_pages)?;
+    }
+    if report.summary.lob_pages > 0 {
+        wprintln!(writer, "  LOB/BLOB pages:   {}", report.summary.lob_pages)?;
+    }
+    if report.summary.undo_pages > 0 {
+        wprintln!(writer, "  UNDO pages:       {}", report.summary.undo_pages)?;
+    }
     wprintln!(
         writer,
         "  Avg fill factor:  {:.0}%",
