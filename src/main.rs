@@ -633,6 +633,27 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Undo {
+            file,
+            page,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::undo::execute(
+            &cli::undo::UndoOptions {
+                file,
+                page,
+                verbose,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
         Commands::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "inno", &mut std::io::stdout());

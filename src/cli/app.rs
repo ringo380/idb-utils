@@ -1075,6 +1075,38 @@ pub enum Commands {
         chain: Vec<String>,
     },
 
+    /// Analyze undo tablespace files (.ibu or .ibd)
+    ///
+    /// Reads rollback segment arrays, rollback segment headers, and undo
+    /// segment pages to report transaction history and segment states.
+    /// Supports MySQL 8.0+ dedicated undo tablespaces (.ibu) and legacy
+    /// system tablespace undo logs.
+    Undo {
+        /// Path to InnoDB undo tablespace file (.ibu or .ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Show a specific undo page only
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Show additional detail including undo records
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for

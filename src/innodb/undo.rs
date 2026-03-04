@@ -551,6 +551,12 @@ impl UndoRecordType {
     }
 }
 
+impl std::fmt::Display for UndoRecordType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 /// A parsed undo record within an undo log page.
 #[derive(Debug, Clone, Serialize)]
 pub struct UndoRecord {
