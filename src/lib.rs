@@ -133,6 +133,7 @@
 //! A live web analyzer built on these bindings is available at
 //! <https://ringo380.github.io/idb-utils/>.
 
+pub mod binlog;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod innodb;
