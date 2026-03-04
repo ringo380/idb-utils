@@ -787,7 +787,7 @@ mod tests {
         // Entry 1
         BigEndian::write_u32(&mut data[24..], 5); // page_no = 5
         BigEndian::write_u32(&mut data[28..], 8000); // data_len
-        // Entry 2
+                                                     // Entry 2
         BigEndian::write_u32(&mut data[60 + 24..], 6); // page_no = 6
         BigEndian::write_u32(&mut data[60 + 28..], 4000);
         // Entry 3: FIL_NULL page_no (should be skipped)

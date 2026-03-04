@@ -3,7 +3,7 @@
 //! Covers the standard MySQL binlog event type codes and provides parsing
 //! for TABLE_MAP and row-based events (WRITE/UPDATE/DELETE ROWS v2).
 
-use byteorder::{LittleEndian, ByteOrder};
+use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 
 /// MySQL binlog event type codes.
@@ -493,7 +493,9 @@ pub fn analyze_binlog<R: Read + Seek>(mut reader: R) -> Result<BinlogAnalysis, c
             }
         }
 
-        *event_type_counts.entry(event_type.name().to_string()).or_insert(0) += 1;
+        *event_type_counts
+            .entry(event_type.name().to_string())
+            .or_insert(0) += 1;
 
         events.push(BinlogEventSummary {
             offset: position,
@@ -545,10 +547,7 @@ mod tests {
             BinlogEventType::FormatDescription
         );
         assert_eq!(BinlogEventType::from_code(19), BinlogEventType::TableMap);
-        assert_eq!(
-            BinlogEventType::from_code(30),
-            BinlogEventType::WriteRowsV2
-        );
+        assert_eq!(BinlogEventType::from_code(30), BinlogEventType::WriteRowsV2);
         assert_eq!(
             BinlogEventType::from_code(31),
             BinlogEventType::UpdateRowsV2
@@ -565,7 +564,10 @@ mod tests {
 
     #[test]
     fn test_event_type_names() {
-        assert_eq!(BinlogEventType::FormatDescription.name(), "FORMAT_DESCRIPTION");
+        assert_eq!(
+            BinlogEventType::FormatDescription.name(),
+            "FORMAT_DESCRIPTION"
+        );
         assert_eq!(BinlogEventType::TableMap.name(), "TABLE_MAP");
         assert_eq!(BinlogEventType::WriteRowsV2.name(), "WRITE_ROWS_V2");
         assert_eq!(BinlogEventType::GtidLogEvent.name(), "GTID");
@@ -597,7 +599,7 @@ mod tests {
         // column_count = 3
         data[21] = 3;
         // column types
-        data[22] = 3;  // LONG
+        data[22] = 3; // LONG
         data[23] = 15; // VARCHAR
         data[24] = 12; // DATETIME
 

@@ -47,8 +47,8 @@ pub fn execute(opts: &UndoOptions, writer: &mut dyn Write) -> Result<(), IdbErro
     let analysis = undo::analyze_undo_tablespace(&mut ts)?;
 
     if opts.json {
-        let json = serde_json::to_string_pretty(&analysis)
-            .map_err(|e| IdbError::Parse(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(&analysis).map_err(|e| IdbError::Parse(e.to_string()))?;
         wprintln!(writer, "{}", json)?;
         return Ok(());
     }
@@ -69,9 +69,8 @@ fn execute_single_page(
 ) -> Result<(), IdbError> {
     let page_data = ts.read_page(page_no)?;
 
-    let page_header = undo::UndoPageHeader::parse(&page_data).ok_or_else(|| {
-        IdbError::Parse(format!("Page {} is not an undo log page", page_no))
-    })?;
+    let page_header = undo::UndoPageHeader::parse(&page_data)
+        .ok_or_else(|| IdbError::Parse(format!("Page {} is not an undo log page", page_no)))?;
 
     let segment_header = undo::UndoSegmentHeader::parse(&page_data);
 
@@ -96,12 +95,8 @@ fn execute_single_page(
             Vec::new()
         };
 
-        let records = undo::walk_undo_records(
-            &page_data,
-            page_header.start,
-            page_header.free,
-            10000,
-        );
+        let records =
+            undo::walk_undo_records(&page_data, page_header.start, page_header.free, 10000);
 
         let output = SinglePageOutput {
             page_no,
@@ -111,8 +106,8 @@ fn execute_single_page(
             record_count: records.len(),
         };
 
-        let json = serde_json::to_string_pretty(&output)
-            .map_err(|e| IdbError::Parse(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(&output).map_err(|e| IdbError::Parse(e.to_string()))?;
         wprintln!(writer, "{}", json)?;
         return Ok(());
     }
@@ -134,26 +129,29 @@ fn execute_single_page(
                 wprintln!(
                     writer,
                     "    [{}] trx_id={} trx_no={} del_marks={} dict_trans={}",
-                    i, hdr.trx_id, hdr.trx_no, hdr.del_marks, hdr.dict_trans
+                    i,
+                    hdr.trx_id,
+                    hdr.trx_no,
+                    hdr.del_marks,
+                    hdr.dict_trans
                 )?;
             }
         }
     }
 
     if opts.verbose {
-        let records = undo::walk_undo_records(
-            &page_data,
-            page_header.start,
-            page_header.free,
-            10000,
-        );
+        let records =
+            undo::walk_undo_records(&page_data, page_header.start, page_header.free, 10000);
         wprintln!(writer)?;
         wprintln!(writer, "  Undo Records ({}):", records.len())?;
         for rec in &records {
             wprintln!(
                 writer,
                 "    offset={} type={} info_bits={} data_len={}",
-                rec.offset, rec.record_type, rec.info_bits, rec.data_len
+                rec.offset,
+                rec.record_type,
+                rec.info_bits,
+                rec.data_len
             )?;
         }
     }
@@ -177,7 +175,10 @@ fn write_text(
         wprintln!(
             writer,
             "{:<6} {:<12} {:<12} {:<12}",
-            "Slot", "Page", "History", "Active Slots"
+            "Slot",
+            "Page",
+            "History",
+            "Active Slots"
         )?;
         wprintln!(writer, "{}", "-".repeat(44))?;
 
@@ -185,7 +186,10 @@ fn write_text(
             wprintln!(
                 writer,
                 "{:<6} {:<12} {:<12} {:<12}",
-                i, rseg.page_no, rseg.history_size, rseg.active_slot_count
+                i,
+                rseg.page_no,
+                rseg.history_size,
+                rseg.active_slot_count
             )?;
         }
         wprintln!(writer)?;
@@ -201,7 +205,12 @@ fn write_text(
     wprintln!(
         writer,
         "{:<8} {:<10} {:<8} {:<8} {:<8} {:<8}",
-        "Page", "State", "Type", "Logs", "Records", "Free"
+        "Page",
+        "State",
+        "Type",
+        "Logs",
+        "Records",
+        "Free"
     )?;
     wprintln!(writer, "{}", "-".repeat(52))?;
 
@@ -221,11 +230,20 @@ fn write_text(
     // Verbose: undo log header details
     if verbose && !analysis.segments.is_empty() {
         wprintln!(writer)?;
-        wprintln!(writer, "Undo Log Headers ({} total)", analysis.total_transactions)?;
+        wprintln!(
+            writer,
+            "Undo Log Headers ({} total)",
+            analysis.total_transactions
+        )?;
         wprintln!(
             writer,
             "{:<8} {:<16} {:<16} {:<10} {:<6} {:<6}",
-            "Page", "TRX ID", "TRX No", "Del Marks", "XID", "DDL"
+            "Page",
+            "TRX ID",
+            "TRX No",
+            "Del Marks",
+            "XID",
+            "DDL"
         )?;
         wprintln!(writer, "{}", "-".repeat(64))?;
 
@@ -299,8 +317,8 @@ fn write_csv(analysis: &undo::UndoAnalysis, writer: &mut dyn Write) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use byteorder::{BigEndian, ByteOrder};
     use crate::innodb::constants::FIL_PAGE_DATA;
+    use byteorder::{BigEndian, ByteOrder};
 
     /// Build a minimal synthetic undo page for testing.
     fn build_undo_page() -> Vec<u8> {

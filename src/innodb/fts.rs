@@ -246,12 +246,14 @@ pub fn summarize_fts_files(infos: &[FtsFileInfo]) -> Vec<FtsTableSummary> {
 
     let mut summaries: Vec<FtsTableSummary> = tables
         .into_iter()
-        .map(|(tid, (idx_count, has_config, has_delete))| FtsTableSummary {
-            table_id: tid.to_string(),
-            index_count: idx_count,
-            has_config,
-            has_delete,
-        })
+        .map(
+            |(tid, (idx_count, has_config, has_delete))| FtsTableSummary {
+                table_id: tid.to_string(),
+                index_count: idx_count,
+                has_config,
+                has_delete,
+            },
+        )
         .collect();
 
     summaries.sort_by(|a, b| a.table_id.cmp(&b.table_id));
@@ -269,9 +271,7 @@ mod tests {
         ));
         assert!(is_fts_auxiliary("FTS_0000000000000437_CONFIG.ibd"));
         assert!(is_fts_auxiliary("FTS_0000000000000100_DELETED.ibd"));
-        assert!(is_fts_auxiliary(
-            "FTS_0000000000000100_BEING_DELETED.ibd"
-        ));
+        assert!(is_fts_auxiliary("FTS_0000000000000100_BEING_DELETED.ibd"));
         assert!(!is_fts_auxiliary("users.ibd"));
         assert!(!is_fts_auxiliary("FTS_bad.ibd"));
         assert!(!is_fts_auxiliary("FTS_.ibd"));
@@ -287,15 +287,9 @@ mod tests {
 
     #[test]
     fn test_parse_fts_index() {
-        let info = parse_fts_filename(
-            "FTS_0000000000000437_00000000000004a2_INDEX_3.ibd",
-        )
-        .unwrap();
+        let info = parse_fts_filename("FTS_0000000000000437_00000000000004a2_INDEX_3.ibd").unwrap();
         assert_eq!(info.table_id_hex, "0000000000000437");
-        assert_eq!(
-            info.index_id_hex,
-            Some("00000000000004a2".to_string())
-        );
+        assert_eq!(info.index_id_hex, Some("00000000000004a2".to_string()));
         assert_eq!(info.file_type, FtsFileType::Index(3));
     }
 
@@ -304,21 +298,16 @@ mod tests {
         let info = parse_fts_filename("FTS_0000000000000100_DELETED.ibd").unwrap();
         assert_eq!(info.file_type, FtsFileType::Delete);
 
-        let info =
-            parse_fts_filename("FTS_0000000000000100_DELETED_CACHE.ibd").unwrap();
+        let info = parse_fts_filename("FTS_0000000000000100_DELETED_CACHE.ibd").unwrap();
         assert_eq!(info.file_type, FtsFileType::DeleteCache);
     }
 
     #[test]
     fn test_parse_fts_being_deleted() {
-        let info =
-            parse_fts_filename("FTS_0000000000000100_BEING_DELETED.ibd").unwrap();
+        let info = parse_fts_filename("FTS_0000000000000100_BEING_DELETED.ibd").unwrap();
         assert_eq!(info.file_type, FtsFileType::BeingDeleted);
 
-        let info = parse_fts_filename(
-            "FTS_0000000000000100_BEING_DELETED_CACHE.ibd",
-        )
-        .unwrap();
+        let info = parse_fts_filename("FTS_0000000000000100_BEING_DELETED_CACHE.ibd").unwrap();
         assert_eq!(info.file_type, FtsFileType::BeingDeletedCache);
     }
 
@@ -332,10 +321,8 @@ mod tests {
 
     #[test]
     fn test_parse_fts_with_path() {
-        let info = parse_fts_filename(
-            "/var/lib/mysql/test/FTS_0000000000000437_CONFIG.ibd",
-        )
-        .unwrap();
+        let info =
+            parse_fts_filename("/var/lib/mysql/test/FTS_0000000000000437_CONFIG.ibd").unwrap();
         assert_eq!(info.table_id_hex, "0000000000000437");
         assert_eq!(info.file_type, FtsFileType::Config);
     }
@@ -350,10 +337,7 @@ mod tests {
             "FTS_0000000000000100_CONFIG.ibd",
         ];
 
-        let infos: Vec<_> = files
-            .iter()
-            .filter_map(|f| parse_fts_filename(f))
-            .collect();
+        let infos: Vec<_> = files.iter().filter_map(|f| parse_fts_filename(f)).collect();
         let summaries = summarize_fts_files(&infos);
         assert_eq!(summaries.len(), 2);
 

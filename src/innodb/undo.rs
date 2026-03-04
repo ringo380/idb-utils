@@ -610,7 +610,11 @@ pub fn walk_undo_records(
         } else {
             free_offset as usize
         };
-        let data_len = if end > offset + 3 { end - offset - 3 } else { 0 };
+        let data_len = if end > offset + 3 {
+            end - offset - 3
+        } else {
+            0
+        };
 
         records.push(UndoRecord {
             offset,
@@ -937,14 +941,8 @@ mod tests {
         BigEndian::write_u32(&mut page[base + TRX_RSEG_HISTORY_SIZE..], 42);
 
         // Write slot 0 with a page number, slot 1 with FIL_NULL
-        BigEndian::write_u32(
-            &mut page[base + TRX_RSEG_SLOTS_OFFSET..],
-            5,
-        );
-        BigEndian::write_u32(
-            &mut page[base + TRX_RSEG_SLOTS_OFFSET + 4..],
-            FIL_NULL,
-        );
+        BigEndian::write_u32(&mut page[base + TRX_RSEG_SLOTS_OFFSET..], 5);
+        BigEndian::write_u32(&mut page[base + TRX_RSEG_SLOTS_OFFSET + 4..], FIL_NULL);
 
         let hdr = RollbackSegmentHeader::parse(&page).unwrap();
         assert_eq!(hdr.max_size, 1000);

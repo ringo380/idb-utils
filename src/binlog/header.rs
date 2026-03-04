@@ -4,7 +4,7 @@
 //! followed by a Format Description Event that describes the binlog version,
 //! server version, and event header length.
 
-use byteorder::{LittleEndian, ByteOrder};
+use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 
 /// Binary log magic number bytes.

@@ -495,7 +495,10 @@ fn print_full_page(
                 wprintln!(
                     writer,
                     "MBR Coverage: ({:.6}, {:.6}) \u{2014} ({:.6}, {:.6})",
-                    enc.min_x, enc.min_y, enc.max_x, enc.max_y
+                    enc.min_x,
+                    enc.min_y,
+                    enc.max_x,
+                    enc.max_y
                 )?;
                 wprintln!(writer, "MBR Area: {:.6}", enc.area())?;
             }
@@ -504,7 +507,12 @@ fn print_full_page(
                     wprintln!(
                         writer,
                         "  [{:>3}] ({:.6}, {:.6}) \u{2014} ({:.6}, {:.6})  area={:.6}",
-                        i, mbr.min_x, mbr.min_y, mbr.max_x, mbr.max_y, mbr.area()
+                        i,
+                        mbr.min_x,
+                        mbr.min_y,
+                        mbr.max_x,
+                        mbr.max_y,
+                        mbr.area()
                     )?;
                 }
             }
@@ -834,13 +842,19 @@ fn print_lob_chain_if_applicable(
             wprintln!(
                 writer,
                 "=== LOB Chain: Page {} ({}, {} pages, {} bytes total)",
-                page_num, chain.chain_type, chain.page_count, chain.total_data_len
+                page_num,
+                chain.chain_type,
+                chain.page_count,
+                chain.total_data_len
             )?;
             for (i, cp) in chain.pages.iter().enumerate() {
                 wprintln!(
                     writer,
                     "  [{:>3}] Page {:<8} {:.<20} {} bytes",
-                    i, cp.page_no, cp.page_type, cp.data_len
+                    i,
+                    cp.page_no,
+                    cp.page_type,
+                    cp.data_len
                 )?;
             }
         }

@@ -296,11 +296,7 @@ pub fn extract_tablespace_info(
                         row_format =
                             Some(crate::innodb::schema::row_format_name(rf_code).to_string());
                         has_instant_columns = crate::innodb::schema::has_instant_columns(
-                            envelope
-                                .dd_object
-                                .se_private_data
-                                .as_deref()
-                                .unwrap_or(""),
+                            envelope.dd_object.se_private_data.as_deref().unwrap_or(""),
                         );
                     }
                 }

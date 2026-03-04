@@ -33,8 +33,8 @@ pub fn execute(opts: &BinlogOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     let analysis = crate::binlog::analyze_binlog(reader)?;
 
     if opts.json {
-        let json = serde_json::to_string_pretty(&analysis)
-            .map_err(|e| IdbError::Parse(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(&analysis).map_err(|e| IdbError::Parse(e.to_string()))?;
         wprintln!(writer, "{}", json)?;
         return Ok(());
     }
@@ -72,7 +72,11 @@ fn write_text(
     wprintln!(writer)?;
 
     // Event type summary
-    wprintln!(writer, "Event Type Summary ({} total):", analysis.event_count)?;
+    wprintln!(
+        writer,
+        "Event Type Summary ({} total):",
+        analysis.event_count
+    )?;
     let mut type_counts: Vec<_> = analysis.event_type_counts.iter().collect();
     type_counts.sort_by(|a, b| b.1.cmp(a.1));
     for (name, count) in &type_counts {
@@ -87,14 +91,13 @@ fn write_text(
             wprintln!(
                 writer,
                 "  table_id={} {}.{} ({} columns)",
-                tm.table_id, tm.database_name, tm.table_name, tm.column_count
+                tm.table_id,
+                tm.database_name,
+                tm.table_name,
+                tm.column_count
             )?;
             if opts.verbose {
-                wprintln!(
-                    writer,
-                    "    Column types: {:?}",
-                    &tm.column_types
-                )?;
+                wprintln!(writer, "    Column types: {:?}", &tm.column_types)?;
             }
         }
         wprintln!(writer)?;
@@ -109,14 +112,20 @@ fn write_text(
         wprintln!(
             writer,
             "{:<12} {:<30} {:<10} {:<12}",
-            "Position", "Type", "Size", "Timestamp"
+            "Position",
+            "Type",
+            "Size",
+            "Timestamp"
         )?;
         wprintln!(writer, "{}", "-".repeat(66))?;
         for evt in display_events {
             wprintln!(
                 writer,
                 "{:<12} {:<30} {:<10} {:<12}",
-                evt.offset, evt.event_type, evt.event_length, evt.timestamp
+                evt.offset,
+                evt.event_type,
+                evt.event_length,
+                evt.timestamp
             )?;
         }
     }
