@@ -94,12 +94,20 @@ pub fn execute(opts: &UndeleteOptions, writer: &mut dyn Write) -> Result<(), Idb
 
     // Filter by table name if requested
     if let Some(ref filter_table) = opts.table {
-        if let Some(ref table_name) = result.table_name {
-            if !table_name.eq_ignore_ascii_case(filter_table) {
-                return Err(IdbError::Argument(format!(
-                    "Table name '{}' does not match filter '{}'",
-                    table_name, filter_table
-                )));
+        match result.table_name {
+            Some(ref table_name) => {
+                if !table_name.eq_ignore_ascii_case(filter_table) {
+                    return Err(IdbError::Argument(format!(
+                        "Table name '{}' does not match filter '{}'",
+                        table_name, filter_table
+                    )));
+                }
+            }
+            None => {
+                return Err(IdbError::Argument(
+                    "Cannot filter by table name: SDI metadata not available (pre-8.0 tablespace)"
+                        .to_string(),
+                ));
             }
         }
     }
@@ -265,7 +273,7 @@ fn output_hex(writer: &mut dyn Write, result: &UndeleteScanResult) -> Result<(),
 
     for rec in &result.records {
         let source_str = match rec.source {
-            RecoverySource::DeleteMarked => "delete_mark",
+            RecoverySource::DeleteMarked => "delete_marked",
             RecoverySource::FreeList => "free_list",
             RecoverySource::UndoLog => "undo_log",
         };

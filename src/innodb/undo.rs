@@ -773,11 +773,17 @@ pub struct DetailedUndoRecord {
 /// 2. 1 byte: `type_cmpl` (lower 4 bits = type code)
 /// 3. Compressed: `undo_no`
 /// 4. Compressed: `table_id`
-/// 5. For each PK column: compressed length + raw bytes
-///    (we read 1 PK field; multi-column PKs need schema info)
-/// 6. For UPD_EXIST/DEL_MARK: 6-byte compressed `trx_id` + 7-byte `roll_ptr`
+///
+/// For UPD_EXIST/UPD_DEL/DEL_MARK (from `trx_undo_page_report_modify`):
+/// 5. 6 bytes: `trx_id` (fixed big-endian, via `mach_write_to_6`)
+/// 6. 7 bytes: `roll_ptr`
 /// 7. Update vector: compressed field count, then per-field
 ///    (compressed field_no, compressed len, raw data)
+/// 8. PK fields: for each PK column, compressed length + raw bytes
+///    (we read 1 PK field; multi-column PKs need schema info)
+///
+/// For INSERT_REC (from `trx_undo_page_report_insert`):
+/// 5. PK fields: for each PK column, compressed length + raw bytes
 pub fn parse_undo_records(page_data: &[u8]) -> Vec<DetailedUndoRecord> {
     let mut records = Vec::new();
 
@@ -832,30 +838,24 @@ pub fn parse_undo_records(page_data: &[u8]) -> Vec<DetailedUndoRecord> {
         };
         pos += consumed;
 
-        // Read one PK field: compressed length + raw bytes
-        let mut pk_fields = Vec::new();
-        if let Some((pk_len, consumed)) = read_compressed(page_data, pos) {
-            pos += consumed;
-            let pk_len = pk_len as usize;
-            if pk_len > 0 && pos + pk_len <= page_data.len() && pk_len < 8192 {
-                pk_fields.push(page_data[pos..pos + pk_len].to_vec());
-                pos += pk_len;
-            }
-        }
-
         let mut trx_id = None;
         let mut roll_ptr = None;
         let mut update_fields = Vec::new();
 
-        // For UPD_EXIST/UPD_DEL/DEL_MARK: read trx_id + roll_ptr + update vector
-        if matches!(
+        let is_modify = matches!(
             rec_type,
             UndoRecordType::UpdExistRec | UndoRecordType::UpdDelRec | UndoRecordType::DelMarkRec
-        ) {
-            // Compressed trx_id (stored as 6-byte big-endian in undo, but encoded compressed)
-            if let Some((tid, consumed)) = read_compressed(page_data, pos) {
-                trx_id = Some(tid);
-                pos += consumed;
+        );
+
+        // For UPD_EXIST/UPD_DEL/DEL_MARK: trx_id + roll_ptr + update vector come
+        // BEFORE PK fields (per trx_undo_page_report_modify in trx0rec.cc).
+        if is_modify {
+            // trx_id: fixed 6-byte big-endian (mach_write_to_6 / mach_read_from_6)
+            if pos + 6 <= page_data.len() {
+                let mut buf = [0u8; 8];
+                buf[2..8].copy_from_slice(&page_data[pos..pos + 6]);
+                trx_id = Some(BigEndian::read_u64(&buf));
+                pos += 6;
             }
 
             // 7-byte roll_ptr
@@ -900,6 +900,19 @@ pub fn parse_undo_records(page_data: &[u8]) -> Vec<DetailedUndoRecord> {
                         break;
                     }
                 }
+            }
+        }
+
+        // PK fields: for all record types, compressed length + raw bytes
+        // (for INSERT_REC this comes right after table_id; for modify types,
+        // after the update vector)
+        let mut pk_fields = Vec::new();
+        if let Some((pk_len, consumed)) = read_compressed(page_data, pos) {
+            pos += consumed;
+            let pk_len = pk_len as usize;
+            if pk_len > 0 && pos + pk_len <= page_data.len() && pk_len < 8192 {
+                pk_fields.push(page_data[pos..pos + pk_len].to_vec());
+                let _ = pk_len; // pos not needed after this point
             }
         }
 
@@ -1568,16 +1581,16 @@ mod tests {
         page[pos] = 7;
         pos += 1;
 
-        // PK field: length=2, data=[0x00, 0x05]
-        page[pos] = 2;
-        pos += 1;
-        page[pos] = 0x00;
-        page[pos + 1] = 0x05;
-        pos += 2;
+        // For DEL_MARK_REC: trx_id + roll_ptr + update_vector come BEFORE PK fields
 
-        // trx_id = 100 (compressed)
-        page[pos] = 100;
-        pos += 1;
+        // trx_id = 100 (fixed 6-byte big-endian via mach_write_to_6)
+        page[pos] = 0;
+        page[pos + 1] = 0;
+        page[pos + 2] = 0;
+        page[pos + 3] = 0;
+        page[pos + 4] = 0;
+        page[pos + 5] = 100;
+        pos += 6;
 
         // roll_ptr = 7 bytes
         for i in 0..7 {
@@ -1587,6 +1600,13 @@ mod tests {
 
         // update vector: 0 fields
         page[pos] = 0;
+        pos += 1;
+
+        // PK field: length=2, data=[0x00, 0x05]
+        page[pos] = 2;
+        pos += 1;
+        page[pos] = 0x00;
+        page[pos + 1] = 0x05;
 
         let records = parse_undo_records(&page);
         assert_eq!(records.len(), 1);

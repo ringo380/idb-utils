@@ -33,6 +33,7 @@ use crate::IdbError;
 
 /// Source of a recovered record.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RecoverySource {
     /// Record still in active chain with delete_mark=1.
     DeleteMarked,
@@ -195,15 +196,10 @@ pub fn scan_free_list_records(
             None => break,
         };
 
-        // Skip system records
+        // Infimum/supremum should never appear in the free list — if we
+        // encounter one, the page is corrupt or the offset is wrong.
         if matches!(hdr.rec_type, RecordType::Infimum | RecordType::Supremum) {
-            // Follow next
-            let next_rel = hdr.next_offset;
-            if next_rel == 0 {
-                break;
-            }
-            offset = (offset as i64 + next_rel as i64) as usize;
-            continue;
+            break;
         }
 
         // Attempt field decoding at this offset
@@ -697,7 +693,7 @@ mod tests {
     #[test]
     fn test_recovery_source_serialization() {
         let json = serde_json::to_string(&RecoverySource::DeleteMarked).unwrap();
-        assert_eq!(json, "\"DeleteMarked\"");
+        assert_eq!(json, "\"delete_marked\"");
     }
 
     #[test]
@@ -728,7 +724,7 @@ mod tests {
             raw_hex: None,
         };
         let json = serde_json::to_string(&rec).unwrap();
-        assert!(json.contains("\"FreeList\""));
+        assert!(json.contains("\"free_list\""));
         assert!(json.contains("\"confidence\":0.7"));
         assert!(!json.contains("raw_hex")); // skip_serializing_if
     }
