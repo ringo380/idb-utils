@@ -1413,3 +1413,102 @@ pub fn analyze_binlog(data: &[u8]) -> Result<String, JsValue> {
     let analysis = crate::binlog::analyze_binlog(cursor).map_err(to_js_err)?;
     to_json(&analysis)
 }
+
+// ---------------------------------------------------------------------------
+// scan_deleted_records — mirrors `inno undelete`
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct DeletedRecordResult {
+    table_name: Option<String>,
+    columns: Vec<String>,
+    records: Vec<DeletedRecordEntry>,
+    summary: DeletedRecordSummary,
+}
+
+#[derive(Serialize)]
+struct DeletedRecordEntry {
+    source: String,
+    confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trx_id: Option<u64>,
+    page_number: u64,
+    offset: usize,
+    values: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct DeletedRecordSummary {
+    total: usize,
+    delete_marked: usize,
+    free_list: usize,
+}
+
+/// Scan for deleted (recoverable) records in a tablespace.
+///
+/// Returns a JSON string containing recovered records from delete-marked
+/// and free-list sources. Undo log scanning is not available in WASM
+/// (requires a second file).
+///
+/// `page_num` controls which pages to scan:
+/// - `-1` (as BigInt) scans all pages
+/// - Any other value scans only that specific page
+///
+/// Returns `"null"` for pre-8.0 tablespaces without SDI metadata.
+#[wasm_bindgen]
+pub fn scan_deleted_records(data: &[u8], page_num: i64) -> Result<String, JsValue> {
+    use crate::innodb::undelete::{scan_deleted_from_bytes, RecoverySource};
+
+    let target_page: Option<u64> = if page_num < 0 {
+        None
+    } else {
+        Some(page_num as u64)
+    };
+
+    let scan_result = scan_deleted_from_bytes(data, target_page).map_err(to_js_err)?;
+
+    let scan_result = match scan_result {
+        Some(r) => r,
+        None => return Ok("null".to_string()),
+    };
+
+    let records: Vec<DeletedRecordEntry> = scan_result
+        .records
+        .iter()
+        .map(|rec| {
+            let source = match rec.source {
+                RecoverySource::DeleteMarked => "delete_marked",
+                RecoverySource::FreeList => "free_list",
+                RecoverySource::UndoLog => "undo_log",
+            };
+
+            let values: Vec<serde_json::Value> = rec
+                .columns
+                .iter()
+                .map(|(_, val)| crate::innodb::undelete::field_value_to_json(val))
+                .collect();
+
+            DeletedRecordEntry {
+                source: source.to_string(),
+                confidence: rec.confidence,
+                trx_id: rec.trx_id,
+                page_number: rec.page_number,
+                offset: rec.offset,
+                values,
+            }
+        })
+        .collect();
+
+    let result = DeletedRecordResult {
+        table_name: scan_result.table_name,
+        columns: scan_result.column_names,
+        summary: DeletedRecordSummary {
+            total: scan_result.summary.total,
+            delete_marked: scan_result.summary.delete_marked,
+            free_list: scan_result.summary.free_list,
+        },
+        records,
+    };
+
+    to_json(&result)
+}

@@ -54,6 +54,7 @@ pub mod rtree;
 pub mod schema;
 pub mod sdi;
 pub mod tablespace;
+pub mod undelete;
 pub mod undo;
 pub mod validate;
 pub mod vendor;

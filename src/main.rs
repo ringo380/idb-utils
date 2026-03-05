@@ -674,6 +674,36 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Undelete {
+            file,
+            undo_file,
+            table,
+            min_trx_id,
+            confidence,
+            format,
+            verbose,
+            page,
+            json,
+            page_size,
+            keyring,
+        } => cli::undelete::execute(
+            &cli::undelete::UndeleteOptions {
+                file,
+                undo_file,
+                table,
+                min_trx_id,
+                confidence,
+                format,
+                json: json || global_format == OutputFormat::Json,
+                verbose,
+                page,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+            },
+            &mut writer,
+        ),
+
         Commands::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "inno", &mut std::io::stdout());

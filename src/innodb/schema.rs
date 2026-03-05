@@ -84,6 +84,9 @@ pub struct DdTable {
     /// Storage engine private data (e.g., "instant_col=3;version_added=1;").
     #[serde(default)]
     pub se_private_data: Option<String>,
+    /// InnoDB internal table ID (from `se_private_id` in the data dictionary).
+    #[serde(default)]
+    pub se_private_id: u64,
 }
 
 /// Data dictionary column definition.

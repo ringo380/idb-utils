@@ -76,6 +76,7 @@ pub mod sdi;
 pub mod transplant;
 pub mod tsid;
 pub mod undo;
+pub mod undelete;
 pub mod validate;
 pub mod verify;
 pub mod watch;
