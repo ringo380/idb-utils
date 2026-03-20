@@ -18,7 +18,7 @@ use super::header::{FormatDescriptionEvent, RotateEvent};
 
 /// MySQL binary log event type codes.
 ///
-/// Covers all event types from MySQL 5.0 through 9.x (41 named variants).
+/// Covers all event types from MySQL 5.0 through 9.x (42 named variants).
 /// Unrecognized type codes are preserved in the `Unknown(u8)` variant
 /// for forward compatibility.
 ///

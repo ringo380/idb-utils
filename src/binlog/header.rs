@@ -7,11 +7,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 
-/// Binary log magic number bytes.
-pub const BINLOG_MAGIC: [u8; 4] = [0xfe, 0x62, 0x69, 0x6e];
-
-/// Standard binlog event header size (v4 format).
-pub const BINLOG_EVENT_HEADER_SIZE: usize = 19;
+use super::constants::{BINLOG_MAGIC, COMMON_HEADER_SIZE};
 
 /// Validate that the first 4 bytes match the binlog magic number.
 ///
@@ -70,7 +66,7 @@ pub struct BinlogEventHeader {
 impl BinlogEventHeader {
     /// Parse a binlog event header from at least 19 bytes.
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < BINLOG_EVENT_HEADER_SIZE {
+        if data.len() < COMMON_HEADER_SIZE {
             return None;
         }
 

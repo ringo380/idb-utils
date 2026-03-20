@@ -263,9 +263,8 @@ pub struct BinlogAnalysis {
     pub events: Vec<BinlogEventSummary>,
 }
 
-use crate::binlog::header::{
-    validate_binlog_magic, BinlogEventHeader, FormatDescriptionEvent, BINLOG_EVENT_HEADER_SIZE,
-};
+use crate::binlog::constants::COMMON_HEADER_SIZE;
+use crate::binlog::header::{validate_binlog_magic, BinlogEventHeader, FormatDescriptionEvent};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Analyze a binary log file from a reader.
@@ -297,9 +296,9 @@ pub fn analyze_binlog<R: Read + Seek>(mut reader: R) -> Result<BinlogAnalysis, c
     let mut format_desc = None;
 
     let mut position = 4u64;
-    let mut header_buf = vec![0u8; BINLOG_EVENT_HEADER_SIZE];
+    let mut header_buf = vec![0u8; COMMON_HEADER_SIZE];
 
-    while position + BINLOG_EVENT_HEADER_SIZE as u64 <= file_size {
+    while position + COMMON_HEADER_SIZE as u64 <= file_size {
         if reader.read_exact(&mut header_buf).is_err() {
             break;
         }
@@ -309,11 +308,11 @@ pub fn analyze_binlog<R: Read + Seek>(mut reader: R) -> Result<BinlogAnalysis, c
             None => break,
         };
 
-        if hdr.event_length < BINLOG_EVENT_HEADER_SIZE as u32 {
+        if hdr.event_length < COMMON_HEADER_SIZE as u32 {
             break;
         }
 
-        let data_len = hdr.event_length as usize - BINLOG_EVENT_HEADER_SIZE;
+        let data_len = hdr.event_length as usize - COMMON_HEADER_SIZE;
         let mut event_data = vec![0u8; data_len];
         if reader.read_exact(&mut event_data).is_err() {
             break;
@@ -498,7 +497,7 @@ mod tests {
 
         // Build FDE event
         let fde_data_len = 100usize;
-        let fde_event_len = (BINLOG_EVENT_HEADER_SIZE + fde_data_len) as u32;
+        let fde_event_len = (COMMON_HEADER_SIZE + fde_data_len) as u32;
 
         let mut fde_header = vec![0u8; 19];
         LittleEndian::write_u32(&mut fde_header[0..], 1700000000); // timestamp

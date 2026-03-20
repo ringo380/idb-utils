@@ -347,7 +347,7 @@ mod tests {
         let ver = b"8.0.35";
         fde_payload[2..2 + ver.len()].copy_from_slice(ver);
         LittleEndian::write_u32(&mut fde_payload[52..], 1_700_000_000); // create_timestamp
-        fde_payload[56] = 19; // common_header_length
+        fde_payload[56] = 19; // header_length
         fde_payload[57] = 0; // one post-header-length entry
         fde_payload[58] = BINLOG_CHECKSUM_ALG_CRC32; // checksum algo
 
