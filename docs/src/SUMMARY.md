@@ -64,6 +64,14 @@
 - [Binary Log Parsing](guides/binlog-parsing.md)
 - [Spatial & FTS Indexes](guides/spatial-fts-indexes.md)
 
+# Internals
+
+- [Undo Log Structure](internals/undo.md)
+- [LOB/BLOB Chain Formats](internals/lob.md)
+- [Binary Log Format](internals/binlog.md)
+- [R-Tree Spatial Indexes](internals/spatial.md)
+- [Full-Text Search Auxiliary Tables](internals/fts.md)
+
 # Reference
 
 - [Page Types](reference/page-types.md)

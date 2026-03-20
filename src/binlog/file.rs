@@ -347,7 +347,7 @@ mod tests {
         let ver = b"8.0.35";
         fde_payload[2..2 + ver.len()].copy_from_slice(ver);
         LittleEndian::write_u32(&mut fde_payload[52..], 1_700_000_000); // create_timestamp
-        fde_payload[56] = 19; // common_header_length
+        fde_payload[56] = 19; // header_length
         fde_payload[57] = 0; // one post-header-length entry
         fde_payload[58] = BINLOG_CHECKSUM_ALG_CRC32; // checksum algo
 
@@ -433,7 +433,7 @@ mod tests {
         let fde = binlog.format_description().unwrap();
         assert_eq!(fde.binlog_version, 4);
         assert_eq!(fde.server_version, "8.0.35");
-        assert_eq!(fde.common_header_length, 19);
+        assert_eq!(fde.header_length, 19);
     }
 
     #[test]

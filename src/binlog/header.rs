@@ -7,11 +7,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 
-/// Binary log magic number bytes.
-pub const BINLOG_MAGIC: [u8; 4] = [0xfe, 0x62, 0x69, 0x6e];
-
-/// Standard binlog event header size (v4 format).
-pub const BINLOG_EVENT_HEADER_SIZE: usize = 19;
+use super::constants::{BINLOG_MAGIC, COMMON_HEADER_SIZE};
 
 /// Validate that the first 4 bytes match the binlog magic number.
 ///
@@ -70,7 +66,7 @@ pub struct BinlogEventHeader {
 impl BinlogEventHeader {
     /// Parse a binlog event header from at least 19 bytes.
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < BINLOG_EVENT_HEADER_SIZE {
+        if data.len() < COMMON_HEADER_SIZE {
             return None;
         }
 
@@ -128,6 +124,11 @@ pub struct FormatDescriptionEvent {
 }
 
 impl FormatDescriptionEvent {
+    /// Whether CRC-32 event checksums are enabled (checksum_alg == CRC32).
+    pub fn has_checksum(&self) -> bool {
+        self.checksum_alg == 1
+    }
+
     /// Parse a Format Description Event from the event data (after the 19-byte common header).
     pub fn parse(data: &[u8]) -> Option<Self> {
         // Minimum: 2 (version) + 50 (server_version) + 4 (timestamp) + 1 (header_length) = 57
@@ -170,6 +171,50 @@ impl FormatDescriptionEvent {
             create_timestamp,
             header_length,
             checksum_alg,
+        })
+    }
+}
+
+/// Parsed ROTATE_EVENT (type 4).
+///
+/// Signals rotation to the next binary log file.
+///
+/// # Examples
+///
+/// ```
+/// use idb::binlog::header::RotateEvent;
+/// use byteorder::{LittleEndian, ByteOrder};
+///
+/// let mut buf = vec![0u8; 24];
+/// LittleEndian::write_u64(&mut buf[0..], 4); // position
+/// buf[8..].copy_from_slice(b"mysql-bin.000002");
+///
+/// let re = RotateEvent::parse(&buf).unwrap();
+/// assert_eq!(re.position, 4);
+/// assert_eq!(re.next_filename, "mysql-bin.000002");
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct RotateEvent {
+    /// Position in the next binlog file to start reading from.
+    pub position: u64,
+    /// Filename of the next binlog file.
+    pub next_filename: String,
+}
+
+impl RotateEvent {
+    /// Parse a ROTATE_EVENT from the event payload (after the 19-byte common header).
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < 8 {
+            return None;
+        }
+        let position = LittleEndian::read_u64(&data[0..]);
+        let next_filename = std::str::from_utf8(&data[8..])
+            .unwrap_or("")
+            .trim_end_matches('\0')
+            .to_string();
+        Some(RotateEvent {
+            position,
+            next_filename,
         })
     }
 }

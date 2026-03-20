@@ -91,6 +91,20 @@ pub const STOP_EVENT: u8 = 3;
 pub const ROTATE_EVENT: u8 = 4;
 /// Integer session variable.
 pub const INTVAR_EVENT: u8 = 5;
+/// LOAD DATA INFILE event (deprecated).
+pub const LOAD_EVENT: u8 = 6;
+/// Slave event (internal replication, deprecated).
+pub const SLAVE_EVENT: u8 = 7;
+/// Create file for LOAD DATA (deprecated).
+pub const CREATE_FILE_EVENT: u8 = 8;
+/// Append block for LOAD DATA (deprecated).
+pub const APPEND_BLOCK_EVENT: u8 = 9;
+/// Execute LOAD DATA (deprecated).
+pub const EXEC_LOAD_EVENT: u8 = 10;
+/// Delete file for LOAD DATA (deprecated).
+pub const DELETE_FILE_EVENT: u8 = 11;
+/// New LOAD DATA INFILE event (deprecated).
+pub const NEW_LOAD_EVENT: u8 = 12;
 /// Random seed event for RAND().
 pub const RAND_EVENT: u8 = 13;
 /// User-defined variable event.
@@ -99,8 +113,18 @@ pub const USER_VAR_EVENT: u8 = 14;
 pub const FORMAT_DESCRIPTION_EVENT: u8 = 15;
 /// XA transaction commit event (contains XID).
 pub const XID_EVENT: u8 = 16;
+/// Begin LOAD QUERY event.
+pub const BEGIN_LOAD_QUERY_EVENT: u8 = 17;
+/// Execute LOAD QUERY event.
+pub const EXECUTE_LOAD_QUERY_EVENT: u8 = 18;
 /// Table map event (row-based replication).
 pub const TABLE_MAP_EVENT: u8 = 19;
+/// Pre-GA write rows event.
+pub const PRE_GA_WRITE_ROWS_EVENT: u8 = 20;
+/// Pre-GA update rows event.
+pub const PRE_GA_UPDATE_ROWS_EVENT: u8 = 21;
+/// Pre-GA delete rows event.
+pub const PRE_GA_DELETE_ROWS_EVENT: u8 = 22;
 /// Write (INSERT) rows event, v1 format.
 pub const WRITE_ROWS_EVENT_V1: u8 = 23;
 /// Update rows event, v1 format.
@@ -111,6 +135,14 @@ pub const DELETE_ROWS_EVENT_V1: u8 = 25;
 pub const WRITE_ROWS_EVENT: u8 = 30;
 /// Update rows event, v2 format (MySQL 5.6+).
 pub const UPDATE_ROWS_EVENT: u8 = 31;
+/// Incident event.
+pub const INCIDENT_EVENT: u8 = 26;
+/// Heartbeat log event.
+pub const HEARTBEAT_LOG_EVENT: u8 = 27;
+/// Ignorable log event.
+pub const IGNORABLE_LOG_EVENT: u8 = 28;
+/// Rows query log event.
+pub const ROWS_QUERY_LOG_EVENT: u8 = 29;
 /// Delete rows event, v2 format (MySQL 5.6+).
 pub const DELETE_ROWS_EVENT: u8 = 32;
 /// GTID event (MySQL 5.6+).
@@ -119,6 +151,18 @@ pub const GTID_LOG_EVENT: u8 = 33;
 pub const ANONYMOUS_GTID_LOG_EVENT: u8 = 34;
 /// Previous GTIDs event (MySQL 5.6+).
 pub const PREVIOUS_GTIDS_LOG_EVENT: u8 = 35;
+/// Transaction context event (MySQL Group Replication).
+pub const TRANSACTION_CONTEXT_EVENT: u8 = 36;
+/// View change event (MySQL Group Replication).
+pub const VIEW_CHANGE_EVENT: u8 = 37;
+/// XA prepare log event.
+pub const XA_PREPARE_LOG_EVENT: u8 = 38;
+/// Partial update rows event (MySQL 8.0+).
+pub const PARTIAL_UPDATE_ROWS_EVENT: u8 = 39;
+/// Transaction payload event (MySQL 8.0.20+).
+pub const TRANSACTION_PAYLOAD_EVENT: u8 = 40;
+/// Heartbeat v2 event (MySQL 8.0.26+).
+pub const HEARTBEAT_LOG_EVENT_V2: u8 = 41;
 
 // ---------------------------------------------------------------------------
 // Event flags
