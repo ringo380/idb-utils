@@ -9,7 +9,7 @@ use crate::innodb::compression;
 use crate::innodb::encryption;
 use crate::innodb::health::compute_fill_factor;
 use crate::innodb::index::{FsegHeader, IndexHeader, SystemRecords};
-use crate::innodb::lob::{BlobPageHeader, LobFirstPageHeader};
+use crate::innodb::lob::{BlobPageHeader, LobChainInfo, LobFirstPageHeader};
 use crate::innodb::page::{FilHeader, FspHeader};
 use crate::innodb::page_types::PageType;
 use crate::innodb::record::walk_compact_records;
@@ -69,6 +69,8 @@ struct PageDetailJson {
     total_record_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delete_marked_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lob_chain: Option<LobChainInfo>,
 }
 
 /// Perform deep structural analysis of pages in an InnoDB tablespace.
@@ -181,10 +183,17 @@ fn execute_csv(
     page_size: u32,
     writer: &mut dyn Write,
 ) -> Result<(), IdbError> {
-    wprintln!(
-        writer,
-        "page_number,page_type,byte_start,index_id,fill_factor"
-    )?;
+    if opts.lob_chain {
+        wprintln!(
+            writer,
+            "page_number,page_type,byte_start,index_id,fill_factor,lob_chain_type,lob_chain_pages,lob_chain_total_bytes"
+        )?;
+    } else {
+        wprintln!(
+            writer,
+            "page_number,page_type,byte_start,index_id,fill_factor"
+        )?;
+    }
 
     let range: Box<dyn Iterator<Item = u64>> = if let Some(p) = opts.page {
         Box::new(std::iter::once(p))
@@ -225,15 +234,49 @@ fn execute_csv(
             (None, None)
         };
 
-        wprintln!(
-            writer,
-            "{},{},{},{},{}",
-            page_num,
-            crate::cli::csv_escape(pt.name()),
-            byte_start,
-            index_id.map(|id| id.to_string()).unwrap_or_default(),
-            fill_factor.unwrap_or_default()
-        )?;
+        if opts.lob_chain {
+            let (lob_type, lob_pages, lob_bytes) = if matches!(
+                pt,
+                PageType::Blob
+                    | PageType::ZBlob
+                    | PageType::ZBlob2
+                    | PageType::LobFirst
+                    | PageType::ZlobFirst
+            ) {
+                match crate::innodb::lob::walk_lob_chain(ts, page_num, 10000) {
+                    Ok(Some(chain)) => (
+                        chain.chain_type,
+                        chain.page_count.to_string(),
+                        chain.total_data_len.to_string(),
+                    ),
+                    _ => (String::new(), String::new(), String::new()),
+                }
+            } else {
+                (String::new(), String::new(), String::new())
+            };
+            wprintln!(
+                writer,
+                "{},{},{},{},{},{},{},{}",
+                page_num,
+                crate::cli::csv_escape(pt.name()),
+                byte_start,
+                index_id.map(|id| id.to_string()).unwrap_or_default(),
+                fill_factor.unwrap_or_default(),
+                crate::cli::csv_escape(&lob_type),
+                lob_pages,
+                lob_bytes
+            )?;
+        } else {
+            wprintln!(
+                writer,
+                "{},{},{},{},{}",
+                page_num,
+                crate::cli::csv_escape(pt.name()),
+                byte_start,
+                index_id.map(|id| id.to_string()).unwrap_or_default(),
+                fill_factor.unwrap_or_default()
+            )?;
+        }
     }
     Ok(())
 }
@@ -304,6 +347,22 @@ fn execute_json(
             None
         };
 
+        let lob_chain = if opts.lob_chain
+            && matches!(
+                pt,
+                PageType::Blob
+                    | PageType::ZBlob
+                    | PageType::ZBlob2
+                    | PageType::LobFirst
+                    | PageType::ZlobFirst
+            ) {
+            crate::innodb::lob::walk_lob_chain(ts, page_num, 10000)
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
         pages.push(PageDetailJson {
             page_number: page_num,
             page_type_name: pt.name().to_string(),
@@ -317,6 +376,7 @@ fn execute_json(
             delete_marked_count,
             total_record_count,
             delete_marked_pct,
+            lob_chain,
         });
     }
 

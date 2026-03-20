@@ -195,6 +195,7 @@ struct PageAnalysis {
     blob_header: Option<BlobPageHeader>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lob_header: Option<LobFirstPageHeader>,
+    is_lob_start: bool,
 }
 
 #[derive(Serialize)]
@@ -296,6 +297,15 @@ pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
             None
         };
 
+        let is_lob_start = matches!(
+            hdr.page_type,
+            PageType::Blob
+                | PageType::ZBlob
+                | PageType::ZBlob2
+                | PageType::LobFirst
+                | PageType::ZlobFirst
+        );
+
         results.push(PageAnalysis {
             page_number: pn,
             header: header_to_json(&hdr),
@@ -307,10 +317,24 @@ pub fn analyze_pages(data: &[u8], page_num: i64) -> Result<String, JsValue> {
             undo_segment_header,
             blob_header,
             lob_header,
+            is_lob_start,
         });
     }
 
     to_json(&results)
+}
+
+// ---------------------------------------------------------------------------
+// analyze_lob_chain — walk LOB chain from a given start page
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn analyze_lob_chain(data: &[u8], page_no: i64) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    match crate::innodb::lob::walk_lob_chain(&mut ts, page_no as u64, 10000).map_err(to_js_err)? {
+        Some(chain) => to_json(&chain),
+        None => Ok("null".to_string()),
+    }
 }
 
 // ---------------------------------------------------------------------------
