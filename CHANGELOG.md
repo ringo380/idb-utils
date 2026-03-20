@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-03-20
+
+### Added
+
+- **`inno undo` subcommand** — Analyze undo tablespace files (`.ibu` or `.ibd`) for rollback segment structure, segment states, transaction history, and undo record walking. Supports text, JSON, and verbose output modes. Library: `UndoAnalysis`, `RollbackSegmentHeader`, `UndoSegmentInfo`, `analyze_undo_tablespace()` in `src/innodb/undo.rs`. (Closes #127, #128, #129, #130; Epic #123)
+- **`inno undelete` subcommand** — Recover deleted records from InnoDB tablespace files using three strategies: delete-marked records (confidence 1.0), free-list scanning (0.2–0.7), and undo log reconstruction (0.1–0.3). Output formats: CSV, JSON, SQL, hex. `--undo-file` enables undo log scanning. `--confidence` filters by minimum reliability threshold. Library: `scan_undeleted()`, `RecoverySource`, `UndeletedRecord`, `UndeleteScanResult` in `src/innodb/undelete.rs`. (Closes #142 partial)
+- **`inno binlog` subcommand** — Parse and analyze MySQL binary log files. Displays event listing with timestamps, types, server IDs, and checksums. Supports text and JSON output. Library: `src/binlog/` module with 6 submodules — `constants.rs`, `event.rs` (42-variant `BinlogEventType` enum), `events.rs` (`TableMapEvent`, `RowsEvent`, `analyze_binlog`), `header.rs` (`FormatDescriptionEvent`, `RotateEvent`), `file.rs` (`BinlogFile` reader with FDE bootstrap and CRC auto-detection), `checksum.rs` (CRC-32C validation). All little-endian parsing. (Closes #134, #135, #136, #137; Epic #125)
+- **`inno pages --lob-chain`** — LOB/BLOB chain traversal for large object inspection. Follows LOB first pages through their page chains, reporting chain length, total size, and compression status. Library: `LobChainInfo` in `src/innodb/lob.rs`. (Closes #131, #132, #133; Epic #124)
+- **R-Tree spatial index analysis** — Library support for parsing InnoDB R-Tree index pages used by spatial indexes (`SPATIAL KEY`). `src/innodb/rtree.rs` with `RTreeAnalysis`, minimum bounding rectangle extraction, and tree statistics. (Closes #138, #139, #140, #141; Epic #126)
+- **ZSTD page decompression** — `ruzstd` integration for decompressing pages in MySQL 8.0.14+ tablespaces using ZSTD compression. (Closes #142)
+- **Instant column detection** — `inno compat` now detects instant-added columns (MySQL 8.0.12+ `ALGORITHM=INSTANT` DDL) and flags potential compatibility issues during version upgrades. (Closes #143)
+- **WASM `analyze_undo()` binding** — Undo tablespace analysis from in-memory bytes for the web UI.
+- **WASM `analyze_binlog()` binding** — Binary log analysis from in-memory bytes for the web UI.
+- **WASM `analyze_lob_chain()` binding** — LOB chain traversal from in-memory bytes with `is_lob_start` flag on `PageAnalysis`.
+- **WASM `analyze_rtree()` binding** — R-Tree spatial index analysis from in-memory bytes for the web UI.
+- **WASM `scan_deleted_records()` binding** — Deleted record scanning from in-memory bytes for the web UI. Returns `null` for pre-8.0 tablespaces.
+- **Web UI Undo tab** — Rollback segment analysis dashboard with segment state visualization and undo record listing.
+- **Web UI Undelete tab** — Deleted record recovery interface with confidence slider, sortable results table, and CSV/JSON/SQL download.
+- **Web UI Binlog tab** — Binary log event listing and analysis with event type filtering.
+- **Web UI Spatial tab** — R-Tree spatial index visualization.
+- **Web UI LOB chain panel** — Interactive LOB chain inspector in the Pages tab for large object page chains.
+- **Documentation** — 5 new internals chapters (Undo Log Structure, LOB/BLOB Chain Formats, Binary Log Format, R-Tree Spatial Indexes, Full-Text Search Auxiliary Tables) and 4 new guides (Undo Log Analysis, LOB Chain Traversal, Binary Log Parsing, Spatial & FTS Indexes). CLI reference for `undelete`. (Closes #144)
+
+### Changed
+
+- Unified `BinlogEventType` enum — merged two conflicting enum definitions into a single 42-variant enum in `src/binlog/event.rs`. (PR #195)
+
+### Security
+
+- Updated `lz4_flex` dependency to address security advisory. (#193, #194)
+
 ## [4.0.2] - 2026-03-02
 
 ### Changed

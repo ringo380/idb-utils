@@ -32,6 +32,7 @@
 - [validate](cli/validate.md)
 - [undo](cli/undo.md)
 - [binlog](cli/binlog.md)
+- [undelete](cli/undelete.md)
 
 # Library API
 
