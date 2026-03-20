@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar, downloadJson, downloadText } from '../utils/export.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
+import { trackFeatureUse, trackExport } from '../utils/analytics.js';
 
 /**
  * Create the undelete tab for a single tablespace file.
@@ -129,6 +130,7 @@ export function createUndelete(container, fileData) {
   slider.addEventListener('input', () => {
     minConfidence = parseInt(slider.value, 10) / 100;
     confLabel.textContent = minConfidence.toFixed(2);
+    trackFeatureUse('undelete_confidence', { value: minConfidence });
     renderTable();
   });
 
@@ -166,6 +168,7 @@ function addDownloadButtons(bar, result, columns) {
           ? '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(',')
     );
+    trackExport('csv', 'undelete');
     downloadText(csvLines.join('\n'), 'undelete.csv');
   });
 
@@ -174,6 +177,7 @@ function addDownloadButtons(bar, result, columns) {
   jsonBtn.className = 'px-3 py-1.5 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs';
   jsonBtn.textContent = 'Download JSON';
   jsonBtn.addEventListener('click', () => {
+    trackExport('json', 'undelete');
     downloadJson(result, 'undelete');
   });
 
@@ -182,6 +186,7 @@ function addDownloadButtons(bar, result, columns) {
   sqlBtn.className = 'px-3 py-1.5 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs';
   sqlBtn.textContent = 'Download SQL';
   sqlBtn.addEventListener('click', () => {
+    trackExport('sql', 'undelete');
     const tableName = result.table_name || 'unknown_table';
     const colList = columns.join(', ');
     const lines = result.records.map(r => {

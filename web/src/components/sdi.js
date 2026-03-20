@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 export function createSdi(container, fileData) {
   const wasm = getWasm();
@@ -51,7 +52,7 @@ export function createSdi(container, fileData) {
     });
   });
 
-  container.querySelector('#sdi-expand-all').addEventListener('click', () => {
+  container.querySelector('#sdi-expand-all').addEventListener('click', () => { trackFeatureUse('sdi_expand_all');
     container.querySelectorAll('[id^="sdi-body-"]').forEach((el) => el.classList.remove('hidden'));
     container.querySelectorAll('.sdi-toggle').forEach((b) => (b.textContent = '-'));
   });

@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const PAGE_COLORS = {
   'INDEX': '#3b82f6',
@@ -310,6 +311,7 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
   // Color mode selector
   modeSelect.addEventListener('change', () => {
     colorMode = modeSelect.value;
+    trackFeatureUse('heatmap_mode', { mode: colorMode });
     if (colorMode === 'checksum') loadChecksums();
     updateLegend();
     requestAnimationFrame(render);
@@ -406,6 +408,7 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
   const tlTooltip = container.querySelector('#lsn-timeline-tooltip');
   const tlCtx = tlCanvas.getContext('2d');
   let tlVisible = false;
+  tlToggle.addEventListener('click', () => { trackFeatureUse('lsn_timeline_toggle'); });
 
   // Filter out pages with LSN === 0 for the scatter plot
   const tlPages = pages.filter(p => p.lsn > 0);

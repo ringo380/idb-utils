@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 /**
  * Create the undo tab for a single tablespace file.
@@ -73,6 +74,7 @@ export function createUndo(container, fileData) {
       const detailRow = tr.nextElementSibling;
       if (detailRow && detailRow.classList.contains('segment-detail')) {
         detailRow.classList.toggle('hidden');
+        trackFeatureUse('undo_segment_expand');
       }
     });
   });

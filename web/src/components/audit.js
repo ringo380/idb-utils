@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { renderIndexTable } from '../utils/health-ui.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 /**
  * Create the audit dashboard, analyzing multiple .ibd files.
@@ -257,12 +258,14 @@ function buildAuditDashboard(container, files) {
   const statusSelect = container.querySelector('#audit-filter-status');
   if (nameInput) {
     nameInput.addEventListener('input', () => {
+      trackFeatureUse('audit_filter', { type: 'name' });
       filterName = nameInput.value;
       renderTable();
     });
   }
   if (statusSelect) {
     statusSelect.addEventListener('change', () => {
+      trackFeatureUse('audit_filter', { type: 'status', value: statusSelect.value });
       filterStatus = statusSelect.value;
       renderTable();
     });

@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const PAGE_SIZE = 100;
 
@@ -123,7 +124,7 @@ export function createBinlog(container, fileData) {
       });
     }
 
-    filterInput.addEventListener('input', applyFilter);
+    filterInput.addEventListener('input', () => { trackFeatureUse('binlog_filter'); applyFilter(); });
     renderEvents();
   }
 }

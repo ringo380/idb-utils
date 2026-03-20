@@ -1,4 +1,5 @@
 // Drag-and-drop file input for .ibd files
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
@@ -24,7 +25,7 @@ export function createDropzone(onFile, onDiffFiles, onMultiFiles) {
   const input = el.querySelector('#file-input');
   const btn = el.querySelector('#file-btn');
 
-  btn.addEventListener('click', () => input.click());
+  btn.addEventListener('click', () => { trackFeatureUse('upload_method', { method: 'click' }); input.click(); });
   input.addEventListener('change', () => handleFiles(input.files));
 
   el.addEventListener('dragover', (e) => {
@@ -37,6 +38,7 @@ export function createDropzone(onFile, onDiffFiles, onMultiFiles) {
   el.addEventListener('drop', (e) => {
     e.preventDefault();
     el.classList.remove('dropzone-active');
+    trackFeatureUse('upload_method', { method: 'drag_drop' });
     handleFiles(e.dataTransfer.files);
   });
 

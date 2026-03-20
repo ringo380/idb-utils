@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const CANVAS_W = 800;
 const CANVAS_H = 500;
@@ -119,6 +120,7 @@ export function createSpatial(container, fileData) {
     if (levelSelect) {
       levelSelect.addEventListener('change', () => {
         selectedLevel = parseInt(levelSelect.value, 10);
+        trackFeatureUse('spatial_level', { level: selectedLevel });
         drawMbrs(canvas, getMbrsForLevel(rtreePages, selectedLevel), bounds);
       });
     }

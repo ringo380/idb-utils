@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar, downloadText, downloadJson, copyToClipboard } from '../utils/export.js';
 import { consumeRequestedPage, consumeIndexFilter } from '../utils/navigation.js';
+import { trackFeatureUse, trackExport } from '../utils/analytics.js';
 
 export function createPages(container, fileData) {
   const wasm = getWasm();
@@ -118,6 +119,7 @@ export function createPages(container, fileData) {
           recsDiv.classList.remove('hidden');
           viewRecsBtn.textContent = 'Hide Records';
           recsDiv.innerHTML = renderRecords(report);
+          trackFeatureUse('view_records', { page: num });
         } catch (e) {
           recsDiv.classList.remove('hidden');
           recsDiv.innerHTML = `<div class="text-red-400 text-xs py-2">Error: ${esc(String(e))}</div>`;
@@ -156,9 +158,43 @@ export function createPages(container, fileData) {
           decodedBtn.textContent = 'Hide Decoded';
           decodedDiv.innerHTML = renderDecodedRecords(decoded);
           toggleExportButtons(detail, true);
+          trackFeatureUse('decoded_records', { page: num });
         } catch (e) {
           decodedDiv.classList.remove('hidden');
           decodedDiv.innerHTML = `<div class="text-red-400 text-xs py-2">Error: ${esc(String(e))}</div>`;
+        }
+      });
+    }
+
+    // Wire up LOB chain inspector button
+    const lobChainBtn = detail.querySelector('#lob-chain-btn');
+    if (lobChainBtn) {
+      lobChainBtn.addEventListener('click', () => {
+        const lobDiv = detail.querySelector('#lob-chain-section');
+        if (!lobDiv) return;
+        if (lobDiv.dataset.loaded === 'true') {
+          lobDiv.classList.toggle('hidden');
+          lobChainBtn.textContent = lobDiv.classList.contains('hidden') ? 'Inspect LOB Chain' : 'Hide LOB Chain';
+          return;
+        }
+        try {
+          const raw = wasm.analyze_lob_chain(fileData, BigInt(num));
+          if (raw === 'null') {
+            lobDiv.classList.remove('hidden');
+            lobDiv.innerHTML = `<div class="text-gray-500 text-xs py-2">Not a LOB start page or chain could not be traversed.</div>`;
+            lobDiv.dataset.loaded = 'true';
+            lobChainBtn.textContent = 'Hide LOB Chain';
+            return;
+          }
+          const chain = JSON.parse(raw);
+          lobDiv.dataset.loaded = 'true';
+          lobDiv.classList.remove('hidden');
+          lobChainBtn.textContent = 'Hide LOB Chain';
+          lobDiv.innerHTML = renderLobChain(chain);
+          trackFeatureUse('lob_chain', { page: num });
+        } catch (e) {
+          lobDiv.classList.remove('hidden');
+          lobDiv.innerHTML = `<div class="text-red-400 text-xs py-2">Error: ${esc(String(e))}</div>`;
         }
       });
     }
@@ -170,6 +206,7 @@ export function createPages(container, fileData) {
         const decoded = decodedCache[num];
         if (!decoded) return;
         const csv = generateCsv(decoded);
+        trackExport('csv', 'pages');
         downloadText(csv, 'records.csv');
       });
     }
@@ -180,6 +217,7 @@ export function createPages(container, fileData) {
       dlJsonBtn.addEventListener('click', () => {
         const decoded = decodedCache[num];
         if (!decoded) return;
+        trackExport('json', 'pages');
         downloadJson(decoded, 'records');
       });
     }
@@ -191,6 +229,7 @@ export function createPages(container, fileData) {
         const decoded = decodedCache[num];
         if (!decoded) return;
         const sql = generateSqlInserts(decoded);
+        trackFeatureUse('copy_sql', { tab: 'pages' });
         copyToClipboard(sql, copySqlBtn);
       });
     }
@@ -276,6 +315,13 @@ function renderDetail(p) {
       'Data Len': p.lob_header.data_len,
       'TRX ID': p.lob_header.trx_id,
     }));
+  }
+  if (p.is_lob_start) {
+    extra += `
+      <div class="mt-2">
+        <button id="lob-chain-btn" class="px-2 py-1 bg-surface-3 hover:bg-gray-600 text-gray-300 rounded text-xs">Inspect LOB Chain</button>
+      </div>
+      <div id="lob-chain-section" class="hidden mt-2"></div>`;
   }
 
   return `
@@ -419,6 +465,51 @@ function generateSqlInserts(decoded) {
     }).join(', ');
     return `INSERT INTO ${quotedTable} (${quotedCols}) VALUES (${values});`;
   }).join('\n');
+}
+
+function renderLobChain(chain) {
+  if (!chain || chain.page_count === 0) {
+    return `<div class="text-yellow-400 text-xs py-2">⚠ LOB chain appears broken or empty (0 pages).</div>`;
+  }
+  const summary = kvTable({
+    'Chain Type': chain.chain_type,
+    'First Page': chain.first_page,
+    'Total Pages': chain.page_count,
+    'Total Data': `${chain.total_data_len} bytes`,
+  });
+  const typeColor = (t) => {
+    if (t.includes('LOB_FIRST') || t.includes('ZLOB_FIRST')) return 'text-innodb-cyan';
+    if (t.includes('LOB_DATA') || t.includes('ZLOB_DATA')) return 'text-green-400';
+    if (t.includes('BLOB') || t.includes('ZBLOB')) return 'text-blue-400';
+    return 'text-gray-300';
+  };
+  const rows = chain.pages.map((cp, i) => {
+    const connector = i === 0 ? '\u250c' : i === chain.pages.length - 1 ? '\u2514' : '\u2502';
+    return `
+      <tr class="border-b border-gray-800/30">
+        <td class="py-0.5 pr-2 text-gray-500 text-right">${i}</td>
+        <td class="py-0.5 pr-2 text-gray-600 font-mono">${connector}</td>
+        <td class="py-0.5 pr-2">${cp.page_no}</td>
+        <td class="py-0.5 pr-2 ${typeColor(cp.page_type)}">${esc(cp.page_type)}</td>
+        <td class="py-0.5 pr-2 text-right">${cp.data_len}</td>
+      </tr>`;
+  }).join('');
+  return `
+    ${section('LOB Chain Summary', summary)}
+    <div class="overflow-x-auto max-h-64 mt-2">
+      <table class="w-full text-xs font-mono">
+        <thead class="sticky top-0 bg-gray-950">
+          <tr class="text-left text-gray-500 border-b border-gray-800">
+            <th scope="col" class="py-1 pr-2">#</th>
+            <th scope="col" class="py-1 pr-2"></th>
+            <th scope="col" class="py-1 pr-2">Page</th>
+            <th scope="col" class="py-1 pr-2">Type</th>
+            <th scope="col" class="py-1 pr-2 text-right">Data Len</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function section(title, content) {

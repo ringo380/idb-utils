@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 export function createRedoLog(container, fileData) {
   const wasm = getWasm();
@@ -104,6 +105,7 @@ export function createRedoLog(container, fileData) {
   const checkbox = container.querySelector('#redolog-nonempty');
   const wrap = container.querySelector('#redolog-table-wrap');
   checkbox.addEventListener('change', () => {
+    trackFeatureUse('redolog_filter', { nonempty_only: checkbox.checked });
     wrap.innerHTML = renderBlockTable(report.blocks, checkbox.checked);
   });
 }

@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const TARGET_VERSIONS = ['5.7.0', '8.0.0', '8.4.0', '9.0.0', '9.1.0'];
 
@@ -128,6 +129,7 @@ export function createCompat(container, fileData) {
   const versionSelect = container.querySelector('#compat-version-select');
   versionSelect.addEventListener('change', () => {
     selectedVersion = versionSelect.value;
+    trackFeatureUse('compat_version_select', { version: selectedVersion });
     runCheck();
   });
 }

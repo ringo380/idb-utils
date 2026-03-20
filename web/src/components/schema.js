@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 export function createSchema(container, fileData) {
   const wasm = getWasm();
@@ -53,6 +54,7 @@ export function createSchema(container, fileData) {
   const copyBtn = container.querySelector('#schema-copy-ddl');
   if (copyBtn && schema.ddl) {
     copyBtn.addEventListener('click', () => {
+      trackFeatureUse('copy_ddl');
       navigator.clipboard.writeText(schema.ddl).then(() => {
         copyBtn.textContent = 'Copied!';
         setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
