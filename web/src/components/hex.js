@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 export function createHex(container, fileData, pageCount) {
   container.innerHTML = `
@@ -57,7 +58,7 @@ export function createHex(container, fileData, pageCount) {
     }
   }
 
-  goBtn.addEventListener('click', doDump);
+  goBtn.addEventListener('click', () => { trackFeatureUse('hex_dump'); doDump(); });
   [pageInput, offsetInput, lengthInput].forEach((input) => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') doDump();

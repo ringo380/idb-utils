@@ -25,6 +25,7 @@ import { createSpatial } from './components/spatial.js';
 import { createUndelete } from './components/undelete.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
+import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
 
 import './style.css';
 
@@ -45,9 +46,12 @@ initTheme();
 
 (async () => {
   showLoading('Loading WASM module...');
+  const wasmStart = performance.now();
   try {
     await initWasm();
+    trackPerformance('wasm_load', performance.now() - wasmStart);
   } catch (e) {
+    trackError('wasm_init', e);
     app.innerHTML = `<div class="flex-1 flex items-center justify-center text-red-400 p-8">
       <div class="text-center"><p class="text-lg mb-2">Failed to load WASM module</p><p class="text-sm text-gray-500">${esc(String(e))}</p></div>
     </div>`;
@@ -125,6 +129,7 @@ function onFile(name, data) {
     isBinlog = true;
     pageCount = 0;
     currentTab = 0;
+    trackFileUpload(name, data.length, 'binlog');
     renderAnalyzer();
     return;
   }
@@ -133,6 +138,7 @@ function onFile(name, data) {
   try {
     const info = JSON.parse(wasm.get_tablespace_info(data));
     pageCount = info.page_count;
+    trackFileUpload(name, data.length, 'tablespace');
 
     // Check for encryption
     if (info.is_encrypted) {
@@ -148,8 +154,10 @@ function onFile(name, data) {
       JSON.parse(wasm.parse_redo_log(data));
       isRedoLog = true;
       pageCount = 0;
+      trackFileUpload(name, data.length, 'redolog');
     } catch {
       pageCount = 0;
+      trackFileUpload(name, data.length, 'unknown');
     }
   }
 
@@ -172,6 +180,7 @@ function onDiffFiles(name1, data1, name2, data2) {
   } catch {
     pageCount = 0;
   }
+  trackFileUpload(name1, data1.length, 'diff');
   currentTab = 0;
   renderAnalyzer();
 }
@@ -192,6 +201,7 @@ function onMultiFiles(files) {
   } catch {
     pageCount = 0;
   }
+  trackFileUpload(files[0].name, files.reduce((s, f) => s + f.data.length, 0), 'multi-audit');
   // Auto-navigate to the Audit tab (last tab when audit mode is active)
   currentTab = getTabCount(tabOpts()) - 1;
   renderAnalyzer();
@@ -202,6 +212,7 @@ function onDecrypt(kData) {
     const wasm = getWasm();
     const result = wasm.decrypt_tablespace(fileData, kData);
     decryptedData = result;
+    trackFeatureUse('decryption', { success: true });
     // Update page count from decrypted data
     try {
       const info = JSON.parse(wasm.get_tablespace_info(decryptedData));
@@ -209,6 +220,8 @@ function onDecrypt(kData) {
     } catch { /* keep existing */ }
     renderAnalyzer();
   } catch (e) {
+    trackFeatureUse('decryption', { success: false });
+    trackError('decryption', e);
     // Show error in keyring area
     const errEl = document.getElementById('keyring-error');
     if (errEl) errEl.textContent = `Decryption failed: ${e}`;
@@ -325,6 +338,7 @@ function switchTab(index) {
   currentTab = index;
   const tabNav = app.querySelector('nav');
   if (tabNav) setActiveTab(tabNav, index);
+  trackTabView(getTabId(index, tabOpts()));
   renderTab();
 }
 
@@ -428,5 +442,6 @@ function exportAll() {
   try { const u = wasm.scan_deleted_records(data, -1n); if (u !== 'null') result.undelete = JSON.parse(u); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
+  trackExport('json', 'export_all');
   downloadJson(result, `${baseName}_analysis`);
 }

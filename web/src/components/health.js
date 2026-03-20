@@ -5,6 +5,7 @@ import { createExportBar } from '../utils/export.js';
 import { fillFactorClass } from '../utils/health-ui.js';
 import { requestIndexFilter, navigateToTab } from '../utils/navigation.js';
 import { createBTree } from './btree.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 /**
  * Create the health dashboard for a single tablespace file.
@@ -143,6 +144,7 @@ export function createHealth(container, fileData) {
       tr.classList.add('cursor-pointer');
       tr.addEventListener('click', () => {
         const indexId = parseInt(tr.dataset.indexId, 10);
+        trackFeatureUse('health_index_click', { index_id: indexId });
         requestIndexFilter(indexId);
         navigateToTab('pages');
       });
@@ -167,6 +169,7 @@ export function createHealth(container, fileData) {
     }
     const isHidden = btreeContainer.classList.toggle('hidden');
     btreeBtn.textContent = isHidden ? 'Show B+Tree' : 'Hide B+Tree';
+    if (!isHidden) trackFeatureUse('btree_toggle');
   });
 }
 

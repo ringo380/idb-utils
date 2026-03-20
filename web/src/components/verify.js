@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 const PAGE_SIZE = 50;
 
@@ -82,7 +83,7 @@ export function createVerify(container, fileData) {
       // Click handler for findings rows
       wrap.querySelectorAll('tr[data-page-num]').forEach((tr) => {
         tr.classList.add('cursor-pointer');
-        tr.addEventListener('click', () => {
+        tr.addEventListener('click', () => { trackFeatureUse('verify_finding_click');
           const pageNum = parseInt(tr.dataset.pageNum, 10);
           if (!isNaN(pageNum)) {
             requestPage(pageNum);

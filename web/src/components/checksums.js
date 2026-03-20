@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { trackFeatureUse } from '../utils/analytics.js';
 
 export function createChecksums(container, fileData) {
   const wasm = getWasm();
@@ -16,6 +17,7 @@ export function createChecksums(container, fileData) {
   const total = report.total_pages;
   const validPct = total > 0 ? ((report.valid_pages / total) * 100).toFixed(1) : '0';
   const allValid = report.invalid_pages === 0;
+  trackFeatureUse('checksum_validation', { total, valid: report.valid_pages, invalid: report.invalid_pages });
 
   container.innerHTML = `
     <div class="p-6 space-y-6 overflow-auto max-h-full">
