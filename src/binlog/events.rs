@@ -1,177 +1,12 @@
-//! Binlog event types and row-based event parsing.
+//! Binlog row-based event parsing and analysis.
 //!
-//! Covers the standard MySQL binlog event type codes and provides parsing
-//! for TABLE_MAP and row-based events (WRITE/UPDATE/DELETE ROWS v2).
+//! Provides parsing for TABLE_MAP and row-based events (WRITE/UPDATE/DELETE
+//! ROWS v2), plus top-level binlog file analysis via [`analyze_binlog`].
 
 use byteorder::{ByteOrder, LittleEndian};
 use serde::Serialize;
 
-/// MySQL binlog event type codes.
-///
-/// # Examples
-///
-/// ```
-/// use idb::binlog::events::BinlogEventType;
-///
-/// let et = BinlogEventType::from_code(15);
-/// assert_eq!(et, BinlogEventType::FormatDescription);
-/// assert_eq!(et.name(), "FORMAT_DESCRIPTION");
-///
-/// let et = BinlogEventType::from_code(19);
-/// assert_eq!(et, BinlogEventType::TableMap);
-///
-/// let et = BinlogEventType::from_code(255);
-/// assert_eq!(et, BinlogEventType::Unknown(255));
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum BinlogEventType {
-    Unknown(u8),
-    StartV3,
-    Query,
-    Stop,
-    Rotate,
-    IntVar,
-    Load,
-    Slave,
-    CreateFile,
-    AppendBlock,
-    ExecLoad,
-    DeleteFile,
-    NewLoad,
-    Rand,
-    UserVar,
-    FormatDescription,
-    Xid,
-    BeginLoadQuery,
-    ExecuteLoadQuery,
-    TableMap,
-    PreGaWriteRows,
-    PreGaUpdateRows,
-    PreGaDeleteRows,
-    WriteRowsV1,
-    UpdateRowsV1,
-    DeleteRowsV1,
-    Incident,
-    Heartbeat,
-    IgnorableLogEvent,
-    RowsQuery,
-    WriteRowsV2,
-    UpdateRowsV2,
-    DeleteRowsV2,
-    GtidLogEvent,
-    AnonymousGtidLogEvent,
-    PreviousGtids,
-    TransactionContext,
-    ViewChange,
-    XaPrepareLogEvent,
-    PartialUpdateRowsEvent,
-    TransactionPayload,
-    HeartbeatV2,
-}
-
-impl BinlogEventType {
-    /// Classify a binlog event from its type code byte.
-    pub fn from_code(code: u8) -> Self {
-        match code {
-            1 => BinlogEventType::StartV3,
-            2 => BinlogEventType::Query,
-            3 => BinlogEventType::Stop,
-            4 => BinlogEventType::Rotate,
-            5 => BinlogEventType::IntVar,
-            6 => BinlogEventType::Load,
-            7 => BinlogEventType::Slave,
-            8 => BinlogEventType::CreateFile,
-            9 => BinlogEventType::AppendBlock,
-            10 => BinlogEventType::ExecLoad,
-            11 => BinlogEventType::DeleteFile,
-            12 => BinlogEventType::NewLoad,
-            13 => BinlogEventType::Rand,
-            14 => BinlogEventType::UserVar,
-            15 => BinlogEventType::FormatDescription,
-            16 => BinlogEventType::Xid,
-            17 => BinlogEventType::BeginLoadQuery,
-            18 => BinlogEventType::ExecuteLoadQuery,
-            19 => BinlogEventType::TableMap,
-            20 => BinlogEventType::PreGaWriteRows,
-            21 => BinlogEventType::PreGaUpdateRows,
-            22 => BinlogEventType::PreGaDeleteRows,
-            23 => BinlogEventType::WriteRowsV1,
-            24 => BinlogEventType::UpdateRowsV1,
-            25 => BinlogEventType::DeleteRowsV1,
-            26 => BinlogEventType::Incident,
-            27 => BinlogEventType::Heartbeat,
-            28 => BinlogEventType::IgnorableLogEvent,
-            29 => BinlogEventType::RowsQuery,
-            30 => BinlogEventType::WriteRowsV2,
-            31 => BinlogEventType::UpdateRowsV2,
-            32 => BinlogEventType::DeleteRowsV2,
-            33 => BinlogEventType::GtidLogEvent,
-            34 => BinlogEventType::AnonymousGtidLogEvent,
-            35 => BinlogEventType::PreviousGtids,
-            36 => BinlogEventType::TransactionContext,
-            37 => BinlogEventType::ViewChange,
-            38 => BinlogEventType::XaPrepareLogEvent,
-            39 => BinlogEventType::PartialUpdateRowsEvent,
-            40 => BinlogEventType::TransactionPayload,
-            41 => BinlogEventType::HeartbeatV2,
-            other => BinlogEventType::Unknown(other),
-        }
-    }
-
-    /// Returns the MySQL source-style name for this event type.
-    pub fn name(&self) -> &'static str {
-        match self {
-            BinlogEventType::Unknown(_) => "UNKNOWN",
-            BinlogEventType::StartV3 => "START_V3",
-            BinlogEventType::Query => "QUERY",
-            BinlogEventType::Stop => "STOP",
-            BinlogEventType::Rotate => "ROTATE",
-            BinlogEventType::IntVar => "INTVAR",
-            BinlogEventType::Load => "LOAD",
-            BinlogEventType::Slave => "SLAVE",
-            BinlogEventType::CreateFile => "CREATE_FILE",
-            BinlogEventType::AppendBlock => "APPEND_BLOCK",
-            BinlogEventType::ExecLoad => "EXEC_LOAD",
-            BinlogEventType::DeleteFile => "DELETE_FILE",
-            BinlogEventType::NewLoad => "NEW_LOAD",
-            BinlogEventType::Rand => "RAND",
-            BinlogEventType::UserVar => "USER_VAR",
-            BinlogEventType::FormatDescription => "FORMAT_DESCRIPTION",
-            BinlogEventType::Xid => "XID",
-            BinlogEventType::BeginLoadQuery => "BEGIN_LOAD_QUERY",
-            BinlogEventType::ExecuteLoadQuery => "EXECUTE_LOAD_QUERY",
-            BinlogEventType::TableMap => "TABLE_MAP",
-            BinlogEventType::PreGaWriteRows => "PRE_GA_WRITE_ROWS",
-            BinlogEventType::PreGaUpdateRows => "PRE_GA_UPDATE_ROWS",
-            BinlogEventType::PreGaDeleteRows => "PRE_GA_DELETE_ROWS",
-            BinlogEventType::WriteRowsV1 => "WRITE_ROWS_V1",
-            BinlogEventType::UpdateRowsV1 => "UPDATE_ROWS_V1",
-            BinlogEventType::DeleteRowsV1 => "DELETE_ROWS_V1",
-            BinlogEventType::Incident => "INCIDENT",
-            BinlogEventType::Heartbeat => "HEARTBEAT",
-            BinlogEventType::IgnorableLogEvent => "IGNORABLE",
-            BinlogEventType::RowsQuery => "ROWS_QUERY",
-            BinlogEventType::WriteRowsV2 => "WRITE_ROWS_V2",
-            BinlogEventType::UpdateRowsV2 => "UPDATE_ROWS_V2",
-            BinlogEventType::DeleteRowsV2 => "DELETE_ROWS_V2",
-            BinlogEventType::GtidLogEvent => "GTID",
-            BinlogEventType::AnonymousGtidLogEvent => "ANONYMOUS_GTID",
-            BinlogEventType::PreviousGtids => "PREVIOUS_GTIDS",
-            BinlogEventType::TransactionContext => "TRANSACTION_CONTEXT",
-            BinlogEventType::ViewChange => "VIEW_CHANGE",
-            BinlogEventType::XaPrepareLogEvent => "XA_PREPARE",
-            BinlogEventType::PartialUpdateRowsEvent => "PARTIAL_UPDATE_ROWS",
-            BinlogEventType::TransactionPayload => "TRANSACTION_PAYLOAD",
-            BinlogEventType::HeartbeatV2 => "HEARTBEAT_V2",
-        }
-    }
-}
-
-impl std::fmt::Display for BinlogEventType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())
-    }
-}
+use super::event::BinlogEventType;
 
 /// Parsed TABLE_MAP event (type 19).
 ///
@@ -320,7 +155,7 @@ impl RowsEvent {
             return None;
         }
 
-        let event_type = BinlogEventType::from_code(type_code);
+        let event_type = BinlogEventType::from_u8(type_code);
 
         // table_id: 6 bytes LE
         let table_id = LittleEndian::read_u32(&data[0..]) as u64
@@ -484,7 +319,7 @@ pub fn analyze_binlog<R: Read + Seek>(mut reader: R) -> Result<BinlogAnalysis, c
             break;
         }
 
-        let event_type = BinlogEventType::from_code(hdr.type_code);
+        let event_type = BinlogEventType::from_u8(hdr.type_code);
 
         // Parse specific event types
         if hdr.type_code == 15 && format_desc.is_none() {
@@ -542,26 +377,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_event_type_from_code() {
-        assert_eq!(BinlogEventType::from_code(2), BinlogEventType::Query);
+    fn test_event_type_from_u8() {
+        assert_eq!(BinlogEventType::from_u8(2), BinlogEventType::QueryEvent);
         assert_eq!(
-            BinlogEventType::from_code(15),
+            BinlogEventType::from_u8(15),
             BinlogEventType::FormatDescription
         );
-        assert_eq!(BinlogEventType::from_code(19), BinlogEventType::TableMap);
-        assert_eq!(BinlogEventType::from_code(30), BinlogEventType::WriteRowsV2);
+        assert_eq!(BinlogEventType::from_u8(19), BinlogEventType::TableMapEvent);
         assert_eq!(
-            BinlogEventType::from_code(31),
-            BinlogEventType::UpdateRowsV2
+            BinlogEventType::from_u8(30),
+            BinlogEventType::WriteRowsEvent
         );
         assert_eq!(
-            BinlogEventType::from_code(32),
-            BinlogEventType::DeleteRowsV2
+            BinlogEventType::from_u8(31),
+            BinlogEventType::UpdateRowsEvent
         );
         assert_eq!(
-            BinlogEventType::from_code(255),
-            BinlogEventType::Unknown(255)
+            BinlogEventType::from_u8(32),
+            BinlogEventType::DeleteRowsEvent
         );
+        assert_eq!(BinlogEventType::from_u8(255), BinlogEventType::Unknown(255));
     }
 
     #[test]
@@ -570,15 +405,15 @@ mod tests {
             BinlogEventType::FormatDescription.name(),
             "FORMAT_DESCRIPTION"
         );
-        assert_eq!(BinlogEventType::TableMap.name(), "TABLE_MAP");
-        assert_eq!(BinlogEventType::WriteRowsV2.name(), "WRITE_ROWS_V2");
+        assert_eq!(BinlogEventType::TableMapEvent.name(), "TABLE_MAP");
+        assert_eq!(BinlogEventType::WriteRowsEvent.name(), "WRITE_ROWS_V2");
         assert_eq!(BinlogEventType::GtidLogEvent.name(), "GTID");
     }
 
     #[test]
     fn test_event_type_display() {
-        assert_eq!(format!("{}", BinlogEventType::Query), "QUERY");
-        assert_eq!(format!("{}", BinlogEventType::Unknown(99)), "UNKNOWN");
+        assert_eq!(format!("{}", BinlogEventType::QueryEvent), "QUERY");
+        assert_eq!(format!("{}", BinlogEventType::Unknown(99)), "UNKNOWN(99)");
     }
 
     #[test]
@@ -639,7 +474,7 @@ mod tests {
 
         let re = RowsEvent::parse(&data, 30).unwrap();
         assert_eq!(re.table_id, 42);
-        assert_eq!(re.event_type, BinlogEventType::WriteRowsV2);
+        assert_eq!(re.event_type, BinlogEventType::WriteRowsEvent);
         assert_eq!(re.flags, 1);
         assert_eq!(re.column_count, 3);
     }

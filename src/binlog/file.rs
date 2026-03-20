@@ -433,7 +433,7 @@ mod tests {
         let fde = binlog.format_description().unwrap();
         assert_eq!(fde.binlog_version, 4);
         assert_eq!(fde.server_version, "8.0.35");
-        assert_eq!(fde.common_header_length, 19);
+        assert_eq!(fde.header_length, 19);
     }
 
     #[test]
