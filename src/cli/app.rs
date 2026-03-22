@@ -1198,6 +1198,50 @@ pub enum Commands {
         keyring: Option<String>,
     },
 
+    /// Simulate InnoDB crash recovery levels
+    ///
+    /// Analyzes a tablespace file (or all tablespaces in a data directory) and
+    /// predicts data recoverability at each `innodb_force_recovery` level (1-6).
+    /// Classifies every page by the minimum recovery level needed to access it,
+    /// then aggregates per-index and per-table impact estimates. Recommends the
+    /// optimal recovery level that preserves the most data.
+    ///
+    /// Use `--level N` to focus on a specific recovery level, `--verbose` for
+    /// per-page details, or `--datadir` to scan an entire data directory.
+    Simulate {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long, required_unless_present = "datadir")]
+        file: Option<String>,
+
+        /// Path to MySQL data directory (simulates all tablespaces)
+        #[arg(short, long, required_unless_present = "file")]
+        datadir: Option<String>,
+
+        /// Show detailed analysis at specific recovery level (1-6)
+        #[arg(short, long, value_parser = clap::value_parser!(u8).range(1..=6))]
+        level: Option<u8>,
+
+        /// Show per-page details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+
+        /// Maximum directory recursion depth (default: 2, 0 = unlimited)
+        #[arg(long)]
+        depth: Option<u32>,
+    },
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for

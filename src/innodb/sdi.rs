@@ -20,6 +20,7 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use flate2::read::ZlibDecoder;
+use std::collections::HashMap;
 use std::io::Read;
 
 use crate::innodb::constants::{FIL_PAGE_DATA, FSP_HEADER_SIZE, SIZE_FIL_HEAD, SIZE_FIL_TRAILER};
@@ -556,6 +557,90 @@ fn collect_linked_sdi_pages(
 
     pages.sort();
     Ok(())
+}
+
+/// Build a mapping from InnoDB internal index ID to index name from raw SDI JSON.
+///
+/// Parses the SDI JSON (from an SDI record with `sdi_type == 1`) and extracts
+/// the `id=N` value from each index's `se_private_data` field, mapping it to
+/// the index name. Returns an empty map if the JSON is malformed or has no indexes.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let map = build_index_name_map(sdi_json);
+/// // map: {139 => "PRIMARY", 140 => "idx_title"}
+/// ```
+pub fn build_index_name_map(sdi_json: &str) -> HashMap<u64, String> {
+    let mut map = HashMap::new();
+    let val: serde_json::Value = match serde_json::from_str(sdi_json) {
+        Ok(v) => v,
+        Err(_) => return map,
+    };
+    let indexes = match val
+        .get("dd_object")
+        .and_then(|o| o.get("indexes"))
+        .and_then(|i| i.as_array())
+    {
+        Some(arr) => arr,
+        None => return map,
+    };
+    for idx in indexes {
+        let name = match idx.get("name").and_then(|n| n.as_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        let se_data = match idx.get("se_private_data").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        for part in se_data.split(';') {
+            if let Some(id_str) = part.strip_prefix("id=") {
+                if let Ok(id) = id_str.parse::<u64>() {
+                    map.insert(id, name.to_string());
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Build a mapping from InnoDB internal index ID to the table name that owns it.
+///
+/// Similar to [`build_index_name_map`] but maps each index ID to the table's
+/// `name` field from the SDI envelope. Useful for grouping indexes by table.
+pub fn build_index_table_map(sdi_json: &str) -> HashMap<u64, String> {
+    let mut map = HashMap::new();
+    let val: serde_json::Value = match serde_json::from_str(sdi_json) {
+        Ok(v) => v,
+        Err(_) => return map,
+    };
+    let dd_object = match val.get("dd_object") {
+        Some(o) => o,
+        None => return map,
+    };
+    let table_name = match dd_object.get("name").and_then(|n| n.as_str()) {
+        Some(n) => n.to_string(),
+        None => return map,
+    };
+    let indexes = match dd_object.get("indexes").and_then(|i| i.as_array()) {
+        Some(arr) => arr,
+        None => return map,
+    };
+    for idx in indexes {
+        let se_data = match idx.get("se_private_data").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        for part in se_data.split(';') {
+            if let Some(id_str) = part.strip_prefix("id=") {
+                if let Ok(id) = id_str.parse::<u64>() {
+                    map.insert(id, table_name.clone());
+                }
+            }
+        }
+    }
+    map
 }
 
 #[cfg(test)]

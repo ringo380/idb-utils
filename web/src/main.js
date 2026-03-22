@@ -23,6 +23,7 @@ import { createUndo } from './components/undo.js';
 import { createBinlog } from './components/binlog.js';
 import { createSpatial } from './components/spatial.js';
 import { createUndelete } from './components/undelete.js';
+import { createSimulate } from './components/simulate.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
@@ -420,6 +421,9 @@ function renderTab() {
     case 'undelete':
       createUndelete(content, data);
       break;
+    case 'simulate':
+      createSimulate(content, data);
+      break;
     case 'redolog':
       createRedoLog(content, fileData);
       break;
@@ -440,6 +444,7 @@ function exportAll() {
   try { result.verify = JSON.parse(wasm.verify_tablespace(data)); } catch { /* skip */ }
   try { result.undo = JSON.parse(wasm.analyze_undo(data)); } catch { /* skip */ }
   try { const u = wasm.scan_deleted_records(data, -1n); if (u !== 'null') result.undelete = JSON.parse(u); } catch { /* skip */ }
+  try { result.simulate = JSON.parse(wasm.simulate_recovery(data)); } catch { /* skip */ }
 
   const baseName = fileName.replace(/\.[^.]+$/, '');
   trackExport('json', 'export_all');
