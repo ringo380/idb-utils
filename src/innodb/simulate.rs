@@ -513,14 +513,14 @@ pub fn simulate_recovery(
             .count() as u64;
         corrupt_leaf_records += corrupt_leaf_no_header * avg_records_per_leaf;
 
-        // Records at risk by level: at level 0, all corrupt pages are inaccessible;
-        // at level 1+, corrupt INDEX pages are skipped (data lost but DB starts)
+        // Records at risk by level: at level 0, corrupt pages make the table
+        // inaccessible (communicated via accessible=false in DataLossEstimate);
+        // at level 1+, corrupt INDEX pages are skipped (data lost but DB starts).
+        // The lost count is always the corrupt-leaf record estimate — the
+        // accessible flag distinguishes "table won't open" from "some rows lost".
         let mut lost_by_level = BTreeMap::new();
         let records_at_risk = corrupt_leaf_records;
-        // At level 0: if any corrupt pages exist, MySQL may refuse to start or crash
-        lost_by_level.insert(0, total_records + records_at_risk);
-        // At level 1+: corrupt pages are skipped, only those records are lost
-        for lvl in 1..=6 {
+        for lvl in 0..=6 {
             lost_by_level.insert(lvl, records_at_risk);
         }
 
@@ -695,8 +695,9 @@ fn build_recovery_plan(tables: &[TableImpact], scanned: &[ScannedPage]) -> Recov
             .map(|e| e.records_at_risk)
             .sum();
 
-        let pct_risk = if total_records > 0 {
-            (records_at_risk as f64 / total_records as f64) * 100.0
+        let total_including_corrupt = total_records + records_at_risk;
+        let pct_risk = if total_including_corrupt > 0 {
+            (records_at_risk as f64 / total_including_corrupt as f64) * 100.0
         } else {
             0.0
         };
@@ -1073,7 +1074,9 @@ mod tests {
         let level1 = &report.plan.levels[1];
         let level3 = &report.plan.levels[3];
         assert!(level3.warnings.len() >= level1.warnings.len());
-        // Records at risk should be same at levels 1-6 (just corrupt INDEX pages)
+        // Records at risk should be same at all levels (just corrupt INDEX pages)
+        let level0 = &report.plan.levels[0];
+        assert_eq!(level0.total_records_at_risk, level1.total_records_at_risk);
         assert_eq!(level1.total_records_at_risk, level3.total_records_at_risk);
     }
 
