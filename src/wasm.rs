@@ -1577,3 +1577,27 @@ pub fn simulate_recovery(data: &[u8]) -> Result<String, JsValue> {
 
     to_json(&report)
 }
+
+// ---------------------------------------------------------------------------
+// diff_backup_lsn — LSN-based backup delta detection
+// ---------------------------------------------------------------------------
+
+/// Compares two tablespace snapshots (base/backup vs current/live) using
+/// LSN-based delta detection. Returns a JSON `BackupDiffReport` with per-page
+/// change status (unchanged, modified, added, removed, regressed).
+#[wasm_bindgen]
+pub fn diff_backup_lsn(base_data: &[u8], current_data: &[u8]) -> Result<String, JsValue> {
+    let mut base = Tablespace::from_bytes(base_data.to_vec()).map_err(to_js_err)?;
+    let mut current = Tablespace::from_bytes(current_data.to_vec()).map_err(to_js_err)?;
+
+    let report = crate::innodb::backup::diff_backup_lsn(
+        &mut base,
+        &mut current,
+        "base.ibd",
+        "current.ibd",
+        false,
+    )
+    .map_err(to_js_err)?;
+
+    to_json(&report)
+}

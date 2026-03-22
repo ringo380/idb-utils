@@ -88,6 +88,7 @@ function toggleShortcuts() {
           <div class="flex justify-between"><dt class="text-gray-400">Spatial tab</dt><dd class="font-mono text-gray-300">S</dd></div>
           <div class="flex justify-between"><dt class="text-gray-400">Undelete tab</dt><dd class="font-mono text-gray-300">D</dd></div>
           <div class="flex justify-between"><dt class="text-gray-400">Simulate tab</dt><dd class="font-mono text-gray-300">R</dd></div>
+          <div class="flex justify-between"><dt class="text-gray-400">Backup Delta tab</dt><dd class="font-mono text-gray-300">B</dd></div>
           <div class="flex justify-between"><dt class="text-gray-400">Toggle theme</dt><dd class="font-mono text-gray-300">D</dd></div>
           <div class="flex justify-between"><dt class="text-gray-400">Back to file picker</dt><dd class="font-mono text-gray-300">Esc</dd></div>
           <div class="flex justify-between"><dt class="text-gray-400">Show shortcuts</dt><dd class="font-mono text-gray-300">?</dd></div>

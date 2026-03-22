@@ -8,7 +8,7 @@ use std::process;
 use std::sync::Arc;
 
 use idb::cli;
-use idb::cli::app::{Cli, ColorMode, Commands, OutputFormat};
+use idb::cli::app::{BackupSubcommand, Cli, ColorMode, Commands, OutputFormat};
 use idb::util::audit::AuditLogger;
 use idb::IdbError;
 
@@ -728,6 +728,38 @@ fn main() {
             },
             &mut writer,
         ),
+
+        Commands::Backup { subcmd } => match subcmd {
+            BackupSubcommand::Diff {
+                base,
+                current,
+                verbose,
+                json,
+                page_size,
+                keyring,
+            } => cli::backup::execute_diff(
+                &cli::backup::BackupDiffOptions {
+                    base,
+                    current,
+                    verbose,
+                    json: json || global_format == OutputFormat::Json,
+                    csv: global_format == OutputFormat::Csv,
+                    page_size,
+                    keyring,
+                    mmap: cli.mmap,
+                },
+                &mut writer,
+            ),
+            BackupSubcommand::Chain { dir, verbose, json } => cli::backup::execute_chain(
+                &cli::backup::BackupChainOptions {
+                    dir,
+                    verbose,
+                    json: json || global_format == OutputFormat::Json,
+                    csv: global_format == OutputFormat::Csv,
+                },
+                &mut writer,
+            ),
+        },
 
         Commands::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();

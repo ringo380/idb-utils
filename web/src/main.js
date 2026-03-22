@@ -24,6 +24,7 @@ import { createBinlog } from './components/binlog.js';
 import { createSpatial } from './components/spatial.js';
 import { createUndelete } from './components/undelete.js';
 import { createSimulate } from './components/simulate.js';
+import { createBackup } from './components/backup.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
@@ -391,6 +392,13 @@ function renderTab() {
         createDiff(content, diffData.name1, diffData.data1, diffData.name2, diffData.data2);
       } else {
         content.innerHTML = `<div class="p-6 text-gray-500">Drop two files to compare them.</div>`;
+      }
+      break;
+    case 'backup':
+      if (diffData) {
+        createBackup(content, diffData.data1, diffData.data2, diffData.name1, diffData.name2);
+      } else {
+        content.innerHTML = `<div class="p-6 text-gray-500">Drop two files to analyze backup delta.</div>`;
       }
       break;
     case 'audit':
