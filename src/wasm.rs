@@ -1536,3 +1536,44 @@ pub fn scan_deleted_records(data: &[u8], page_num: i64) -> Result<String, JsValu
 
     to_json(&result)
 }
+
+// ---------------------------------------------------------------------------
+// simulate_recovery — crash recovery level simulation
+// ---------------------------------------------------------------------------
+
+/// Simulates InnoDB crash recovery levels 1-6 on a tablespace.
+///
+/// Classifies every page by the minimum `innodb_force_recovery` level needed
+/// to access it, aggregates per-index and per-table impact, and recommends
+/// the optimal recovery level. Returns a JSON `SimulationReport`.
+#[wasm_bindgen]
+pub fn simulate_recovery(data: &[u8]) -> Result<String, JsValue> {
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+
+    // Try to extract SDI for index/table name resolution (soft-fail)
+    let sdi_json = {
+        let sdi_pages = sdi::find_sdi_pages(&mut ts).unwrap_or_default();
+        if sdi_pages.is_empty() {
+            None
+        } else {
+            sdi::extract_sdi_from_pages(&mut ts, &sdi_pages)
+                .ok()
+                .and_then(|records| {
+                    records
+                        .into_iter()
+                        .find(|r| r.sdi_type == 1)
+                        .map(|r| r.data)
+                })
+        }
+    };
+
+    let report = crate::innodb::simulate::simulate_recovery(
+        &mut ts,
+        sdi_json.as_deref(),
+        "upload.ibd",
+        false,
+    )
+    .map_err(to_js_err)?;
+
+    to_json(&report)
+}

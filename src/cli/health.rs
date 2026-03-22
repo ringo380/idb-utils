@@ -8,7 +8,6 @@ use std::time::Instant;
 
 use crate::cli::wprintln;
 use crate::innodb::health;
-use crate::innodb::schema::SdiEnvelope;
 use crate::innodb::sdi;
 use crate::util::prometheus as prom;
 use crate::IdbError;
@@ -169,19 +168,7 @@ fn resolve_index_names(
         let mut name_map = std::collections::HashMap::new();
         for rec in &records {
             if rec.sdi_type == 1 {
-                if let Ok(envelope) = serde_json::from_str::<SdiEnvelope>(&rec.data) {
-                    for dd_idx in &envelope.dd_object.indexes {
-                        // InnoDB assigns se_private_data with index IDs; the SDI
-                        // JSON index ordering matches the clustered index first,
-                        // then secondary indexes. We can't directly map dd_idx to
-                        // index_id without parsing se_private_data, but we can use
-                        // the name if we find a matching pattern.
-                        // Use se_private_data parsing to extract "id=N"
-                        if let Some(id) = parse_se_private_id(&rec.data, &dd_idx.name) {
-                            name_map.insert(id, dd_idx.name.clone());
-                        }
-                    }
-                }
+                name_map.extend(sdi::build_index_name_map(&rec.data));
             }
         }
         Ok(name_map)
@@ -194,28 +181,6 @@ fn resolve_index_names(
             }
         }
     }
-}
-
-/// Parse an index ID from SDI JSON se_private_data field.
-///
-/// The JSON contains `"se_private_data": "id=N;root=M;..."` for each index.
-/// We search the raw JSON for the pattern matching this index name.
-fn parse_se_private_id(sdi_json: &str, name: &str) -> Option<u64> {
-    // Parse the full JSON to extract se_private_data for the named index
-    let val: serde_json::Value = serde_json::from_str(sdi_json).ok()?;
-    let indexes = val.get("dd_object")?.get("indexes")?.as_array()?;
-    for idx in indexes {
-        let idx_name = idx.get("name")?.as_str()?;
-        if idx_name == name {
-            let se_data = idx.get("se_private_data")?.as_str()?;
-            for part in se_data.split(';') {
-                if let Some(id_str) = part.strip_prefix("id=") {
-                    return id_str.parse::<u64>().ok();
-                }
-            }
-        }
-    }
-    None
 }
 
 /// Print health report as human-readable text.

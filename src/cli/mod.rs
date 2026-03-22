@@ -73,6 +73,7 @@ pub mod recover;
 pub mod repair;
 pub mod schema;
 pub mod sdi;
+pub mod simulate;
 pub mod transplant;
 pub mod tsid;
 pub mod undelete;

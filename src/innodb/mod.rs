@@ -53,6 +53,7 @@ pub mod record;
 pub mod rtree;
 pub mod schema;
 pub mod sdi;
+pub mod simulate;
 pub mod tablespace;
 pub mod undelete;
 pub mod undo;

@@ -704,6 +704,31 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Simulate {
+            file,
+            datadir,
+            level,
+            verbose,
+            json,
+            page_size,
+            keyring,
+            depth,
+        } => cli::simulate::execute(
+            &cli::simulate::SimulateOptions {
+                file,
+                datadir,
+                level,
+                verbose,
+                json: json || global_format == OutputFormat::Json,
+                csv: global_format == OutputFormat::Csv,
+                page_size,
+                keyring,
+                mmap: cli.mmap,
+                depth,
+            },
+            &mut writer,
+        ),
+
         Commands::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "inno", &mut std::io::stdout());
