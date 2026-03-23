@@ -290,13 +290,18 @@ fn print_chain_text(
 
 /// Determine the status label for a backup entry in the chain.
 fn chain_entry_status(report: &backup::BackupChainReport, index: usize) -> &'static str {
-    // Check if any anomaly involves this entry
+    // Check if any per-entry anomaly involves this entry.
+    // MissingFull is a chain-level anomaly (not specific to any entry),
+    // so it is reported in the anomalies section, not per-entry status.
     for a in &report.anomalies {
+        if a.kind == backup::ChainAnomalyKind::MissingFull {
+            continue;
+        }
         if a.between.0 == index || a.between.1 == index {
             return match a.kind {
                 backup::ChainAnomalyKind::Gap => "GAP",
                 backup::ChainAnomalyKind::Overlap => "OVERLAP",
-                backup::ChainAnomalyKind::MissingFull => "WARN",
+                backup::ChainAnomalyKind::MissingFull => unreachable!(),
             };
         }
     }
