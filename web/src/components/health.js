@@ -2,7 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
-import { fillFactorClass } from '../utils/health-ui.js';
+import { fillFactorClass, bloatGradeColor } from '../utils/health-ui.js';
 import { requestIndexFilter, navigateToTab } from '../utils/navigation.js';
 import { createBTree } from './btree.js';
 import { trackFeatureUse } from '../utils/analytics.js';
@@ -267,13 +267,4 @@ function statCard(label, value, colorClass = '') {
       <div class="text-xs text-gray-500 uppercase tracking-wide">${esc(label)}</div>
       <div class="text-lg font-bold ${colorClass || 'text-gray-100'} mt-1">${value}</div>
     </div>`;
-}
-
-function bloatGradeColor(grade) {
-  switch (grade) {
-    case 'A': case 'B': return 'text-innodb-green';
-    case 'C': return 'text-innodb-amber';
-    case 'D': case 'F': return 'text-innodb-red';
-    default: return 'text-gray-400';
-  }
 }

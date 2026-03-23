@@ -577,8 +577,12 @@ pub fn estimate_cardinality(
     }
 
     let distinct_in_sample = distinct_values.len() as u64;
-    // Extrapolate: scale by (total_leaf / sampled)
-    let estimated = (distinct_in_sample as f64 * total_leaf as f64 / pages_sampled as f64) as u64;
+    // Extrapolate: scale by (total_leaf / sampled), capped at the extrapolated
+    // total record count to avoid estimates exceeding the actual record count.
+    let scale = total_leaf as f64 / pages_sampled as f64;
+    let estimated_total_records = (total_records_sampled as f64 * scale) as u64;
+    let raw_estimate = (distinct_in_sample as f64 * scale) as u64;
+    let estimated = raw_estimate.min(estimated_total_records);
     let confidence = round2((pages_sampled as f64 / total_leaf as f64).min(1.0));
 
     Some(CardinalityEstimate {

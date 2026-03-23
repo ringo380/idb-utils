@@ -69,16 +69,6 @@ export function bloatGradeColor(grade) {
   }
 }
 
-/**
- * Return HTML for a color-coded bloat grade badge.
- * @param {string} grade - 'A', 'B', 'C', 'D', or 'F'
- * @param {number} score - raw bloat score 0.0-1.0
- * @returns {string}
- */
-export function renderBloatBadge(grade, score) {
-  return `<span class="${bloatGradeColor(grade)} font-bold">${esc(grade)}</span> <span class="text-gray-500">(${score.toFixed(2)})</span>`;
-}
-
 function indexRow(idx) {
   const avg = idx.avg_fill_factor ?? 0;
   const min = idx.min_fill_factor ?? 0;

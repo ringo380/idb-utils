@@ -1232,11 +1232,16 @@ pub fn analyze_health_extended(
         }
     }
 
+    // Cardinality: only on clustered index (PK layout doesn't match secondary indexes)
     if cardinality {
         let columns_opt = crate::innodb::export::extract_column_layout(&mut ts);
-        if let Some((columns, _)) = columns_opt {
+        if let Some((columns, clustered_index_id)) = columns_opt {
             let col_name = columns.first().map(|c| c.name.clone()).unwrap_or_default();
-            for idx in &mut report.indexes {
+            if let Some(idx) = report
+                .indexes
+                .iter_mut()
+                .find(|i| i.index_id == clustered_index_id)
+            {
                 if let Some(leaves) = leaf_pages_by_index.get(&idx.index_id) {
                     idx.cardinality = crate::innodb::health::estimate_cardinality(
                         &mut ts,

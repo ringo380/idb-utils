@@ -155,13 +155,19 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         }
     }
 
-    // Cardinality estimation (separate pass — needs random page access)
+    // Cardinality estimation (separate pass — needs random page access).
+    // Only runs on the clustered (primary) index because extract_column_layout
+    // returns the PK column layout. Secondary index leaf pages have a different
+    // physical format (key cols + PK suffix) that requires a separate layout.
     if opts.cardinality {
-        // Extract column layout from SDI (soft-fail for pre-8.0)
         let columns_opt = crate::innodb::export::extract_column_layout(&mut ts);
-        if let Some((columns, _clustered_index_id)) = columns_opt {
+        if let Some((columns, clustered_index_id)) = columns_opt {
             let col_name = columns.first().map(|c| c.name.clone()).unwrap_or_default();
-            for idx in &mut report.indexes {
+            if let Some(idx) = report
+                .indexes
+                .iter_mut()
+                .find(|i| i.index_id == clustered_index_id)
+            {
                 if let Some(leaf_pages) = leaf_pages_by_index.get(&idx.index_id) {
                     idx.cardinality = health::estimate_cardinality(
                         &mut ts,
