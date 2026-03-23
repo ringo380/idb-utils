@@ -1157,6 +1157,104 @@ pub fn analyze_health(data: &[u8]) -> Result<String, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// analyze_health_extended — health with bloat scores and cardinality
+// ---------------------------------------------------------------------------
+
+/// Analyzes B+Tree health with optional bloat scoring and cardinality estimation.
+///
+/// When `bloat` is true, walks compact records on each leaf page to count
+/// delete-marked records and compute A-F bloat grades. When `cardinality`
+/// is true, samples leaf pages to estimate distinct values in the leading
+/// key column. Returns a JSON `HealthReport` with optional bloat/cardinality
+/// fields per index.
+#[wasm_bindgen]
+pub fn analyze_health_extended(
+    data: &[u8],
+    bloat: bool,
+    cardinality: bool,
+    sample_size: u32,
+) -> Result<String, JsValue> {
+    use crate::innodb::record::walk_compact_records;
+    use std::collections::HashMap;
+
+    let mut ts = Tablespace::from_bytes(data.to_vec()).map_err(to_js_err)?;
+    let page_size = ts.page_size();
+    let mut snapshots = Vec::new();
+    let mut empty_pages = 0u64;
+    let mut total_pages = 0u64;
+    let mut delete_counts: HashMap<u64, (u64, u64)> = HashMap::new();
+    let mut leaf_pages_by_index: HashMap<u64, Vec<u64>> = HashMap::new();
+
+    ts.for_each_page(|page_num, page_data| {
+        total_pages += 1;
+        if page_data.iter().all(|&b| b == 0) {
+            empty_pages += 1;
+        } else if let Some(snap) = extract_index_page_snapshot(page_data, page_num) {
+            if snap.level == 0 && cardinality {
+                leaf_pages_by_index
+                    .entry(snap.index_id)
+                    .or_default()
+                    .push(snap.page_number);
+            }
+            if snap.level == 0 && bloat {
+                let recs = walk_compact_records(page_data);
+                let total = recs.len() as u64;
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count() as u64;
+                let entry = delete_counts.entry(snap.index_id).or_insert((0, 0));
+                entry.0 += deleted;
+                entry.1 += total;
+            }
+            snapshots.push(snap);
+        }
+        Ok(())
+    })
+    .map_err(to_js_err)?;
+
+    let mut report: HealthReport = crate::innodb::health::analyze_health(
+        snapshots,
+        page_size,
+        total_pages,
+        empty_pages,
+        "wasm",
+    );
+
+    if bloat {
+        for idx in &mut report.indexes {
+            let (deleted, total) = delete_counts.get(&idx.index_id).copied().unwrap_or((0, 0));
+            let ratio = if total > 0 {
+                deleted as f64 / total as f64
+            } else {
+                0.0
+            };
+            idx.delete_marked_records = Some(deleted);
+            idx.total_walked_records = Some(total);
+            idx.bloat = Some(crate::innodb::health::score_bloat(idx, ratio));
+        }
+    }
+
+    if cardinality {
+        let columns_opt = crate::innodb::export::extract_column_layout(&mut ts);
+        if let Some((columns, _)) = columns_opt {
+            let col_name = columns.first().map(|c| c.name.clone()).unwrap_or_default();
+            for idx in &mut report.indexes {
+                if let Some(leaves) = leaf_pages_by_index.get(&idx.index_id) {
+                    idx.cardinality = crate::innodb::health::estimate_cardinality(
+                        &mut ts,
+                        leaves,
+                        &columns,
+                        &col_name,
+                        page_size,
+                        sample_size as usize,
+                    );
+                }
+            }
+        }
+    }
+
+    to_json(&report)
+}
+
+// ---------------------------------------------------------------------------
 // verify_tablespace — mirrors `inno verify`
 // ---------------------------------------------------------------------------
 

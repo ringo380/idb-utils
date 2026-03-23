@@ -831,6 +831,18 @@ pub enum Commands {
         #[arg(long, conflicts_with = "json")]
         prometheus: bool,
 
+        /// Compute index bloat scores (A-F grades)
+        #[arg(long)]
+        bloat: bool,
+
+        /// Estimate cardinality of leading index columns via page sampling
+        #[arg(long)]
+        cardinality: bool,
+
+        /// Number of leaf pages to sample per index for cardinality estimation
+        #[arg(long = "sample-size", default_value = "30")]
+        sample_size: usize,
+
         /// Override page size (default: auto-detect)
         #[arg(long = "page-size")]
         page_size: Option<u32>,

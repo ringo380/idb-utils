@@ -16,7 +16,12 @@ export function createHealth(container, fileData) {
   const wasm = getWasm();
   let report;
   try {
-    report = JSON.parse(wasm.analyze_health(fileData));
+    // Use extended analysis with bloat + cardinality if available
+    if (wasm.analyze_health_extended) {
+      report = JSON.parse(wasm.analyze_health_extended(fileData, true, true, 30));
+    } else {
+      report = JSON.parse(wasm.analyze_health(fileData));
+    }
   } catch (e) {
     container.innerHTML = `<div class="p-6 text-red-400">Error analyzing health: ${esc(String(e))}</div>`;
     return;
@@ -30,10 +35,12 @@ export function createHealth(container, fileData) {
   const avgFragPct = (s.avg_fragmentation * 100).toFixed(1);
   const avgGarbagePct = (s.avg_garbage_ratio * 100).toFixed(1);
 
-  // Annotate indexes with resolved names
+  // Annotate indexes with resolved names and sortable derived fields
   const indexes = (report.indexes || []).map((idx) => ({
     ...idx,
-    _name: indexNames.get(idx.index_id) || null,
+    _name: indexNames.get(idx.index_id) || idx.index_name || null,
+    _bloat_score: idx.bloat?.score ?? null,
+    _cardinality: idx.cardinality?.estimated_distinct ?? null,
   }));
 
   // Sort state
@@ -52,7 +59,16 @@ export function createHealth(container, fileData) {
         ${statCard('Index Count', s.index_count)}
         ${statCard('Avg Fill Factor', avgFillPct + '%', fillFactorClass(s.avg_fill_factor))}
         ${statCard('Avg Fragmentation', avgFragPct + '%', 'text-innodb-amber')}
-        ${statCard('Avg Garbage Ratio', avgGarbagePct + '%', 'text-gray-300')}
+        ${(() => {
+          const worstBloat = indexes.reduce((worst, i) => {
+            if (!i.bloat) return worst;
+            return (!worst || i.bloat.score > worst.score) ? i.bloat : worst;
+          }, null);
+          if (worstBloat) {
+            return statCard('Worst Bloat', worstBloat.grade + ' (' + worstBloat.score.toFixed(2) + ')', bloatGradeColor(worstBloat.grade));
+          }
+          return statCard('Avg Garbage Ratio', avgGarbagePct + '%', 'text-gray-300');
+        })()}
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -99,6 +115,9 @@ export function createHealth(container, fileData) {
 
     const wrap = container.querySelector('#health-index-table');
     // Build custom table with name column and sortable headers
+    const hasBloat = indexes.some((i) => i.bloat);
+    const hasCard = indexes.some((i) => i.cardinality);
+
     const colDefs = [
       { key: 'index_id', label: 'Index ID' },
       { key: '_name', label: 'Name' },
@@ -111,6 +130,8 @@ export function createHealth(container, fileData) {
       { key: 'fragmentation', label: 'Frag %' },
       { key: 'avg_garbage_ratio', label: 'Garbage %' },
       { key: 'empty_leaf_pages', label: 'Empty Leaves' },
+      ...(hasBloat ? [{ key: '_bloat_score', label: 'Bloat' }] : []),
+      ...(hasCard ? [{ key: '_cardinality', label: 'Est. Cardinality' }] : []),
     ];
 
     wrap.innerHTML = `
@@ -235,6 +256,8 @@ function healthIndexRow(idx) {
       <td class="py-1 pr-3 text-gray-400">${(frag * 100).toFixed(1)}%</td>
       <td class="py-1 pr-3 text-gray-400">${(garbage * 100).toFixed(1)}%</td>
       <td class="py-1 pr-3 text-gray-400">${idx.empty_leaf_pages ?? 0}</td>
+      ${idx.bloat ? `<td class="py-1 pr-3"><span class="${bloatGradeColor(idx.bloat.grade)} font-bold">${esc(idx.bloat.grade)}</span> <span class="text-gray-500">(${idx.bloat.score.toFixed(2)})</span></td>` : ''}
+      ${idx.cardinality ? `<td class="py-1 pr-3 text-gray-400">~${idx.cardinality.estimated_distinct.toLocaleString()}</td>` : (idx._cardinality === null && idx.bloat ? '<td class="py-1 pr-3 text-gray-500">\u2014</td>' : '')}
     </tr>`;
 }
 
@@ -244,4 +267,13 @@ function statCard(label, value, colorClass = '') {
       <div class="text-xs text-gray-500 uppercase tracking-wide">${esc(label)}</div>
       <div class="text-lg font-bold ${colorClass || 'text-gray-100'} mt-1">${value}</div>
     </div>`;
+}
+
+function bloatGradeColor(grade) {
+  switch (grade) {
+    case 'A': case 'B': return 'text-innodb-green';
+    case 'C': return 'text-innodb-amber';
+    case 'D': case 'F': return 'text-innodb-red';
+    default: return 'text-gray-400';
+  }
 }
