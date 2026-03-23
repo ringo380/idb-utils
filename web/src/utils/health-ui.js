@@ -55,6 +55,20 @@ export function renderIndexTable(indexes) {
     </table>`;
 }
 
+/**
+ * Return a Tailwind text-color class for a bloat grade letter.
+ * @param {string} grade - 'A', 'B', 'C', 'D', or 'F'
+ * @returns {string}
+ */
+export function bloatGradeColor(grade) {
+  switch (grade) {
+    case 'A': case 'B': return 'text-innodb-green';
+    case 'C': return 'text-innodb-amber';
+    case 'D': case 'F': return 'text-innodb-red';
+    default: return 'text-gray-400';
+  }
+}
+
 function indexRow(idx) {
   const avg = idx.avg_fill_factor ?? 0;
   const min = idx.min_fill_factor ?? 0;

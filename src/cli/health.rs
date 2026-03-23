@@ -2,12 +2,15 @@
 //!
 //! Computes per-index B+Tree health metrics (fill factor, fragmentation,
 //! garbage ratio, tree depth) by scanning all INDEX pages in a tablespace.
+//! Optionally computes bloat scores (A-F grades) and cardinality estimates.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::time::Instant;
 
 use crate::cli::wprintln;
 use crate::innodb::health;
+use crate::innodb::record::walk_compact_records;
 use crate::innodb::sdi;
 use crate::util::prometheus as prom;
 use crate::IdbError;
@@ -24,6 +27,12 @@ pub struct HealthOptions {
     pub csv: bool,
     /// Output in Prometheus exposition format.
     pub prometheus: bool,
+    /// Compute index bloat scores.
+    pub bloat: bool,
+    /// Estimate cardinality of leading index columns.
+    pub cardinality: bool,
+    /// Number of leaf pages to sample per index for cardinality.
+    pub sample_size: usize,
     /// Override the auto-detected page size.
     pub page_size: Option<u32>,
     /// Path to MySQL keyring file for decrypting encrypted tablespaces.
@@ -58,10 +67,33 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
     let mut lob_pages = 0u64;
     let mut undo_pages = 0u64;
 
+    // Delete-mark counting (per index_id: deleted, total walked)
+    let mut delete_counts: HashMap<u64, (u64, u64)> = HashMap::new();
+    // Leaf page numbers per index (for cardinality sampling)
+    let mut leaf_pages_by_index: HashMap<u64, Vec<u64>> = HashMap::new();
+
     ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             empty_pages += 1;
         } else if let Some(snap) = health::extract_index_page_snapshot(data, page_num) {
+            // Track leaf pages for cardinality sampling
+            if snap.level == 0 && opts.cardinality {
+                leaf_pages_by_index
+                    .entry(snap.index_id)
+                    .or_default()
+                    .push(snap.page_number);
+            }
+
+            // Count delete-marked records for bloat scoring (leaf pages only)
+            if snap.level == 0 && opts.bloat {
+                let recs = walk_compact_records(data);
+                let total = recs.len() as u64;
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count() as u64;
+                let entry = delete_counts.entry(snap.index_id).or_insert((0, 0));
+                entry.0 += deleted;
+                entry.1 += total;
+            }
+
             snapshots.push(snap);
         }
 
@@ -108,6 +140,48 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         &mut report,
     );
 
+    // Bloat scoring
+    if opts.bloat {
+        for idx in &mut report.indexes {
+            let (deleted, total) = delete_counts.get(&idx.index_id).copied().unwrap_or((0, 0));
+            let delete_mark_ratio = if total > 0 {
+                deleted as f64 / total as f64
+            } else {
+                0.0
+            };
+            idx.delete_marked_records = Some(deleted);
+            idx.total_walked_records = Some(total);
+            idx.bloat = Some(health::score_bloat(idx, delete_mark_ratio));
+        }
+    }
+
+    // Cardinality estimation (separate pass — needs random page access).
+    // Only runs on the clustered (primary) index because extract_column_layout
+    // returns the PK column layout. Secondary index leaf pages have a different
+    // physical format (key cols + PK suffix) that requires a separate layout.
+    if opts.cardinality {
+        let columns_opt = crate::innodb::export::extract_column_layout(&mut ts);
+        if let Some((columns, clustered_index_id)) = columns_opt {
+            let col_name = columns.first().map(|c| c.name.clone()).unwrap_or_default();
+            if let Some(idx) = report
+                .indexes
+                .iter_mut()
+                .find(|i| i.index_id == clustered_index_id)
+            {
+                if let Some(leaf_pages) = leaf_pages_by_index.get(&idx.index_id) {
+                    idx.cardinality = health::estimate_cardinality(
+                        &mut ts,
+                        leaf_pages,
+                        &columns,
+                        &col_name,
+                        page_size,
+                        opts.sample_size,
+                    );
+                }
+            }
+        }
+    }
+
     let duration_secs = start.elapsed().as_secs_f64();
 
     if opts.prometheus {
@@ -122,24 +196,7 @@ pub fn execute(opts: &HealthOptions, writer: &mut dyn Write) -> Result<(), IdbEr
             serde_json::to_string_pretty(&report).map_err(|e| IdbError::Parse(e.to_string()))?
         )?;
     } else if opts.csv {
-        wprintln!(
-            writer,
-            "index_id,index_name,tree_depth,total_pages,leaf_pages,avg_fill_factor,garbage_ratio,fragmentation"
-        )?;
-        for idx in &report.indexes {
-            wprintln!(
-                writer,
-                "{},{},{},{},{},{},{},{}",
-                idx.index_id,
-                crate::cli::csv_escape(idx.index_name.as_deref().unwrap_or("")),
-                idx.tree_depth,
-                idx.total_pages,
-                idx.leaf_pages,
-                idx.avg_fill_factor,
-                idx.avg_garbage_ratio,
-                idx.fragmentation
-            )?;
-        }
+        print_csv(writer, &report, opts.bloat, opts.cardinality)?;
     } else {
         print_text(writer, &report, opts.verbose)?;
     }
@@ -183,7 +240,10 @@ fn resolve_index_names(
     }
 }
 
-/// Print health report as human-readable text.
+// ---------------------------------------------------------------------------
+// Text output
+// ---------------------------------------------------------------------------
+
 fn print_text(
     writer: &mut dyn Write,
     report: &health::HealthReport,
@@ -234,6 +294,32 @@ fn print_text(
             }
         }
 
+        // Bloat score
+        if let Some(ref bloat) = idx.bloat {
+            wprintln!(
+                writer,
+                "  Bloat:          {} ({:.2})",
+                bloat.grade,
+                bloat.score
+            )?;
+            if let Some(ref rec) = bloat.recommendation {
+                wprintln!(writer, "                  {}", rec)?;
+            }
+        }
+
+        // Cardinality
+        if let Some(ref card) = idx.cardinality {
+            wprintln!(
+                writer,
+                "  Cardinality:    ~{} distinct (column: {}, {}/{} pages, {:.0}% confidence)",
+                card.estimated_distinct,
+                card.column_name,
+                card.sampled_pages,
+                card.total_leaf_pages,
+                card.confidence * 100.0
+            )?;
+        }
+
         wprintln!(writer)?;
     }
 
@@ -281,7 +367,68 @@ fn print_text(
     Ok(())
 }
 
-/// Print health report as Prometheus exposition format.
+// ---------------------------------------------------------------------------
+// CSV output
+// ---------------------------------------------------------------------------
+
+fn print_csv(
+    writer: &mut dyn Write,
+    report: &health::HealthReport,
+    bloat: bool,
+    cardinality: bool,
+) -> Result<(), IdbError> {
+    let mut header = String::from(
+        "index_id,index_name,tree_depth,total_pages,leaf_pages,avg_fill_factor,garbage_ratio,fragmentation",
+    );
+    if bloat {
+        header.push_str(",bloat_score,bloat_grade,delete_marked,total_walked");
+    }
+    if cardinality {
+        header.push_str(",est_cardinality,cardinality_confidence");
+    }
+    wprintln!(writer, "{}", header)?;
+
+    for idx in &report.indexes {
+        let mut row = format!(
+            "{},{},{},{},{},{},{},{}",
+            idx.index_id,
+            crate::cli::csv_escape(idx.index_name.as_deref().unwrap_or("")),
+            idx.tree_depth,
+            idx.total_pages,
+            idx.leaf_pages,
+            idx.avg_fill_factor,
+            idx.avg_garbage_ratio,
+            idx.fragmentation
+        );
+        if bloat {
+            if let Some(ref b) = idx.bloat {
+                row.push_str(&format!(
+                    ",{},{},{}",
+                    b.score,
+                    b.grade,
+                    idx.delete_marked_records.unwrap_or(0)
+                ));
+                row.push_str(&format!(",{}", idx.total_walked_records.unwrap_or(0)));
+            } else {
+                row.push_str(",,,,");
+            }
+        }
+        if cardinality {
+            if let Some(ref c) = idx.cardinality {
+                row.push_str(&format!(",{},{}", c.estimated_distinct, c.confidence));
+            } else {
+                row.push_str(",,");
+            }
+        }
+        wprintln!(writer, "{}", row)?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Prometheus output
+// ---------------------------------------------------------------------------
+
 fn print_prometheus(
     writer: &mut dyn Write,
     report: &health::HealthReport,
@@ -417,6 +564,61 @@ fn print_prometheus(
                 idx.total_pages
             )
         )?;
+    }
+
+    // innodb_bloat_score (only when bloat data present)
+    let has_bloat = report.indexes.iter().any(|i| i.bloat.is_some());
+    if has_bloat {
+        wprintln!(
+            writer,
+            "{}",
+            prom::help_line("innodb_bloat_score", "Index bloat score (0.0-1.0)")
+        )?;
+        wprintln!(writer, "{}", prom::type_line("innodb_bloat_score", "gauge"))?;
+        for idx in &report.indexes {
+            if let Some(ref b) = idx.bloat {
+                let id_str = idx.index_id.to_string();
+                let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+                wprintln!(
+                    writer,
+                    "{}",
+                    prom::format_gauge(
+                        "innodb_bloat_score",
+                        &[("file", file), ("index", index_label)],
+                        b.score
+                    )
+                )?;
+            }
+        }
+
+        wprintln!(
+            writer,
+            "{}",
+            prom::help_line(
+                "innodb_delete_mark_ratio",
+                "Ratio of delete-marked records per index"
+            )
+        )?;
+        wprintln!(
+            writer,
+            "{}",
+            prom::type_line("innodb_delete_mark_ratio", "gauge")
+        )?;
+        for idx in &report.indexes {
+            if let Some(ref b) = idx.bloat {
+                let id_str = idx.index_id.to_string();
+                let index_label = idx.index_name.as_deref().unwrap_or(&id_str);
+                wprintln!(
+                    writer,
+                    "{}",
+                    prom::format_gauge(
+                        "innodb_delete_mark_ratio",
+                        &[("file", file), ("index", index_label)],
+                        b.components.delete_mark_ratio
+                    )
+                )?;
+            }
+        }
     }
 
     // innodb_scan_duration_seconds
