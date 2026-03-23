@@ -1242,9 +1242,66 @@ pub enum Commands {
         depth: Option<u32>,
     },
 
+    /// Analyze incremental backups and detect changed pages
+    ///
+    /// Two modes: `diff` compares page LSNs between a base (backup) and
+    /// current (live) tablespace to detect which pages were modified since
+    /// the backup; `chain` validates an XtraBackup backup directory for
+    /// LSN continuity across full and incremental backup sets.
+    Backup {
+        #[command(subcommand)]
+        subcmd: BackupSubcommand,
+    },
+
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
+    },
+}
+
+/// Subcommands for `inno backup`.
+#[derive(Subcommand)]
+pub enum BackupSubcommand {
+    /// Compare page LSNs between base backup and current tablespace
+    Diff {
+        /// Path to the base/backup tablespace file (.ibd)
+        #[arg(long)]
+        base: String,
+
+        /// Path to the current/live tablespace file (.ibd)
+        #[arg(long)]
+        current: String,
+
+        /// Show per-page delta details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
+    /// Validate backup chain LSN continuity
+    Chain {
+        /// Path to directory containing backup sets with xtrabackup_checkpoints
+        #[arg(short, long)]
+        dir: String,
+
+        /// Show details for each backup set
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 }

@@ -55,6 +55,7 @@
 
 pub mod app;
 pub mod audit;
+pub mod backup;
 pub mod binlog;
 pub mod checksum;
 pub mod compat;

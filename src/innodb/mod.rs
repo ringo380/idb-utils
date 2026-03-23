@@ -32,6 +32,7 @@
 //! | [`vendor`] | Vendor detection (MySQL, Percona, MariaDB) and format variants |
 //! | [`constants`] | InnoDB page/file structure constants from MySQL source headers |
 
+pub mod backup;
 pub mod checksum;
 pub mod compat;
 pub mod compression;
