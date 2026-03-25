@@ -844,13 +844,30 @@ fn execute_health(
         let threshold = max_frag / 100.0;
         results.retain(|r| r.error.is_some() || r.avg_fragmentation > threshold);
     }
+    // Compute directory-wide worst bloat grade from ALL results (before filtering)
+    let dir_worst_bloat = if do_bloat {
+        results
+            .iter()
+            .filter_map(|r| r.worst_bloat_grade.as_ref())
+            .max_by_key(|g| bloat_grade_ord(g).unwrap_or(0))
+            .cloned()
+    } else {
+        None
+    };
+
     if let Some(ref grade_str) = opts.max_bloat_grade {
-        let threshold = bloat_grade_ord(grade_str);
+        let threshold = bloat_grade_ord(grade_str).ok_or_else(|| {
+            crate::IdbError::Argument(format!(
+                "Invalid bloat grade '{}': must be one of A, B, C, D, F",
+                grade_str
+            ))
+        })?;
         results.retain(|r| {
             r.error.is_some()
                 || r.worst_bloat_grade
                     .as_ref()
-                    .map(|g| bloat_grade_ord(g) >= threshold)
+                    .and_then(|g| bloat_grade_ord(g))
+                    .map(|ord| ord >= threshold)
                     .unwrap_or(false)
         });
     }
@@ -861,17 +878,6 @@ fn execute_health(
             .partial_cmp(&a.avg_fragmentation)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-
-    // Compute directory-wide worst bloat grade
-    let dir_worst_bloat = if do_bloat {
-        results
-            .iter()
-            .filter_map(|r| r.worst_bloat_grade.as_ref())
-            .max_by_key(|g| bloat_grade_ord(g))
-            .cloned()
-    } else {
-        None
-    };
 
     if opts.json {
         let report = HealthAuditReport {
@@ -1130,14 +1136,15 @@ fn round2(v: f64) -> f64 {
 }
 
 /// Convert bloat grade string to ordinal for comparison (higher = worse).
-fn bloat_grade_ord(grade: &str) -> u8 {
+/// Returns `None` for unrecognised input.
+fn bloat_grade_ord(grade: &str) -> Option<u8> {
     match grade {
-        "A" => 0,
-        "B" => 1,
-        "C" => 2,
-        "D" => 3,
-        "F" => 4,
-        _ => 255,
+        "A" => Some(0),
+        "B" => Some(1),
+        "C" => Some(2),
+        "D" => Some(3),
+        "F" => Some(4),
+        _ => None,
     }
 }
 

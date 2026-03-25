@@ -599,7 +599,10 @@ pub struct BackupMetaVerifyResult {
 /// Verify tablespace page LSNs against an XtraBackup checkpoint file.
 ///
 /// Pages with LSN > `to_lsn` are reported as after the backup window.
-/// Pages with non-zero LSN < `from_lsn` are reported as before the window.
+/// For full backups (`from_lsn == 0`), pages with non-zero LSN < `from_lsn`
+/// are reported as before the window.  For incremental backups (`from_lsn > 0`),
+/// pages below the window are expected (unmodified since the base) and are not
+/// flagged as failures.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn verify_backup_meta(
     checkpoint_path: &str,
@@ -613,6 +616,7 @@ pub fn verify_backup_meta(
 
     let ps = page_size as usize;
     let total_pages = all_pages.len() / ps;
+    let is_incremental = checkpoint.from_lsn > 0;
 
     let mut min_lsn = u64::MAX;
     let mut max_lsn = 0u64;
@@ -647,7 +651,10 @@ pub fn verify_backup_meta(
                     lsn,
                     page_type: hdr.page_type.name().to_string(),
                 });
-            } else if lsn < checkpoint.from_lsn {
+            } else if !is_incremental && lsn < checkpoint.from_lsn {
+                // For full backups, pages before the window are unexpected.
+                // For incremental backups, unmodified pages legitimately
+                // have LSNs below from_lsn and are not flagged.
                 pages_before.push(BackupMetaPageIssue {
                     page_number: i as u64,
                     lsn,

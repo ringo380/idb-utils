@@ -639,7 +639,9 @@ fn test_audit_health_max_bloat_grade_filter() {
     let dir = create_test_datadir();
     let datadir = dir.path().to_str().unwrap();
 
-    // With --max-bloat-grade F, all results should be retained (only F or worse)
+    // Synthetic files have minimal data so bloat should be low (grade A).
+    // --max-bloat-grade F means only show grade F or worse, so all healthy
+    // files should be filtered out, leaving an empty tablespaces array.
     let mut opts = audit_opts(datadir);
     opts.health = true;
     opts.max_bloat_grade = Some("F".to_string());
@@ -649,18 +651,31 @@ fn test_audit_health_max_bloat_grade_filter() {
     idb::cli::audit::execute(&opts, &mut output).unwrap();
 
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    // Synthetic files have minimal data so bloat should be low (grade A)
-    // --max-bloat-grade F means only show grade F, so all should be filtered out
     let tablespaces = json["tablespaces"].as_array().unwrap();
-    for ts in tablespaces {
-        if ts["error"].is_null() {
-            let grade = ts["worst_bloat_grade"].as_str().unwrap();
-            assert_eq!(
-                grade, "F",
-                "Only grade F should pass --max-bloat-grade F filter"
-            );
-        }
-    }
+    // Synthetic data produces grade A — all should be filtered out
+    assert!(
+        tablespaces.is_empty(),
+        "Expected all healthy tablespaces to be filtered out by --max-bloat-grade F, got {}",
+        tablespaces.len()
+    );
+}
+
+#[test]
+fn test_audit_health_max_bloat_grade_invalid() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.max_bloat_grade = Some("X".to_string());
+    opts.json = true;
+
+    let mut output = Vec::new();
+    let result = idb::cli::audit::execute(&opts, &mut output);
+    assert!(
+        result.is_err(),
+        "Invalid bloat grade should return an error"
+    );
 }
 
 #[test]
