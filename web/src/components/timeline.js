@@ -108,6 +108,7 @@ export function createTimeline(container, _primaryData) {
       if (source === 'redo') redoData = data;
       else if (source === 'undo') undoData = data;
       else if (source === 'binlog') binlogData = data;
+      trackFileUpload(file.name, data.length, source);
       // Re-render drop zone to show "Loaded" state
       container.innerHTML = buildDropZoneHTML();
       wireDropZone(container);

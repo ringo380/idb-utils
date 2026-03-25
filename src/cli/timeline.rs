@@ -61,6 +61,30 @@ pub fn execute(opts: &TimelineOptions, writer: &mut dyn Write) -> Result<(), Idb
 
     let mut report = merge_timeline(redo_entries, undo_entries, binlog_entries);
 
+    // Annotate binlog entries with space_id if a data directory is available
+    if let Some(ref datadir) = opts.datadir {
+        if let Ok(space_map) = crate::innodb::timeline::build_space_table_map(datadir) {
+            // Build reverse map: table_name -> space_id
+            let reverse: std::collections::HashMap<String, u32> = space_map
+                .into_iter()
+                .map(|(sid, name)| (name, sid))
+                .collect();
+            for entry in &mut report.entries {
+                if let crate::innodb::timeline::TimelineAction::Binlog {
+                    database, table, ..
+                } = &entry.action
+                {
+                    if let (Some(db), Some(tbl)) = (database, table) {
+                        let full = format!("{}.{}", db, tbl);
+                        if let Some(&sid) = reverse.get(&full) {
+                            entry.space_id = Some(sid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Apply filters
     apply_filters(&mut report, opts);
 

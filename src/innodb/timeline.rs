@@ -226,25 +226,26 @@ pub fn extract_undo_timeline(
 pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<TimelineEntry>, IdbError> {
     let analysis = crate::binlog::events::analyze_binlog(reader)?;
 
-    // Build table_id -> (db, table) map from TABLE_MAP events
-    let mut table_map: HashMap<u64, (String, String)> = HashMap::new();
-    for tme in &analysis.table_maps {
-        table_map.insert(
-            tme.table_id,
-            (tme.database_name.clone(), tme.table_name.clone()),
-        );
-    }
+    // Track table context: TABLE_MAP events (type 19) always precede their
+    // row events in the binlog stream.  We consume table_maps in order as we
+    // encounter type-19 events so that each row event inherits the correct
+    // database and table name.
+    let mut table_map_idx: usize = 0;
+    let mut current_db: Option<String> = None;
+    let mut current_table: Option<String> = None;
 
     let mut entries = Vec::new();
-    let mut current_xid: Option<u64> = None;
 
     for ev in &analysis.events {
         match ev.type_code {
-            // XID_EVENT — commit marker with transaction ID
-            16 => {
-                // XID is in the event payload; we only have the summary here.
-                // Track by offset as a proxy.
-                current_xid = Some(ev.offset);
+            // TABLE_MAP_EVENT — advance to next parsed TABLE_MAP
+            19 => {
+                if table_map_idx < analysis.table_maps.len() {
+                    let tme = &analysis.table_maps[table_map_idx];
+                    current_db = Some(tme.database_name.clone());
+                    current_table = Some(tme.table_name.clone());
+                    table_map_idx += 1;
+                }
             }
             // WRITE_ROWS_EVENT_V2 (30), UPDATE_ROWS_EVENT_V2 (31), DELETE_ROWS_EVENT_V2 (32)
             30..=32 => {
@@ -257,9 +258,9 @@ pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<Timeline
                     page_no: None,
                     action: TimelineAction::Binlog {
                         event_type: ev.event_type.clone(),
-                        database: None, // TABLE_MAP for specific table_id not available in summary
-                        table: None,
-                        xid: current_xid,
+                        database: current_db.clone(),
+                        table: current_table.clone(),
+                        xid: None,
                     },
                 });
             }
@@ -276,7 +277,7 @@ pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<Timeline
                         event_type: ev.event_type.clone(),
                         database: None,
                         table: None,
-                        xid: current_xid,
+                        xid: None,
                     },
                 });
             }
