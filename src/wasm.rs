@@ -1704,3 +1704,49 @@ pub fn diff_backup_lsn(base_data: &[u8], current_data: &[u8]) -> Result<String, 
 
     to_json(&report)
 }
+
+// ---------------------------------------------------------------------------
+// build_timeline — unified modification timeline from redo, undo, and binlog
+// ---------------------------------------------------------------------------
+
+/// Builds a unified modification timeline by correlating redo log, undo log,
+/// and binary log data.  Pass empty slices (`new Uint8Array(0)`) for sources
+/// that are not available.
+///
+/// Returns a JSON `TimelineReport` with chronologically sorted entries and
+/// per-page summaries.
+#[wasm_bindgen]
+pub fn build_timeline(
+    redo_data: &[u8],
+    undo_data: &[u8],
+    binlog_data: &[u8],
+) -> Result<String, JsValue> {
+    use crate::innodb::timeline::{
+        extract_binlog_timeline, extract_redo_timeline, extract_undo_timeline, merge_timeline,
+    };
+
+    let redo_entries = if !redo_data.is_empty() {
+        let mut log =
+            crate::innodb::log::LogFile::from_bytes(redo_data.to_vec()).map_err(to_js_err)?;
+        extract_redo_timeline(&mut log).map_err(to_js_err)?
+    } else {
+        Vec::new()
+    };
+
+    let undo_entries = if !undo_data.is_empty() {
+        let mut ts = Tablespace::from_bytes(undo_data.to_vec()).map_err(to_js_err)?;
+        extract_undo_timeline(&mut ts).map_err(to_js_err)?
+    } else {
+        Vec::new()
+    };
+
+    let binlog_entries = if !binlog_data.is_empty() {
+        let cursor = std::io::Cursor::new(binlog_data.to_vec());
+        extract_binlog_timeline(cursor).map_err(to_js_err)?
+    } else {
+        Vec::new()
+    };
+
+    let report = merge_timeline(redo_entries, undo_entries, binlog_entries);
+    to_json(&report)
+}

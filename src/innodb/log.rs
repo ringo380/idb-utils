@@ -758,6 +758,167 @@ impl std::fmt::Display for MlogRecordType {
     }
 }
 
+/// A single parsed MLOG record from a redo log data block.
+///
+/// Each record carries the type of redo operation and (for page-referencing
+/// types) the `space_id` and `page_no` that the operation targets.  These
+/// two fields are encoded as InnoDB compressed integers immediately after
+/// the type byte.
+///
+/// ## Limitations
+///
+/// * Records that span block boundaries are not decoded — only intra-block
+///   records are returned.
+/// * The exact record payload length is not determined (would require schema
+///   context), so records are identified by scanning for valid type bytes.
+#[derive(Debug, Clone, Serialize)]
+pub struct MlogRecord {
+    /// Offset within the block payload (bytes from block start).
+    pub block_offset: usize,
+    /// MLOG record type (single-rec flag stripped).
+    pub record_type: MlogRecordType,
+    /// Whether the single-record-group flag (bit 7 of type byte) was set.
+    pub single_rec: bool,
+    /// Tablespace ID (InnoDB compressed integer), if this type carries a page reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space_id: Option<u32>,
+    /// Page number within the tablespace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_no: Option<u32>,
+}
+
+impl MlogRecordType {
+    /// Returns `true` for MLOG types that do NOT carry a `(space_id, page_no)` pair.
+    ///
+    /// These are: multi-rec-end, dummy, file-level ops, LSN marker, and test.
+    fn is_non_page_type(&self) -> bool {
+        matches!(
+            self,
+            MlogRecordType::MlogMultiRecEnd
+                | MlogRecordType::MlogDummyRecord
+                | MlogRecordType::MlogFileCreate
+                | MlogRecordType::MlogFileRename
+                | MlogRecordType::MlogFileDelete
+                | MlogRecordType::MlogFileExtend
+                | MlogRecordType::MlogLsn
+                | MlogRecordType::MlogTest
+                | MlogRecordType::MlogTableDynamicMeta
+        )
+    }
+
+    /// Returns `true` if the raw type code is in the known range (1..=76, excluding gaps).
+    fn is_known_type_code(code: u8) -> bool {
+        matches!(
+            code,
+            1..=2 | 4 | 8..=11 | 13..=22 | 24..=35 | 36..=46 | 48..=53 | 57..=59 | 61..=76
+        )
+    }
+}
+
+/// Parse MLOG records from a single redo log data block.
+///
+/// Walks the block payload from `LOG_BLOCK_HDR_SIZE` up to `hdr.data_len`,
+/// extracting the record type and, for page-referencing types, the compressed
+/// `space_id` and `page_no` fields.
+///
+/// Records are identified by scanning for valid type bytes.  Because the
+/// exact record payload length is not determined, some false positives may
+/// occur when data bytes happen to look like valid type codes.  To mitigate
+/// this, decoded `space_id` values above 2^24 are treated as implausible
+/// and the record is emitted without page references.
+pub fn parse_mlog_records(block: &[u8], hdr: &LogBlockHeader) -> Vec<MlogRecord> {
+    let data_end = std::cmp::min(hdr.data_len as usize, block.len());
+    if data_end <= LOG_BLOCK_HDR_SIZE {
+        return Vec::new();
+    }
+
+    let mut records = Vec::new();
+    let mut pos = LOG_BLOCK_HDR_SIZE;
+
+    while pos < data_end {
+        let raw_type = block[pos];
+        // Skip zero/padding bytes
+        if raw_type == 0 {
+            pos += 1;
+            continue;
+        }
+
+        let single_rec = (raw_type & 0x80) != 0;
+        let type_code = raw_type & 0x7F;
+
+        // Only process known type codes
+        if !MlogRecordType::is_known_type_code(type_code) {
+            pos += 1;
+            continue;
+        }
+
+        let record_type = MlogRecordType::from_u8(type_code);
+        let block_offset = pos;
+        pos += 1; // consume type byte
+
+        if record_type.is_non_page_type() {
+            records.push(MlogRecord {
+                block_offset,
+                record_type,
+                single_rec,
+                space_id: None,
+                page_no: None,
+            });
+            continue;
+        }
+
+        // Try to read compressed space_id and page_no
+        let (space_id, page_no) = if let Some((sid, sid_len)) =
+            crate::innodb::undo::read_compressed(block, pos)
+        {
+            let next = pos + sid_len;
+            if sid <= 0x00FF_FFFF {
+                // plausible space_id
+                if let Some((pno, pno_len)) = crate::innodb::undo::read_compressed(block, next) {
+                    pos = next + pno_len;
+                    (Some(sid as u32), Some(pno as u32))
+                } else {
+                    pos = next;
+                    (Some(sid as u32), None)
+                }
+            } else {
+                // implausible space_id — skip
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        records.push(MlogRecord {
+            block_offset,
+            record_type,
+            single_rec,
+            space_id,
+            page_no,
+        });
+    }
+
+    records
+}
+
+/// Compute the approximate LSN for a record within a redo log block.
+///
+/// Each data block carries `LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE - LOG_BLOCK_TRL_SIZE`
+/// = 494 bytes of useful log data.  The LSN of a record is:
+///
+/// ```text
+/// start_lsn + block_idx * 494 + (payload_offset - LOG_BLOCK_HDR_SIZE)
+/// ```
+///
+/// where `block_idx` is the data block index (0-based, i.e. the block's
+/// position minus `LOG_FILE_HDR_BLOCKS`).
+pub fn compute_record_lsn(start_lsn: u64, block_idx: u64, payload_offset: usize) -> u64 {
+    const PAYLOAD_PER_BLOCK: u64 =
+        (LOG_BLOCK_SIZE - LOG_BLOCK_HDR_SIZE - LOG_BLOCK_TRL_SIZE) as u64;
+    let offset_in_payload = payload_offset.saturating_sub(LOG_BLOCK_HDR_SIZE) as u64;
+    start_lsn + block_idx * PAYLOAD_PER_BLOCK + offset_in_payload
+}
+
 /// Redo log file reader.
 pub struct LogFile {
     reader: Box<dyn ReadSeek>,

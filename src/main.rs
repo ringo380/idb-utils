@@ -741,6 +741,37 @@ fn main() {
             &mut writer,
         ),
 
+        Commands::Timeline {
+            redo_log,
+            undo_file,
+            binlog,
+            datadir,
+            space_id,
+            page,
+            table,
+            limit,
+            verbose,
+            json,
+            page_size,
+            keyring,
+        } => cli::timeline::execute(
+            &cli::timeline::TimelineOptions {
+                redo_log,
+                undo_file,
+                binlog,
+                datadir,
+                space_id,
+                page,
+                table,
+                limit,
+                verbose,
+                json: json || global_format == OutputFormat::Json,
+                page_size,
+                keyring,
+            },
+            &mut writer,
+        ),
+
         Commands::Backup { subcmd } => match subcmd {
             BackupSubcommand::Diff {
                 base,

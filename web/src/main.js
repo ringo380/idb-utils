@@ -25,6 +25,7 @@ import { createSpatial } from './components/spatial.js';
 import { createUndelete } from './components/undelete.js';
 import { createSimulate } from './components/simulate.js';
 import { createBackup } from './components/backup.js';
+import { createTimeline } from './components/timeline.js';
 import { downloadJson } from './utils/export.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
@@ -431,6 +432,9 @@ function renderTab() {
       break;
     case 'simulate':
       createSimulate(content, data);
+      break;
+    case 'timeline':
+      createTimeline(content, data);
       break;
     case 'redolog':
       createRedoLog(content, fileData);

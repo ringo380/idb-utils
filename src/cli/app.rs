@@ -1266,6 +1266,61 @@ pub enum Commands {
         depth: Option<u32>,
     },
 
+    /// Build unified modification timeline from redo, undo, and binary logs
+    ///
+    /// Correlates redo log MLOG records, undo log transaction history, and
+    /// binary log row events into a single chronological view of what happened
+    /// to each page and table.  Requires at least one log source.
+    Timeline {
+        /// Path to InnoDB redo log file (ib_logfile0 or #ib_redo*)
+        #[arg(long)]
+        redo_log: Option<String>,
+
+        /// Path to undo tablespace file (.ibu or .ibd)
+        #[arg(long)]
+        undo_file: Option<String>,
+
+        /// Path to MySQL binary log file
+        #[arg(long)]
+        binlog: Option<String>,
+
+        /// Path to MySQL data directory (for table name resolution)
+        #[arg(short, long)]
+        datadir: Option<String>,
+
+        /// Filter by tablespace space ID
+        #[arg(short, long)]
+        space_id: Option<u32>,
+
+        /// Filter by page number
+        #[arg(short, long)]
+        page: Option<u64>,
+
+        /// Filter by table name (substring match)
+        #[arg(short, long)]
+        table: Option<String>,
+
+        /// Maximum entries to display
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Show verbose details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
     /// Analyze incremental backups and detect changed pages
     ///
     /// Two modes: `diff` compares page LSNs between a base (backup) and
