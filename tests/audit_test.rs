@@ -107,6 +107,8 @@ fn audit_opts(datadir: &str) -> idb::cli::audit::AuditOptions {
         mmap: false,
         min_fill_factor: None,
         max_fragmentation: None,
+        bloat: false,
+        max_bloat_grade: None,
         depth: None,
     }
 }
@@ -575,4 +577,114 @@ fn test_audit_depth_limits_discovery() {
 
     let json3: serde_json::Value = serde_json::from_slice(&output3).unwrap();
     assert_eq!(json3["summary"]["total_files"], 3);
+}
+
+// -----------------------------------------------------------------------
+// Bloat alert tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_audit_health_bloat_json() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.bloat = true;
+    opts.json = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    // With bloat enabled, tablespaces should have worst_bloat_grade
+    for ts in json["tablespaces"].as_array().unwrap() {
+        if ts["error"].is_null() {
+            assert!(
+                ts.get("worst_bloat_grade").is_some(),
+                "Expected worst_bloat_grade in bloat-enabled output"
+            );
+            assert!(
+                ts.get("worst_bloat_score").is_some(),
+                "Expected worst_bloat_score in bloat-enabled output"
+            );
+        }
+    }
+    // Summary should also have worst_bloat_grade
+    assert!(json["summary"].get("worst_bloat_grade").is_some());
+}
+
+#[test]
+fn test_audit_health_bloat_text_output() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.bloat = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let text = String::from_utf8(output).unwrap();
+    // Text output should include Bloat column header
+    assert!(
+        text.contains("Bloat"),
+        "Expected Bloat column in text output"
+    );
+}
+
+#[test]
+fn test_audit_health_max_bloat_grade_filter() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    // With --max-bloat-grade F, all results should be retained (only F or worse)
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.max_bloat_grade = Some("F".to_string());
+    opts.json = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    // Synthetic files have minimal data so bloat should be low (grade A)
+    // --max-bloat-grade F means only show grade F, so all should be filtered out
+    let tablespaces = json["tablespaces"].as_array().unwrap();
+    for ts in tablespaces {
+        if ts["error"].is_null() {
+            let grade = ts["worst_bloat_grade"].as_str().unwrap();
+            assert_eq!(
+                grade, "F",
+                "Only grade F should pass --max-bloat-grade F filter"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_audit_health_max_bloat_grade_implies_bloat() {
+    let dir = create_test_datadir();
+    let datadir = dir.path().to_str().unwrap();
+
+    // --max-bloat-grade without --bloat should still compute bloat scores
+    let mut opts = audit_opts(datadir);
+    opts.health = true;
+    opts.max_bloat_grade = Some("A".to_string());
+    opts.json = true;
+
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    // With --max-bloat-grade A, all results at A or worse should be retained
+    for ts in json["tablespaces"].as_array().unwrap() {
+        if ts["error"].is_null() {
+            assert!(
+                ts.get("worst_bloat_grade").is_some(),
+                "--max-bloat-grade should imply bloat scoring"
+            );
+        }
+    }
 }

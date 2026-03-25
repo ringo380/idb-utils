@@ -569,3 +569,110 @@ pub fn verify_backup_chain(mut files_info: Vec<ChainFileInfo>) -> ChainReport {
         consistent_space_id,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Backup metadata verification
+// ---------------------------------------------------------------------------
+
+/// A page whose LSN falls outside the backup checkpoint window.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackupMetaPageIssue {
+    pub page_number: u64,
+    pub lsn: u64,
+    pub page_type: String,
+}
+
+/// Result of verifying tablespace page LSNs against XtraBackup checkpoint metadata.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackupMetaVerifyResult {
+    pub checkpoint_file: String,
+    pub backup_type: String,
+    pub from_lsn: u64,
+    pub to_lsn: u64,
+    pub tablespace_min_lsn: u64,
+    pub tablespace_max_lsn: u64,
+    pub pages_before_window: Vec<BackupMetaPageIssue>,
+    pub pages_after_window: Vec<BackupMetaPageIssue>,
+    pub passed: bool,
+}
+
+/// Verify tablespace page LSNs against an XtraBackup checkpoint file.
+///
+/// Pages with LSN > `to_lsn` are reported as after the backup window.
+/// Pages with non-zero LSN < `from_lsn` are reported as before the window.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn verify_backup_meta(
+    checkpoint_path: &str,
+    all_pages: &[u8],
+    page_size: u32,
+) -> Result<BackupMetaVerifyResult, crate::IdbError> {
+    use crate::innodb::backup::parse_xtrabackup_checkpoints;
+    use std::path::Path;
+
+    let checkpoint = parse_xtrabackup_checkpoints(Path::new(checkpoint_path))?;
+
+    let ps = page_size as usize;
+    let total_pages = all_pages.len() / ps;
+
+    let mut min_lsn = u64::MAX;
+    let mut max_lsn = 0u64;
+    let mut pages_before = Vec::new();
+    let mut pages_after = Vec::new();
+
+    for i in 0..total_pages {
+        let offset = i * ps;
+        let page_data = &all_pages[offset..offset + ps];
+
+        // Skip all-zero pages
+        if page_data.iter().all(|&b| b == 0) {
+            continue;
+        }
+
+        if let Some(hdr) = FilHeader::parse(page_data) {
+            let lsn = hdr.lsn;
+            if lsn == 0 {
+                continue;
+            }
+
+            if lsn < min_lsn {
+                min_lsn = lsn;
+            }
+            if lsn > max_lsn {
+                max_lsn = lsn;
+            }
+
+            if lsn > checkpoint.to_lsn {
+                pages_after.push(BackupMetaPageIssue {
+                    page_number: i as u64,
+                    lsn,
+                    page_type: hdr.page_type.name().to_string(),
+                });
+            } else if lsn < checkpoint.from_lsn {
+                pages_before.push(BackupMetaPageIssue {
+                    page_number: i as u64,
+                    lsn,
+                    page_type: hdr.page_type.name().to_string(),
+                });
+            }
+        }
+    }
+
+    // If no non-zero LSN pages were found, set min/max to 0
+    if min_lsn == u64::MAX {
+        min_lsn = 0;
+    }
+
+    let passed = pages_before.is_empty() && pages_after.is_empty();
+
+    Ok(BackupMetaVerifyResult {
+        checkpoint_file: checkpoint_path.to_string(),
+        backup_type: checkpoint.backup_type,
+        from_lsn: checkpoint.from_lsn,
+        to_lsn: checkpoint.to_lsn,
+        tablespace_min_lsn: min_lsn,
+        tablespace_max_lsn: max_lsn,
+        pages_before_window: pages_before,
+        pages_after_window: pages_after,
+        passed,
+    })
+}

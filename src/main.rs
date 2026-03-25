@@ -522,6 +522,8 @@ fn main() {
             keyring,
             min_fill_factor,
             max_fragmentation,
+            bloat,
+            max_bloat_grade,
             depth,
         } => cli::audit::execute(
             &cli::audit::AuditOptions {
@@ -537,6 +539,8 @@ fn main() {
                 mmap: cli.mmap,
                 min_fill_factor,
                 max_fragmentation,
+                bloat,
+                max_bloat_grade,
                 depth,
             },
             &mut writer,
@@ -627,6 +631,7 @@ fn main() {
             keyring,
             redo,
             chain,
+            backup_meta,
         } => cli::verify::execute(
             &cli::verify::VerifyOptions {
                 file,
@@ -637,6 +642,7 @@ fn main() {
                 mmap: cli.mmap,
                 redo,
                 chain,
+                backup_meta,
             },
             &mut writer,
         ),
