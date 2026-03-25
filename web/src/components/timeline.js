@@ -99,6 +99,7 @@ export function createTimeline(container, _primaryData) {
     if (clearBtn) clearBtn.addEventListener('click', () => {
       redoData = null; undoData = null; binlogData = null; report = null;
       container.innerHTML = buildDropZoneHTML();
+      insertTabIntro(container, 'timeline');
       wireDropZone(container);
     });
   }
@@ -113,6 +114,7 @@ export function createTimeline(container, _primaryData) {
       trackFileUpload(file.name, data.length, source);
       // Re-render drop zone to show "Loaded" state
       container.innerHTML = buildDropZoneHTML();
+      insertTabIntro(container, 'timeline');
       wireDropZone(container);
     };
     reader.readAsArrayBuffer(file);

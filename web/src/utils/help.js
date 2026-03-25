@@ -193,7 +193,7 @@ export const TAB_DESCRIPTIONS = {
   },
   simulate: {
     description: 'Simulates InnoDB crash recovery at levels 1 through 6. Shows which pages would be affected and predicted recovery outcomes.',
-    tips: ['Level 1 = safest (skip redo), Level 6 = most aggressive', 'Use this to understand crash recovery impact before modifying innodb_force_recovery'],
+    tips: ['Level 1 = skip corrupt pages, Level 6 = skip redo log application', 'Use this to understand crash recovery impact before modifying innodb_force_recovery'],
   },
   timeline: {
     description: 'Unified modification timeline correlating redo log, undo log, and binary log events into a single chronological view.',
