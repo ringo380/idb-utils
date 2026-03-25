@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro, createHelpIcon } from '../utils/help.js';
 
 export function createChecksums(container, fileData) {
   const wasm = getWasm();
@@ -59,6 +60,11 @@ export function createChecksums(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'checksums');
+
+  // Help icon on heading
+  const heading = container.querySelector('h2');
+  if (heading) heading.after(createHelpIcon('CRC-32C is used by MySQL 5.7.7+, legacy algorithm by older versions, and full_crc32 by MariaDB 10.5+. Invalid checksums indicate possible data corruption.'));
 
   const exportSlot = container.querySelector('#checksums-export');
   if (exportSlot) {

@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 const PAGE_COLORS = {
   'INDEX': '#3b82f6',
@@ -119,6 +120,7 @@ export function createHeatmap(container, fileData, onPageClick, diffResult = nul
       <div id="heatmap-legend" class="flex flex-wrap gap-3 text-xs"></div>
     </div>
   `;
+  insertTabIntro(container, 'heatmap');
 
   const wrap = container.querySelector('#heatmap-wrap');
   const canvas = container.querySelector('#heatmap-canvas');

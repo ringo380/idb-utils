@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 const CANVAS_W = 800;
 const CANVAS_H = 500;
@@ -104,6 +105,7 @@ export function createSpatial(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'spatial');
 
   // Export bar
   const exportSlot = container.querySelector('#spatial-export');

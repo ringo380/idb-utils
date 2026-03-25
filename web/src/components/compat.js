@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 const TARGET_VERSIONS = ['5.7.0', '8.0.0', '8.4.0', '9.0.0', '9.1.0'];
 
@@ -70,6 +71,7 @@ export function createCompat(container, fileData) {
       <div id="compat-result"></div>
     </div>
   `;
+  insertTabIntro(container, 'compat');
 
   // Export bar
   const exportSlot = container.querySelector('#compat-export');

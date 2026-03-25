@@ -4,6 +4,7 @@ import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { requestPage } from '../utils/navigation.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 /**
  * Create the simulate tab for a single tablespace file.
@@ -53,6 +54,7 @@ export function createSimulate(container, fileData) {
       ` : ''}
     </div>
   `;
+  insertTabIntro(container, 'simulate');
 
   // Export bar
   const exportSlot = container.querySelector('#simulate-export');

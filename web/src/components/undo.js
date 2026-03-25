@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 /**
  * Create the undo tab for a single tablespace file.
@@ -60,6 +61,7 @@ export function createUndo(container, fileData) {
       ` : ''}
     </div>
   `;
+  insertTabIntro(container, 'undo');
 
   // Export bar
   const exportSlot = container.querySelector('#undo-export');

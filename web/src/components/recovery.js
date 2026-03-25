@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 export function createRecovery(container, fileData) {
   const wasm = getWasm();
@@ -66,6 +67,7 @@ export function createRecovery(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'recovery');
 
   const exportSlot = container.querySelector('#recovery-export');
   if (exportSlot) {

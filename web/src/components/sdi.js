@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 export function createSdi(container, fileData) {
   const wasm = getWasm();
@@ -42,6 +43,7 @@ export function createSdi(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'sdi');
 
   // Toggle individual records
   container.querySelectorAll('.sdi-toggle').forEach((btn) => {

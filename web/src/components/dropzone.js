@@ -19,7 +19,22 @@ export function createDropzone(onFile, onDiffFiles, onMultiFiles) {
       class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition-colors">
       Choose File
     </button>
-    <input type="file" id="file-input" accept=".ibd,.ibu,.ib_logfile0,.ib_logfile1" multiple class="hidden" />
+    <input type="file" id="file-input" accept=".ibd,.ibu,.ib_logfile0,.ib_logfile1,.log" multiple class="hidden" />
+    <div class="mt-8 text-left max-w-md mx-auto">
+      <p class="text-sm text-gray-500 font-semibold mb-2">Supported files</p>
+      <ul class="text-xs text-gray-600 space-y-1">
+        <li><span class="text-innodb-cyan">.ibd / .ibu</span> — InnoDB tablespace &amp; undo files</li>
+        <li><span class="text-innodb-cyan">ib_logfile*</span> — InnoDB redo log files</li>
+        <li><span class="text-innodb-cyan">binlog.*</span> — MySQL binary log files</li>
+      </ul>
+      <p class="text-sm text-gray-500 font-semibold mt-4 mb-2">What you can do</p>
+      <ul class="text-xs text-gray-600 space-y-1">
+        <li>Inspect page structure, checksums, and B+Tree health</li>
+        <li>Extract schema DDL and SDI metadata</li>
+        <li>Assess corruption and recover deleted records</li>
+        <li>Compare tablespaces, inspect undo/redo logs, simulate crash recovery</li>
+      </ul>
+    </div>
   `;
 
   const input = el.querySelector('#file-input');

@@ -27,6 +27,7 @@ import { createSimulate } from './components/simulate.js';
 import { createBackup } from './components/backup.js';
 import { createTimeline } from './components/timeline.js';
 import { downloadJson } from './utils/export.js';
+import { isFirstVisit, markWelcomed } from './utils/help.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
 
@@ -113,6 +114,44 @@ function showDropzone() {
   `;
   app.appendChild(header);
   app.appendChild(createDropzone(onFile, onDiffFiles, onMultiFiles));
+
+  // First-visit welcome modal
+  if (isFirstVisit()) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6)';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Welcome');
+    overlay.innerHTML = `
+      <div class="bg-surface-2 border border-gray-700 rounded-lg p-6 max-w-md mx-4 shadow-xl">
+        <h2 class="text-lg font-bold text-innodb-cyan mb-3">Welcome to InnoDB Analyzer</h2>
+        <p class="text-sm text-gray-300 mb-4">Analyze InnoDB tablespace files, redo logs, and binary logs directly in your browser. All processing happens locally via WebAssembly &mdash; no data leaves your machine.</p>
+        <ul class="text-xs text-gray-400 space-y-1.5 mb-4">
+          <li>Parse page headers, checksums, and B+Tree structures</li>
+          <li>Extract schema DDL and SDI metadata</li>
+          <li>Assess corruption and recover deleted records</li>
+          <li>Compare tablespaces, analyze undo/redo logs, simulate crash recovery</li>
+        </ul>
+        <p class="text-xs text-gray-500 mb-4">Press <kbd class="px-1 py-0.5 bg-surface-3 rounded text-gray-400">?</kbd> anytime for keyboard shortcuts</p>
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" id="welcome-dismiss" checked class="rounded border-gray-600" /> Don't show again
+          </label>
+          <button id="welcome-close" class="px-4 py-1.5 bg-innodb-cyan/20 hover:bg-innodb-cyan/30 text-innodb-cyan rounded text-sm font-semibold transition-colors">Got it</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    trackFeatureUse('welcome_modal', { action: 'shown' });
+
+    const close = () => {
+      if (overlay.querySelector('#welcome-dismiss').checked) markWelcomed();
+      overlay.remove();
+    };
+    overlay.querySelector('#welcome-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('#welcome-close').focus();
+  }
 }
 
 function onFile(name, data) {

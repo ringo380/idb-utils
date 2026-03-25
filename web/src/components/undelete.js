@@ -4,6 +4,7 @@ import { esc } from '../utils/html.js';
 import { createExportBar, downloadJson, downloadText } from '../utils/export.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
 import { trackFeatureUse, trackExport } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 /**
  * Create the undelete tab for a single tablespace file.
@@ -55,6 +56,7 @@ export function createUndelete(container, fileData) {
       ` : '<div class="text-gray-500">No deleted records found.</div>'}
     </div>
   `;
+  insertTabIntro(container, 'undelete');
 
   // Export bar
   const exportSlot = container.querySelector('#undelete-export');

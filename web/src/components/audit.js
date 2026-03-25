@@ -4,6 +4,7 @@ import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { renderIndexTable } from '../utils/health-ui.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 /**
  * Create the audit dashboard, analyzing multiple .ibd files.
@@ -131,6 +132,7 @@ function buildAuditDashboard(container, files) {
       <div id="audit-table-wrap" class="overflow-x-auto max-h-96"></div>
     </div>
   `;
+  insertTabIntro(container, 'audit');
 
   // Export bar
   const exportSlot = container.querySelector('#audit-export');

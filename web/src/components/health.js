@@ -6,6 +6,7 @@ import { fillFactorClass, bloatGradeColor } from '../utils/health-ui.js';
 import { requestIndexFilter, navigateToTab } from '../utils/navigation.js';
 import { createBTree } from './btree.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro, createHelpIcon } from '../utils/help.js';
 
 /**
  * Create the health dashboard for a single tablespace file.
@@ -57,7 +58,7 @@ export function createHealth(container, fileData) {
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         ${statCard('Index Count', s.index_count)}
-        ${statCard('Avg Fill Factor', avgFillPct + '%', fillFactorClass(s.avg_fill_factor))}
+        ${statCard('Avg Fill Factor', avgFillPct + '%', fillFactorClass(s.avg_fill_factor), 'fill-factor')}
         ${statCard('Avg Fragmentation', avgFragPct + '%', 'text-innodb-amber')}
         ${(() => {
           const worstBloat = indexes.reduce((worst, i) => {
@@ -65,7 +66,7 @@ export function createHealth(container, fileData) {
             return (!worst || i.bloat.score > worst.score) ? i.bloat : worst;
           }, null);
           if (worstBloat) {
-            return statCard('Worst Bloat', worstBloat.grade + ' (' + worstBloat.score.toFixed(2) + ')', bloatGradeColor(worstBloat.grade));
+            return statCard('Worst Bloat', worstBloat.grade + ' (' + worstBloat.score.toFixed(2) + ')', bloatGradeColor(worstBloat.grade), 'bloat-grade');
           }
           return statCard('Avg Garbage Ratio', avgGarbagePct + '%', 'text-gray-300');
         })()}
@@ -92,6 +93,13 @@ export function createHealth(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'health');
+
+  // Contextual help icons on stat cards
+  const fillCard = container.querySelector('[data-metric="fill-factor"]');
+  if (fillCard) fillCard.querySelector('.text-xs').appendChild(createHelpIcon('How full each B+Tree page is. 60\u201390% is healthy. Below 50% suggests fragmentation or excessive deletes.'));
+  const bloatCard = container.querySelector('[data-metric="bloat-grade"]');
+  if (bloatCard) bloatCard.querySelector('.text-xs').appendChild(createHelpIcon('Bloat grade from A (healthy) to F (severe). Weighted formula: fill deficit 30%, garbage 25%, fragmentation 25%, delete-marked records 20%.'));
 
   // Export bar
   const exportSlot = container.querySelector('#health-export');
@@ -261,9 +269,9 @@ function healthIndexRow(idx) {
     </tr>`;
 }
 
-function statCard(label, value, colorClass = '') {
+function statCard(label, value, colorClass = '', metric = '') {
   return `
-    <div class="bg-surface-2 rounded-lg p-4">
+    <div class="bg-surface-2 rounded-lg p-4"${metric ? ` data-metric="${metric}"` : ''}>
       <div class="text-xs text-gray-500 uppercase tracking-wide">${esc(label)}</div>
       <div class="text-lg font-bold ${colorClass || 'text-gray-100'} mt-1">${value}</div>
     </div>`;

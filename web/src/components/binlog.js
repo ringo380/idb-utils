@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 const PAGE_SIZE = 100;
 
@@ -80,6 +81,7 @@ export function createBinlog(container, fileData) {
       ` : ''}
     </div>
   `;
+  insertTabIntro(container, 'binlog');
 
   // Export bar
   const exportSlot = container.querySelector('#binlog-export');

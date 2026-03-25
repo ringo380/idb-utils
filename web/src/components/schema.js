@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 export function createSchema(container, fileData) {
   const wasm = getWasm();
@@ -45,6 +46,7 @@ export function createSchema(container, fileData) {
       ${renderDdl(schema.ddl)}
     </div>
   `;
+  insertTabIntro(container, 'schema');
 
   const exportSlot = container.querySelector('#schema-export');
   if (exportSlot) {
