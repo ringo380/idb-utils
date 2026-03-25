@@ -32,6 +32,7 @@ inno verify --chain full.ibd incr1.ibd incr2.ibd
 | `--keyring` | Path to MySQL keyring file |
 | `--redo` | Path to redo log file for LSN continuity check |
 | `--chain` | Verify backup chain (accepts multiple files) |
+| `--backup-meta` | Path to XtraBackup checkpoint file for LSN cross-reference |
 
 ## Structural Checks
 
@@ -44,4 +45,14 @@ inno verify --chain full.ibd incr1.ibd incr2.ibd
 | PageChainBounds | prev/next pointers within bounds |
 | TrailerLsnMatch | Trailer LSN matches header LSN |
 
-See the [Backup Verification](../guides/backup-verification.md) guide for detailed usage of `--chain` and `--redo`.
+## Backup Metadata Verification
+
+Use `--backup-meta` to cross-reference tablespace LSNs against an XtraBackup checkpoint file:
+
+```bash
+inno verify -f users.ibd --backup-meta /backups/full/xtrabackup_checkpoints
+```
+
+Pages with LSNs outside the checkpoint's `from_lsn..to_lsn` window are reported as inconsistent with the backup point-in-time.
+
+See the [Backup Verification](../guides/backup-verification.md) guide for detailed usage of `--chain`, `--redo`, and `--backup-meta`.

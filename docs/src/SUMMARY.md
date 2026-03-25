@@ -33,6 +33,8 @@
 - [undo](cli/undo.md)
 - [binlog](cli/binlog.md)
 - [undelete](cli/undelete.md)
+- [simulate](cli/simulate.md)
+- [backup](cli/backup.md)
 
 # Library API
 
@@ -64,6 +66,9 @@
 - [LOB Chain Traversal](guides/lob-chain-traversal.md)
 - [Binary Log Parsing](guides/binlog-parsing.md)
 - [Spatial & FTS Indexes](guides/spatial-fts-indexes.md)
+- [Crash Recovery Simulation](guides/crash-recovery.md)
+- [Backup Analysis](guides/backup-analysis.md)
+- [Bloat Scoring](guides/bloat-scoring.md)
 
 # Internals
 

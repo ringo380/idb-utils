@@ -35,6 +35,8 @@ pub struct VerifyOptions {
     pub redo: Option<String>,
     /// Paths for backup chain verification.
     pub chain: Vec<String>,
+    /// Path to XtraBackup checkpoint file for LSN cross-reference.
+    pub backup_meta: Option<String>,
 }
 
 /// Combined JSON output for verify with redo and/or chain.
@@ -46,6 +48,8 @@ struct FullVerifyReport {
     redo: Option<crate::innodb::verify::RedoVerifyResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     chain: Option<ChainReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_meta: Option<crate::innodb::verify::BackupMetaVerifyResult>,
 }
 
 /// Run structural verification on a tablespace file.
@@ -92,9 +96,23 @@ pub fn execute(opts: &VerifyOptions, writer: &mut dyn Write) -> Result<(), IdbEr
         None
     };
 
+    // Backup metadata cross-reference
+    let backup_meta_result = if let Some(ref meta_path) = opts.backup_meta {
+        Some(crate::innodb::verify::verify_backup_meta(
+            meta_path, &all_pages, page_size,
+        )?)
+    } else {
+        None
+    };
+
     let mut overall_passed = report.passed;
     if let Some(ref redo) = redo_result {
         if !redo.covers_tablespace {
+            overall_passed = false;
+        }
+    }
+    if let Some(ref meta) = backup_meta_result {
+        if !meta.passed {
             overall_passed = false;
         }
     }
@@ -104,6 +122,7 @@ pub fn execute(opts: &VerifyOptions, writer: &mut dyn Write) -> Result<(), IdbEr
             structural: report,
             redo: redo_result,
             chain: None,
+            backup_meta: backup_meta_result,
         };
         let json = serde_json::to_string_pretty(&full)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
@@ -162,6 +181,56 @@ pub fn execute(opts: &VerifyOptions, writer: &mut dyn Write) -> Result<(), IdbEr
                 format!("{} (gap: {} bytes)", "FAIL".red(), redo.lsn_gap)
             };
             wprintln!(writer, "    Covers tablespace: {}", redo_status)?;
+            wprintln!(writer)?;
+        }
+
+        // Backup metadata cross-reference
+        if let Some(ref meta) = backup_meta_result {
+            wprintln!(writer, "  Backup Metadata Cross-Reference:")?;
+            wprintln!(writer, "    Checkpoint file: {}", meta.checkpoint_file)?;
+            wprintln!(writer, "    Backup type:     {}", meta.backup_type)?;
+            wprintln!(
+                writer,
+                "    LSN window:      {} .. {}",
+                meta.from_lsn,
+                meta.to_lsn
+            )?;
+            wprintln!(
+                writer,
+                "    Tablespace LSNs: {} .. {}",
+                meta.tablespace_min_lsn,
+                meta.tablespace_max_lsn
+            )?;
+            let meta_status = if meta.passed {
+                "PASS".green().to_string()
+            } else {
+                let total_issues = meta.pages_before_window.len() + meta.pages_after_window.len();
+                format!("{} ({} pages outside window)", "FAIL".red(), total_issues)
+            };
+            wprintln!(writer, "    Status:          {}", meta_status)?;
+
+            if opts.verbose {
+                for p in &meta.pages_before_window {
+                    wprintln!(
+                        writer,
+                        "      Page {:>4} ({}): LSN {} < from_lsn {}",
+                        p.page_number,
+                        p.page_type,
+                        p.lsn,
+                        meta.from_lsn
+                    )?;
+                }
+                for p in &meta.pages_after_window {
+                    wprintln!(
+                        writer,
+                        "      Page {:>4} ({}): LSN {} > to_lsn {}",
+                        p.page_number,
+                        p.page_type,
+                        p.lsn,
+                        meta.to_lsn
+                    )?;
+                }
+            }
             wprintln!(writer)?;
         }
 

@@ -39,6 +39,10 @@ pub struct AuditOptions {
     pub min_fill_factor: Option<f64>,
     /// Show tables with fragmentation above this threshold (0-100).
     pub max_fragmentation: Option<f64>,
+    /// Enable bloat scoring in health mode.
+    pub bloat: bool,
+    /// Filter: show tables with worst bloat grade at or worse than threshold (A-F).
+    pub max_bloat_grade: Option<String>,
     /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
     pub depth: Option<u32>,
 }
@@ -94,6 +98,10 @@ struct FileHealthResult {
     index_count: u64,
     total_index_pages: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    worst_bloat_grade: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worst_bloat_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -111,6 +119,8 @@ struct DirectoryHealthSummary {
     avg_fill_factor: f64,
     avg_fragmentation: f64,
     avg_garbage_ratio: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worst_bloat_grade: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +278,7 @@ fn audit_file_health(
     page_size_override: Option<u32>,
     keyring: &Option<String>,
     use_mmap: bool,
+    bloat: bool,
 ) -> FileHealthResult {
     let display = path.strip_prefix(datadir).unwrap_or(path);
     let display_str = display.display().to_string();
@@ -283,6 +294,8 @@ fn audit_file_health(
                 avg_garbage_ratio: 0.0,
                 index_count: 0,
                 total_index_pages: 0,
+                worst_bloat_grade: None,
+                worst_bloat_score: None,
                 error: Some(e.to_string()),
             };
         }
@@ -297,11 +310,23 @@ fn audit_file_health(
 
     let mut snapshots = Vec::new();
     let mut empty_pages = 0u64;
+    // Per-index delete-marked record counts for bloat scoring: (deleted, total)
+    let mut delete_counts: std::collections::HashMap<u64, (u64, u64)> =
+        std::collections::HashMap::new();
 
     let scan_result = ts.for_each_page(|page_num, data| {
         if data.iter().all(|&b| b == 0) {
             empty_pages += 1;
         } else if let Some(snap) = health::extract_index_page_snapshot(data, page_num) {
+            // Count delete-marked records for bloat scoring (leaf pages only)
+            if snap.level == 0 && bloat {
+                let recs = crate::innodb::record::walk_compact_records(data);
+                let total = recs.len() as u64;
+                let deleted = recs.iter().filter(|r| r.header.delete_mark()).count() as u64;
+                let entry = delete_counts.entry(snap.index_id).or_insert((0, 0));
+                entry.0 += deleted;
+                entry.1 += total;
+            }
             snapshots.push(snap);
         }
         Ok(())
@@ -315,11 +340,38 @@ fn audit_file_health(
             avg_garbage_ratio: 0.0,
             index_count: 0,
             total_index_pages: 0,
+            worst_bloat_grade: None,
+            worst_bloat_score: None,
             error: Some(e.to_string()),
         };
     }
 
-    let report = health::analyze_health(snapshots, page_size, total_pages, empty_pages, &path_str);
+    let mut report =
+        health::analyze_health(snapshots, page_size, total_pages, empty_pages, &path_str);
+
+    // Bloat scoring
+    let (worst_grade, worst_score) = if bloat {
+        let mut worst_g: Option<String> = None;
+        let mut worst_s: f64 = 0.0;
+        for idx in &mut report.indexes {
+            let (deleted, total) = delete_counts.get(&idx.index_id).copied().unwrap_or((0, 0));
+            let delete_mark_ratio = if total > 0 {
+                deleted as f64 / total as f64
+            } else {
+                0.0
+            };
+            let bloat_score = health::score_bloat(idx, delete_mark_ratio);
+            if bloat_score.score > worst_s {
+                worst_s = bloat_score.score;
+                worst_g = Some(format!("{}", bloat_score.grade));
+            }
+            idx.bloat = Some(bloat_score);
+        }
+        let has_score = worst_g.is_some();
+        (worst_g, if has_score { Some(worst_s) } else { None })
+    } else {
+        (None, None)
+    };
 
     FileHealthResult {
         file: display_str,
@@ -328,6 +380,8 @@ fn audit_file_health(
         avg_garbage_ratio: report.summary.avg_garbage_ratio,
         index_count: report.summary.index_count,
         total_index_pages: report.summary.index_pages,
+        worst_bloat_grade: worst_grade,
+        worst_bloat_score: worst_score,
         error: None,
     }
 }
@@ -448,6 +502,7 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                         avg_fill_factor: 0.0,
                         avg_fragmentation: 0.0,
                         avg_garbage_ratio: 0.0,
+                        worst_bloat_grade: None,
                     },
                 };
                 let json = serde_json::to_string_pretty(&report)
@@ -712,10 +767,12 @@ fn execute_health(
     let keyring = opts.keyring.clone();
     let use_mmap = opts.mmap;
 
+    let do_bloat = opts.bloat || opts.max_bloat_grade.is_some();
+
     let mut results: Vec<FileHealthResult> = ibd_files
         .par_iter()
         .map(|path| {
-            let r = audit_file_health(path, datadir, page_size, &keyring, use_mmap);
+            let r = audit_file_health(path, datadir, page_size, &keyring, use_mmap, do_bloat);
             if let Some(ref pb) = pb {
                 pb.inc(1);
             }
@@ -787,6 +844,33 @@ fn execute_health(
         let threshold = max_frag / 100.0;
         results.retain(|r| r.error.is_some() || r.avg_fragmentation > threshold);
     }
+    // Compute directory-wide worst bloat grade from ALL results (before filtering)
+    let dir_worst_bloat = if do_bloat {
+        results
+            .iter()
+            .filter_map(|r| r.worst_bloat_grade.as_ref())
+            .max_by_key(|g| bloat_grade_ord(g).unwrap_or(0))
+            .cloned()
+    } else {
+        None
+    };
+
+    if let Some(ref grade_str) = opts.max_bloat_grade {
+        let threshold = bloat_grade_ord(grade_str).ok_or_else(|| {
+            crate::IdbError::Argument(format!(
+                "Invalid bloat grade '{}': must be one of A, B, C, D, F",
+                grade_str
+            ))
+        })?;
+        results.retain(|r| {
+            r.error.is_some()
+                || r.worst_bloat_grade
+                    .as_ref()
+                    .and_then(|g| bloat_grade_ord(g))
+                    .map(|ord| ord >= threshold)
+                    .unwrap_or(false)
+        });
+    }
 
     // Sort worst-first by fragmentation (descending)
     results.sort_by(|a, b| {
@@ -805,43 +889,82 @@ fn execute_health(
                 avg_fill_factor: round2(avg_fill),
                 avg_fragmentation: round2(avg_frag),
                 avg_garbage_ratio: round2(avg_garbage),
+                worst_bloat_grade: dir_worst_bloat,
             },
         };
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
         wprintln!(writer, "{}", json)?;
     } else if opts.csv {
-        wprintln!(
-            writer,
-            "file,avg_fill_factor,avg_fragmentation,avg_garbage_ratio,index_count,total_index_pages"
-        )?;
+        if do_bloat {
+            wprintln!(
+                writer,
+                "file,avg_fill_factor,avg_fragmentation,avg_garbage_ratio,index_count,total_index_pages,worst_bloat_grade,worst_bloat_score"
+            )?;
+        } else {
+            wprintln!(
+                writer,
+                "file,avg_fill_factor,avg_fragmentation,avg_garbage_ratio,index_count,total_index_pages"
+            )?;
+        }
         for r in &results {
             if r.error.is_some() {
                 continue;
             }
-            wprintln!(
-                writer,
-                "{},{:.1},{:.1},{:.1},{},{}",
-                csv_escape(&r.file),
-                r.avg_fill_factor * 100.0,
-                r.avg_fragmentation * 100.0,
-                r.avg_garbage_ratio * 100.0,
-                r.index_count,
-                r.total_index_pages
-            )?;
+            if do_bloat {
+                wprintln!(
+                    writer,
+                    "{},{:.1},{:.1},{:.1},{},{},{},{}",
+                    csv_escape(&r.file),
+                    r.avg_fill_factor * 100.0,
+                    r.avg_fragmentation * 100.0,
+                    r.avg_garbage_ratio * 100.0,
+                    r.index_count,
+                    r.total_index_pages,
+                    r.worst_bloat_grade.as_deref().unwrap_or(""),
+                    r.worst_bloat_score
+                        .map(|s| format!("{:.3}", s))
+                        .unwrap_or_default()
+                )?;
+            } else {
+                wprintln!(
+                    writer,
+                    "{},{:.1},{:.1},{:.1},{},{}",
+                    csv_escape(&r.file),
+                    r.avg_fill_factor * 100.0,
+                    r.avg_fragmentation * 100.0,
+                    r.avg_garbage_ratio * 100.0,
+                    r.index_count,
+                    r.total_index_pages
+                )?;
+            }
         }
     } else {
         wprintln!(writer, "Directory Health: {}\n", opts.datadir)?;
-        wprintln!(
-            writer,
-            "  {:<40} {:>6} {:>6} {:>6} {:>8} {:>6}",
-            "File",
-            "Fill%",
-            "Frag%",
-            "Garb%",
-            "Indexes",
-            "Pages"
-        )?;
+        if do_bloat {
+            wprintln!(
+                writer,
+                "  {:<40} {:>6} {:>6} {:>6} {:>8} {:>6} {:>6}",
+                "File",
+                "Fill%",
+                "Frag%",
+                "Garb%",
+                "Indexes",
+                "Pages",
+                "Bloat"
+            )?;
+        } else {
+            wprintln!(
+                writer,
+                "  {:<40} {:>6} {:>6} {:>6} {:>8} {:>6}",
+                "File",
+                "Fill%",
+                "Frag%",
+                "Garb%",
+                "Indexes",
+                "Pages"
+            )?;
+        }
 
         for r in &results {
             if let Some(ref err) = r.error {
@@ -850,6 +973,25 @@ fn execute_health(
                     "  {:<40} {}",
                     r.file,
                     format!("ERROR: {}", err).yellow()
+                )?;
+            } else if do_bloat {
+                let grade_str = r.worst_bloat_grade.as_deref().unwrap_or("-");
+                let grade_colored = match grade_str {
+                    "A" | "B" => grade_str.green().to_string(),
+                    "C" => grade_str.yellow().to_string(),
+                    "D" | "F" => grade_str.red().to_string(),
+                    _ => grade_str.to_string(),
+                };
+                wprintln!(
+                    writer,
+                    "  {:<40} {:>5.1}  {:>5.1}  {:>5.1}  {:>7}  {:>5}  {:>5}",
+                    r.file,
+                    r.avg_fill_factor * 100.0,
+                    r.avg_fragmentation * 100.0,
+                    r.avg_garbage_ratio * 100.0,
+                    r.index_count,
+                    r.total_index_pages,
+                    grade_colored
                 )?;
             } else {
                 wprintln!(
@@ -991,6 +1133,19 @@ fn execute_mismatch(
 
 fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
+}
+
+/// Convert bloat grade string to ordinal for comparison (higher = worse).
+/// Returns `None` for unrecognised input.
+fn bloat_grade_ord(grade: &str) -> Option<u8> {
+    match grade {
+        "A" => Some(0),
+        "B" => Some(1),
+        "C" => Some(2),
+        "D" => Some(3),
+        "F" => Some(4),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1308,6 +1463,37 @@ fn print_prometheus_health(
                 r.total_index_pages
             )
         )?;
+    }
+
+    // Per-file bloat score (only emitted when bloat data is available)
+    let has_bloat = results.iter().any(|r| r.worst_bloat_score.is_some());
+    if has_bloat {
+        wprintln!(
+            writer,
+            "{}",
+            prom::help_line(
+                "innodb_bloat_score",
+                "Worst bloat score across indexes in tablespace (0-1)"
+            )
+        )?;
+        wprintln!(writer, "{}", prom::type_line("innodb_bloat_score", "gauge"))?;
+        for r in results {
+            if let Some(score) = r.worst_bloat_score {
+                wprintln!(
+                    writer,
+                    "{}",
+                    prom::format_gauge(
+                        "innodb_bloat_score",
+                        &[
+                            ("datadir", datadir),
+                            ("file", &r.file),
+                            ("grade", r.worst_bloat_grade.as_deref().unwrap_or(""))
+                        ],
+                        score
+                    )
+                )?;
+            }
+        }
     }
 
     // Directory-wide summary metrics

@@ -38,6 +38,8 @@ inno audit -d /var/lib/mysql --health --prometheus
 | `--keyring` | Path to MySQL keyring file |
 | `--min-fill-factor` | Filter: show tables with fill factor below threshold (0-100) |
 | `--max-fragmentation` | Filter: show tables with fragmentation above threshold (0-100) |
+| `--bloat` | Enable bloat scoring in health mode |
+| `--max-bloat-grade` | Filter: show tables with worst bloat grade at or worse than threshold (A-F) |
 | `--depth` | Maximum directory recursion depth (default: 2, 0 = unlimited) |
 
 ## Modes
@@ -49,6 +51,17 @@ Validates checksums across all tablespace files. Reports per-file pass/fail with
 ### Health Mode
 
 Computes per-tablespace fill factor, fragmentation, and garbage ratio, ranked worst-first. Use threshold filters to focus on unhealthy tablespaces.
+
+### Bloat Alerts
+
+Use `--bloat` with health mode to compute per-tablespace bloat scores and grades:
+
+```bash
+inno audit -d /var/lib/mysql --health --bloat
+inno audit -d /var/lib/mysql --health --max-bloat-grade C --json
+```
+
+The `--max-bloat-grade` flag filters to tables at or worse than the given grade (A through F). It implies `--bloat`. See the [Bloat Scoring](../guides/bloat-scoring.md) guide for grade definitions.
 
 ### Checksum Mismatch Mode
 

@@ -83,6 +83,7 @@ fn test_verify_passes_valid_tablespace() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -123,6 +124,7 @@ fn test_verify_fails_wrong_page_number() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -161,6 +163,7 @@ fn test_verify_fails_mixed_space_ids() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -198,6 +201,7 @@ fn test_verify_fails_chain_out_of_bounds() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -248,6 +252,7 @@ fn test_verify_fails_trailer_lsn_mismatch() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -282,6 +287,7 @@ fn test_verify_json_output_valid_tablespace() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -329,6 +335,7 @@ fn test_verify_json_output_with_failures() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -377,6 +384,7 @@ fn test_verify_passes_with_empty_pages() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -410,6 +418,7 @@ fn test_verify_fails_prev_pointer_out_of_bounds() {
             mmap: false,
             redo: None,
             chain: vec![],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -449,6 +458,7 @@ fn test_chain_contiguous_passes() {
                 file_a.path().to_str().unwrap().to_string(),
                 file_b.path().to_str().unwrap().to_string(),
             ],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -482,6 +492,7 @@ fn test_chain_json_output() {
                 file_a.path().to_str().unwrap().to_string(),
                 file_b.path().to_str().unwrap().to_string(),
             ],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -519,6 +530,7 @@ fn test_chain_mixed_space_ids_fails() {
                 file_a.path().to_str().unwrap().to_string(),
                 file_b.path().to_str().unwrap().to_string(),
             ],
+            backup_meta: None,
         },
         &mut output,
     );
@@ -548,9 +560,116 @@ fn test_chain_requires_two_files() {
             mmap: false,
             redo: None,
             chain: vec![file_a.path().to_str().unwrap().to_string()],
+            backup_meta: None,
         },
         &mut output,
     );
 
     assert!(result.is_err());
+}
+
+// ── Backup metadata tests ─────────────────────────────────────────────
+
+#[test]
+fn test_verify_backup_meta_within_window() {
+    use std::io::Write as IoWrite;
+
+    let page0 = build_fsp_hdr_page(42, 3);
+    let page1 = build_index_page(1, 42, 2000, FIL_NULL, FIL_NULL);
+    let page2 = build_index_page(2, 42, 3000, FIL_NULL, FIL_NULL);
+
+    let ts_file = write_tablespace(&[page0, page1, page2]);
+
+    // Create checkpoint file with LSN window covering the tablespace
+    let mut ckpt = tempfile::NamedTempFile::new().unwrap();
+    writeln!(ckpt, "backup_type = full-backuped").unwrap();
+    writeln!(ckpt, "from_lsn = 0").unwrap();
+    writeln!(ckpt, "to_lsn = 5000").unwrap();
+    writeln!(ckpt, "last_lsn = 5000").unwrap();
+    ckpt.flush().unwrap();
+
+    let mut output = Vec::new();
+    let result = idb::cli::verify::execute(
+        &idb::cli::verify::VerifyOptions {
+            file: ts_file.path().to_str().unwrap().to_string(),
+            verbose: false,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            redo: None,
+            chain: vec![],
+            backup_meta: Some(ckpt.path().to_str().unwrap().to_string()),
+        },
+        &mut output,
+    );
+
+    assert!(
+        result.is_ok(),
+        "Expected verify to pass when LSNs within window"
+    );
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let meta = &json["backup_meta"];
+    assert_eq!(meta["passed"], true);
+    assert_eq!(meta["from_lsn"], 0);
+    assert_eq!(meta["to_lsn"], 5000);
+    assert!(meta["pages_before_window"].as_array().unwrap().is_empty());
+    assert!(meta["pages_after_window"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_verify_backup_meta_pages_outside_window() {
+    use std::io::Write as IoWrite;
+
+    let page0 = build_fsp_hdr_page(42, 3);
+    let page1 = build_index_page(1, 42, 2000, FIL_NULL, FIL_NULL);
+    // Page 2 has LSN 9000 which is beyond to_lsn of 5000
+    let page2 = build_index_page(2, 42, 9000, FIL_NULL, FIL_NULL);
+
+    let ts_file = write_tablespace(&[page0, page1, page2]);
+
+    // Create checkpoint file with tight LSN window
+    let mut ckpt = tempfile::NamedTempFile::new().unwrap();
+    writeln!(ckpt, "backup_type = full-backuped").unwrap();
+    writeln!(ckpt, "from_lsn = 1500").unwrap();
+    writeln!(ckpt, "to_lsn = 5000").unwrap();
+    writeln!(ckpt, "last_lsn = 5000").unwrap();
+    ckpt.flush().unwrap();
+
+    let mut output = Vec::new();
+    let result = idb::cli::verify::execute(
+        &idb::cli::verify::VerifyOptions {
+            file: ts_file.path().to_str().unwrap().to_string(),
+            verbose: true,
+            json: true,
+            page_size: None,
+            keyring: None,
+            mmap: false,
+            redo: None,
+            chain: vec![],
+            backup_meta: Some(ckpt.path().to_str().unwrap().to_string()),
+        },
+        &mut output,
+    );
+
+    // Verify should fail because page 2 LSN exceeds to_lsn
+    assert!(
+        result.is_err(),
+        "Expected verify to fail with pages outside window"
+    );
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let meta = &json["backup_meta"];
+    assert_eq!(meta["passed"], false);
+    assert!(!meta["pages_after_window"].as_array().unwrap().is_empty());
+
+    // Check that page 2 is in the after-window list
+    let after = meta["pages_after_window"].as_array().unwrap();
+    let page2_issue = after.iter().find(|p| p["page_number"] == 2);
+    assert!(
+        page2_issue.is_some(),
+        "Expected page 2 in pages_after_window"
+    );
+    assert_eq!(page2_issue.unwrap()["lsn"], 9000);
 }

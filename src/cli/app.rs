@@ -910,6 +910,14 @@ pub enum Commands {
         #[arg(long = "max-fragmentation")]
         max_fragmentation: Option<f64>,
 
+        /// Enable bloat scoring for --health mode
+        #[arg(long)]
+        bloat: bool,
+
+        /// Filter: show tables with worst bloat grade at or worse than threshold (A-F, --health only)
+        #[arg(long = "max-bloat-grade")]
+        max_bloat_grade: Option<String>,
+
         /// Maximum directory recursion depth (default: 2, 0 = unlimited)
         #[arg(long)]
         depth: Option<u32>,
@@ -1089,6 +1097,10 @@ pub enum Commands {
         /// Verify backup chain continuity across multiple tablespace files
         #[arg(long = "chain", num_args = 1..)]
         chain: Vec<String>,
+
+        /// Path to XtraBackup checkpoint file to cross-reference LSNs
+        #[arg(long = "backup-meta")]
+        backup_meta: Option<String>,
     },
 
     /// Parse and analyze MySQL binary log files
