@@ -18,6 +18,7 @@ const UNDO_TAB = { id: 'undo', label: 'Undo', key: 'U' };
 const SPATIAL_TAB = { id: 'spatial', label: 'Spatial', key: 'S' };
 const UNDELETE_TAB = { id: 'undelete', label: 'Undelete', key: 'D' };
 const SIMULATE_TAB = { id: 'simulate', label: 'Simulate', key: 'R' };
+const TIMELINE_TAB = { id: 'timeline', label: 'Timeline', key: 'T' };
 const DIFF_TAB = { id: 'diff', label: 'Diff', key: '9' };
 const BACKUP_TAB = { id: 'backup', label: 'Backup Delta', key: 'B' };
 const AUDIT_TAB = { id: 'audit', label: 'Audit', key: '0' };
@@ -27,7 +28,7 @@ const REDOLOG_TAB = { id: 'redolog', label: 'Redo Log', key: '1' };
 function getVisibleTabs({ showDiff = false, showRedoLog = false, showAudit = false, showBinlog = false } = {}) {
   if (showBinlog) return [BINLOG_TAB];
   if (showRedoLog) return [REDOLOG_TAB];
-  const tabs = [...TAB_DEFS, HEATMAP_TAB, HEALTH_TAB, VERIFY_TAB, COMPAT_TAB, UNDO_TAB, SPATIAL_TAB, UNDELETE_TAB, SIMULATE_TAB];
+  const tabs = [...TAB_DEFS, HEATMAP_TAB, HEALTH_TAB, VERIFY_TAB, COMPAT_TAB, UNDO_TAB, SPATIAL_TAB, UNDELETE_TAB, SIMULATE_TAB, TIMELINE_TAB];
   if (showDiff) {
     tabs.push(DIFF_TAB);
     tabs.push(BACKUP_TAB);
