@@ -4,6 +4,7 @@ import { esc } from '../utils/html.js';
 import { createExportBar, downloadText, downloadJson, copyToClipboard } from '../utils/export.js';
 import { consumeRequestedPage, consumeIndexFilter } from '../utils/navigation.js';
 import { trackFeatureUse, trackExport } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 export function createPages(container, fileData) {
   const wasm = getWasm();
@@ -75,6 +76,7 @@ export function createPages(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'pages');
 
   // Clear index filter handler
   const clearBtn = container.querySelector('#clear-index-filter');

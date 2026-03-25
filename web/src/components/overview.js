@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { insertTabIntro, createHelpIcon } from '../utils/help.js';
 
 export function createOverview(container, fileData) {
   const wasm = getWasm();
@@ -73,6 +74,15 @@ export function createOverview(container, fileData) {
       </div>
     </div>
   `;
+  insertTabIntro(container, 'overview');
+
+  // Help icon on LSN column header
+  const lsnHeader = Array.from(container.querySelectorAll('th')).find((th) => th.textContent === 'LSN');
+  if (lsnHeader) {
+    lsnHeader.textContent = '';
+    lsnHeader.appendChild(document.createTextNode('LSN '));
+    lsnHeader.appendChild(createHelpIcon('Log Sequence Number \u2014 monotonically increasing redo log position. Higher LSN means the page was modified more recently.'));
+  }
 
   const exportSlot = container.querySelector('#overview-export');
   if (exportSlot) {

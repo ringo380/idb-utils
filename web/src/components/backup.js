@@ -3,6 +3,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro } from '../utils/help.js';
 
 /**
  * Create the backup delta tab for two tablespace files.
@@ -64,6 +65,7 @@ export function createBackup(container, data1, data2, name1, name2) {
       ` : ''}
     </div>
   `;
+  insertTabIntro(container, 'backup');
 
   // Export bar
   const exportSlot = container.querySelector('#backup-export');

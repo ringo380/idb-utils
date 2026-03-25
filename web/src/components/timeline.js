@@ -4,6 +4,7 @@ import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { trackFeatureUse } from '../utils/analytics.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
+import { insertTabIntro } from '../utils/help.js';
 
 const PAGE_SIZE = 50;
 
@@ -26,6 +27,7 @@ export function createTimeline(container, _primaryData) {
   let sourceFilter = { redo: true, undo: true, binlog: true };
 
   container.innerHTML = buildDropZoneHTML();
+  insertTabIntro(container, 'timeline');
   wireDropZone(container);
 
   // ── Drop zone ─────────────────────────────────────────────────────
@@ -97,6 +99,7 @@ export function createTimeline(container, _primaryData) {
     if (clearBtn) clearBtn.addEventListener('click', () => {
       redoData = null; undoData = null; binlogData = null; report = null;
       container.innerHTML = buildDropZoneHTML();
+      insertTabIntro(container, 'timeline');
       wireDropZone(container);
     });
   }
@@ -111,6 +114,7 @@ export function createTimeline(container, _primaryData) {
       trackFileUpload(file.name, data.length, source);
       // Re-render drop zone to show "Loaded" state
       container.innerHTML = buildDropZoneHTML();
+      insertTabIntro(container, 'timeline');
       wireDropZone(container);
     };
     reader.readAsArrayBuffer(file);

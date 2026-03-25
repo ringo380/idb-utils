@@ -4,6 +4,7 @@ import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
 import { requestPage, navigateToTab } from '../utils/navigation.js';
 import { trackFeatureUse } from '../utils/analytics.js';
+import { insertTabIntro, createHelpIcon } from '../utils/help.js';
 
 const PAGE_SIZE = 50;
 
@@ -65,6 +66,11 @@ export function createVerify(container, fileData) {
       ` : ''}
     </div>
   `;
+  insertTabIntro(container, 'verify');
+
+  // Help icon on heading
+  const verifyHeading = container.querySelector('h2');
+  if (verifyHeading) verifyHeading.after(createHelpIcon('Checks page chain continuity (prev/next pointers), LSN ordering (should increase monotonically), and structural format validation.'));
 
   // Export bar
   const exportSlot = container.querySelector('#verify-export');

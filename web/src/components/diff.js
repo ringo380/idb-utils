@@ -2,6 +2,7 @@
 import { getWasm } from '../wasm.js';
 import { esc } from '../utils/html.js';
 import { createExportBar } from '../utils/export.js';
+import { insertTabIntro } from '../utils/help.js';
 
 export function createDiff(container, fileName1, fileData1, fileName2, fileData2) {
   const wasm = getWasm();
@@ -79,6 +80,7 @@ export function createDiff(container, fileName1, fileData1, fileName2, fileData2
       `}
     </div>
   `;
+  insertTabIntro(container, 'diff');
 
   const exportSlot = container.querySelector('#diff-export');
   if (exportSlot) {
