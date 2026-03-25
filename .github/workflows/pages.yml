@@ -51,7 +51,7 @@ jobs:
         run: wasm-pack build --release --target web --no-default-features
 
       - name: Optimize WASM
-        run: wasm-opt -O --enable-bulk-memory pkg/idb_bg.wasm -o pkg/idb_bg.wasm
+        run: wasm-opt -O --enable-bulk-memory --enable-nontrapping-float-to-int-conversions pkg/idb_bg.wasm -o pkg/idb_bg.wasm
 
       - name: Install web dependencies
         run: cd web && npm ci

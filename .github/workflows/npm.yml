@@ -33,7 +33,7 @@ jobs:
       - name: Build WASM
         run: |
           wasm-pack build --release --target bundler --no-default-features --out-dir npm/pkg
-          wasm-opt -O --enable-bulk-memory npm/pkg/idb_bg.wasm -o npm/pkg/idb_bg.wasm
+          wasm-opt -O --enable-bulk-memory --enable-nontrapping-float-to-int-conversions npm/pkg/idb_bg.wasm -o npm/pkg/idb_bg.wasm
           rm -f npm/pkg/.gitignore
 
       - name: Set version from tag
