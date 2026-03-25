@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-03-25
+
+### Added
+
+- **`inno simulate` subcommand** — Simulate InnoDB crash recovery at `innodb_force_recovery` levels 1–6. Assesses per-level survivability, affected pages, data loss risks, and recommended actions. Supports text and JSON output. (Epic #145; closes #148, #149, #150, #151)
+- **`inno backup diff` subcommand** — Compare page LSNs between a base (backup) and current tablespace to identify changed, added, removed, and regressed pages. Supports verbose per-page details and JSON output. (Epic #146; closes #152, #153)
+- **`inno backup chain` subcommand** — Validate XtraBackup backup chain LSN continuity by reading `xtrabackup_checkpoints` files. Detects gaps, overlaps, and missing full backups. (Epic #146; closes #154, #155)
+- **`inno health --bloat`** — Index bloat scoring with weighted formula (fill factor deficit 30%, garbage 25%, fragmentation 25%, delete-mark ratio 20%) and A–F letter grades. Library: `score_bloat()`, `BloatScore`, `BloatGrade` in `src/innodb/health.rs`. (Epic #147; closes #156, #157)
+- **`inno health --cardinality`** — Sample-based distinct value estimation for the leading primary key column using deterministic sampling (every k-th leaf page). `--sample-size` controls the number of sampled pages. (Epic #147; closes #158, #159)
+- **`inno verify --backup-meta`** — Cross-reference tablespace page LSNs against an XtraBackup checkpoint file's `from_lsn..to_lsn` window. Reports pages outside the backup window. (#160)
+- **`inno audit --bloat` and `--max-bloat-grade`** — Directory-wide index bloat scoring in health mode. `--max-bloat-grade` filters to tables at or worse than the given grade (A–F) and implies `--bloat`. (#161)
+- **Documentation** — Crash recovery simulation guide, backup analysis guide, bloat scoring methodology guide. CLI references for `simulate` and `backup` subcommands. (#162)
+
+### Fixed
+
+- `--max-bloat-grade` now validates input and rejects invalid grade strings with a clear error instead of silently filtering all results.
+- `dir_worst_bloat` in audit JSON summary is now computed from all results before filtering, consistent with other summary metrics.
+- `verify_backup_meta` no longer produces false-positive failures for incremental backups — pages with LSN below `from_lsn` are expected when unmodified since the base backup.
+
 ## [5.0.0] - 2026-03-20
 
 ### Added
