@@ -34,7 +34,9 @@
 - [binlog](cli/binlog.md)
 - [undelete](cli/undelete.md)
 - [simulate](cli/simulate.md)
+- [timeline](cli/timeline.md)
 - [backup](cli/backup.md)
+- [completions](cli/completions.md)
 
 # Library API
 

@@ -108,7 +108,7 @@ function showDropzone() {
   header.innerHTML = `
     <div class="flex items-center gap-3">
       <h1 class="text-xl font-bold text-innodb-cyan">InnoDB Analyzer</h1>
-      <span class="text-xs text-gray-600">v2.0 — powered by idb-utils WASM</span>
+      <span class="text-xs text-gray-600">v5.1.0 — powered by idb-utils WASM</span>
     </div>
     <div class="text-xs text-gray-600">Press <kbd class="px-1 py-0.5 bg-surface-3 rounded">D</kbd> to toggle theme</div>
   `;
