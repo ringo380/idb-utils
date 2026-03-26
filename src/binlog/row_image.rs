@@ -30,16 +30,18 @@ const MYSQL_TYPE_DOUBLE: u8 = 5;
 const MYSQL_TYPE_LONGLONG: u8 = 8;
 /// INT24 / MEDIUMINT (3-byte integer).
 const MYSQL_TYPE_INT24: u8 = 9;
-/// DATETIME2 (temporal with fractional seconds).
-const MYSQL_TYPE_DATETIME2: u8 = 12;
+/// DATETIME (legacy 8-byte format, pre-5.6.4).
+const MYSQL_TYPE_DATETIME: u8 = 12;
 /// VARCHAR (variable-length string).
 const MYSQL_TYPE_VARCHAR: u8 = 15;
 /// BIT.
 const MYSQL_TYPE_BIT: u8 = 16;
-/// TIMESTAMP2 (temporal with fractional seconds).
+/// TIMESTAMP2 (temporal with fractional seconds, 5.6.4+).
 const MYSQL_TYPE_TIMESTAMP2: u8 = 17;
-/// TIME2 (temporal with fractional seconds).
-const MYSQL_TYPE_TIME2: u8 = 18;
+/// DATETIME2 (temporal with fractional seconds, 5.6.4+).
+const MYSQL_TYPE_DATETIME2: u8 = 18;
+/// TIME2 (temporal with fractional seconds, 5.6.4+).
+const MYSQL_TYPE_TIME2: u8 = 19;
 /// NEWDECIMAL (packed decimal).
 const MYSQL_TYPE_NEWDECIMAL: u8 = 246;
 /// ENUM.
@@ -140,7 +142,7 @@ fn read_type_metadata(column_type: u8, data: &[u8], offset: usize) -> (u16, usiz
     match column_type {
         // 0-byte metadata types
         MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_LONG | MYSQL_TYPE_LONGLONG
-        | MYSQL_TYPE_INT24 => (0, 0),
+        | MYSQL_TYPE_INT24 | MYSQL_TYPE_DATETIME => (0, 0),
 
         // 1-byte metadata types
         MYSQL_TYPE_FLOAT | MYSQL_TYPE_DOUBLE => {
@@ -304,6 +306,7 @@ fn column_value_size(column_type: u8, metadata: u16, data: &[u8]) -> Option<usiz
         MYSQL_TYPE_LONGLONG => Some(8),
         MYSQL_TYPE_FLOAT => Some(4),
         MYSQL_TYPE_DOUBLE => Some(8),
+        MYSQL_TYPE_DATETIME => Some(8), // Legacy fixed 8-byte format (pre-5.6.4)
 
         MYSQL_TYPE_VARCHAR | MYSQL_TYPE_VAR_STRING => {
             // Length prefix: 1 byte if max_len < 256, else 2 bytes LE.
