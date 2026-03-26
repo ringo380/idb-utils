@@ -1284,6 +1284,10 @@ pub enum Commands {
         #[arg(long)]
         binlog: Option<String>,
 
+        /// Path to table .ibd file (for binlog-to-page correlation via B+Tree lookup)
+        #[arg(short, long)]
+        file: Option<String>,
+
         /// Path to MySQL data directory (for table name resolution)
         #[arg(short, long)]
         datadir: Option<String>,

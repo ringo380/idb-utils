@@ -46,6 +46,7 @@ use super::event::BinlogEventType;
 /// assert_eq!(tme.table_name, "users");
 /// assert_eq!(tme.column_count, 3);
 /// assert_eq!(tme.column_types, vec![3, 15, 12]);
+/// // column_metadata and null_bitmap may be empty if not present in data
 /// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct TableMapEvent {
@@ -57,8 +58,14 @@ pub struct TableMapEvent {
     pub table_name: String,
     /// Number of columns.
     pub column_count: u64,
-    /// Column type codes.
+    /// Column type codes (MySQL protocol type codes, e.g. 3=LONG, 15=VARCHAR).
     pub column_types: Vec<u8>,
+    /// Per-column type metadata (variable-length, type-dependent).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub column_metadata: Vec<u8>,
+    /// Column nullability bitmap (bit N set = column N is nullable).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub null_bitmap: Vec<u8>,
 }
 
 impl TableMapEvent {
@@ -117,6 +124,36 @@ impl TableMapEvent {
             return None;
         }
         let column_types = data[offset..end].to_vec();
+        offset = end;
+
+        // column_metadata: lenenc-prefixed metadata bytes
+        let column_metadata = if offset < data.len() {
+            let (meta_len, meta_bytes_read) = read_lenenc_int(&data[offset..]);
+            offset += meta_bytes_read;
+            let meta_end = offset + meta_len as usize;
+            if meta_end <= data.len() {
+                let meta = data[offset..meta_end].to_vec();
+                offset = meta_end;
+                meta
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        // null_bitmap: ceil(column_count / 8) bytes
+        let null_bitmap_len = (column_count as usize).div_ceil(8);
+        let null_bitmap = if offset + null_bitmap_len <= data.len() {
+            let bm = data[offset..offset + null_bitmap_len].to_vec();
+            #[allow(unused_assignments)]
+            {
+                offset += null_bitmap_len;
+            }
+            bm
+        } else {
+            Vec::new()
+        };
 
         Some(TableMapEvent {
             table_id,
@@ -124,14 +161,15 @@ impl TableMapEvent {
             table_name,
             column_count,
             column_types,
+            column_metadata,
+            null_bitmap,
         })
     }
 }
 
 /// Parsed row-based event summary (types 30-32).
 ///
-/// Contains metadata about row changes. Full row data decoding is not
-/// performed — only the event structure and row count are extracted.
+/// Contains metadata about row changes plus raw row data for correlation.
 #[derive(Debug, Clone, Serialize)]
 pub struct RowsEvent {
     /// Internal table ID (matches TABLE_MAP event).
@@ -144,6 +182,12 @@ pub struct RowsEvent {
     pub column_count: u64,
     /// Approximate row count (estimated from data size).
     pub row_count: usize,
+    /// Columns-present bitmap (before image). Bit N set = column N in row data.
+    #[serde(skip)]
+    pub columns_present: Vec<u8>,
+    /// Raw row image data (after column bitmaps, before CRC).
+    #[serde(skip)]
+    pub row_data: Vec<u8>,
 }
 
 impl RowsEvent {
@@ -176,16 +220,27 @@ impl RowsEvent {
         let (column_count, bytes_read) = read_lenenc_int(&data[offset..]);
         offset += bytes_read;
 
-        // Skip column bitmaps to estimate row count from remaining data
+        // Columns-present bitmap (before image)
         let bitmap_len = (column_count as usize).div_ceil(8);
-        offset += bitmap_len; // columns_before_image
+        let columns_present = if offset + bitmap_len <= data.len() {
+            let bm = data[offset..offset + bitmap_len].to_vec();
+            offset += bitmap_len;
+            bm
+        } else {
+            offset += bitmap_len;
+            vec![0xFF; bitmap_len]
+        };
         if type_code == 31 {
             offset += bitmap_len; // columns_after_image for UPDATE
         }
 
-        // Rough row count estimate: we can't parse row data without column metadata,
-        // so count is estimated as 1 if there's remaining data
-        let row_count = if offset < data.len() { 1 } else { 0 };
+        // Capture remaining bytes as raw row data (may include CRC-32C at end)
+        let row_data = if offset < data.len() {
+            data[offset..].to_vec()
+        } else {
+            Vec::new()
+        };
+        let row_count = if !row_data.is_empty() { 1 } else { 0 };
 
         Some(RowsEvent {
             table_id,
@@ -193,6 +248,8 @@ impl RowsEvent {
             flags,
             column_count,
             row_count,
+            columns_present,
+            row_data,
         })
     }
 }
@@ -200,7 +257,7 @@ impl RowsEvent {
 /// Read a MySQL packed (length-encoded) integer.
 ///
 /// Returns (value, bytes_consumed).
-fn read_lenenc_int(data: &[u8]) -> (u64, usize) {
+pub fn read_lenenc_int(data: &[u8]) -> (u64, usize) {
     if data.is_empty() {
         return (0, 0);
     }

@@ -14,6 +14,7 @@ pub struct TimelineOptions {
     pub redo_log: Option<String>,
     pub undo_file: Option<String>,
     pub binlog: Option<String>,
+    pub file: Option<String>,
     pub datadir: Option<String>,
     pub space_id: Option<u32>,
     pub page: Option<u64>,
@@ -51,10 +52,33 @@ pub fn execute(opts: &TimelineOptions, writer: &mut dyn Write) -> Result<(), Idb
     };
 
     let binlog_entries = if let Some(ref path) = opts.binlog {
-        let file = std::fs::File::open(path)
-            .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
-        let reader = std::io::BufReader::new(file);
-        extract_binlog_timeline(reader)?
+        if opts.file.is_some() {
+            // Use enriched extraction for B+Tree correlation
+            let file = std::fs::File::open(path)
+                .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
+            let reader = std::io::BufReader::new(file);
+            let mut result = crate::innodb::timeline::extract_binlog_timeline_enriched(reader)?;
+
+            // Correlate with tablespace if provided
+            if let Some(ref ibd_path) = opts.file {
+                let mut ts = crate::cli::open_tablespace(ibd_path, opts.page_size, false)?;
+                if let Some(ref keyring_path) = opts.keyring {
+                    crate::cli::setup_decryption(&mut ts, keyring_path)?;
+                }
+                let _correlated = crate::innodb::timeline::correlate_binlog_pages(
+                    &mut result.entries,
+                    &mut ts,
+                    &result.table_maps,
+                    &result.row_data,
+                )?;
+            }
+            result.entries
+        } else {
+            let file = std::fs::File::open(path)
+                .map_err(|e| IdbError::Io(format!("Cannot open {}: {}", path, e)))?;
+            let reader = std::io::BufReader::new(file);
+            extract_binlog_timeline(reader)?
+        }
     } else {
         Vec::new()
     };
@@ -283,6 +307,7 @@ fn format_action(action: &TimelineAction, verbose: bool) -> String {
             database,
             table,
             xid,
+            pk_values,
         } => {
             let mut s = event_type.clone();
             if let Some(db) = database {
@@ -292,6 +317,9 @@ fn format_action(action: &TimelineAction, verbose: bool) -> String {
             }
             if let Some(x) = xid {
                 s.push_str(&format!(" (xid={})", x));
+            }
+            if let Some(pks) = pk_values {
+                s.push_str(&format!(" PK=({})", pks.join(", ")));
             }
             s
         }
@@ -321,6 +349,7 @@ fn csv_action(action: &TimelineAction) -> (String, String) {
             database,
             table,
             xid,
+            ..
         } => {
             let mut detail = String::new();
             if let Some(db) = database {
