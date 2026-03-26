@@ -285,6 +285,7 @@ fn test_merge_preserves_all_sources() {
             database: Some("test".to_string()),
             table: Some("users".to_string()),
             xid: None,
+            pk_values: None,
         },
     }];
 
@@ -331,6 +332,7 @@ fn test_timeline_cli_requires_at_least_one_source() {
         redo_log: None,
         undo_file: None,
         binlog: None,
+        file: None,
         datadir: None,
         space_id: None,
         page: None,

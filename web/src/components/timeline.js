@@ -22,9 +22,12 @@ export function createTimeline(container, _primaryData) {
   let redoData = null;
   let undoData = null;
   let binlogData = null;
+  let tablespaceData = null;
   let report = null;
   let currentPage = 0;
   let sourceFilter = { redo: true, undo: true, binlog: true };
+  let viewMode = 'visual'; // 'visual' or 'table'
+  let vizZoom = 1;
 
   container.innerHTML = buildDropZoneHTML();
   insertTabIntro(container, 'timeline');
@@ -39,15 +42,16 @@ export function createTimeline(container, _primaryData) {
         <p class="text-sm text-gray-400">
           Drop one or more log files below to build a unified modification timeline.
         </p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           ${dropCard('redo', 'Redo Log', 'ib_logfile0 or #ib_redo*', redoData)}
           ${dropCard('undo', 'Undo Tablespace', '.ibu or undo_001', undoData)}
           ${dropCard('binlog', 'Binary Log', 'mysql-bin.000001', binlogData)}
+          ${dropCard('tablespace', 'Tablespace', '.ibd (for page correlation)', tablespaceData)}
         </div>
         <div class="flex gap-3">
           <button id="tl-analyze"
             class="px-4 py-2 text-sm font-medium rounded bg-innodb-cyan/20 text-innodb-cyan hover:bg-innodb-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            ${!(redoData || undoData || binlogData) ? 'disabled' : ''}>
+            ${!(redoData || undoData || binlogData || tablespaceData) ? 'disabled' : ''}>
             Analyze Timeline
           </button>
           <button id="tl-clear"
@@ -74,7 +78,7 @@ export function createTimeline(container, _primaryData) {
   }
 
   function wireDropZone(el) {
-    ['redo', 'undo', 'binlog'].forEach(id => {
+    ['redo', 'undo', 'binlog', 'tablespace'].forEach(id => {
       const card = el.querySelector(`#tl-drop-${id}`);
       if (!card) return;
       const input = card.querySelector('input[type="file"]');
@@ -97,7 +101,7 @@ export function createTimeline(container, _primaryData) {
 
     const clearBtn = el.querySelector('#tl-clear');
     if (clearBtn) clearBtn.addEventListener('click', () => {
-      redoData = null; undoData = null; binlogData = null; report = null;
+      redoData = null; undoData = null; binlogData = null; tablespaceData = null; report = null;
       container.innerHTML = buildDropZoneHTML();
       insertTabIntro(container, 'timeline');
       wireDropZone(container);
@@ -111,6 +115,7 @@ export function createTimeline(container, _primaryData) {
       if (source === 'redo') redoData = data;
       else if (source === 'undo') undoData = data;
       else if (source === 'binlog') binlogData = data;
+      else if (source === 'tablespace') tablespaceData = data;
       trackFileUpload(file.name, data.length, source);
       // Re-render drop zone to show "Loaded" state
       container.innerHTML = buildDropZoneHTML();
@@ -134,6 +139,7 @@ export function createTimeline(container, _primaryData) {
         redoData || empty,
         undoData || empty,
         binlogData || empty,
+        tablespaceData || empty,
       );
       report = JSON.parse(json);
     } catch (e) {
@@ -164,13 +170,17 @@ export function createTimeline(container, _primaryData) {
     el.innerHTML = `
       ${renderSummary(r)}
       ${renderFilters()}
-      ${renderTable(pageEntries)}
-      ${renderPagination(filtered.length, totalPages)}
+      ${renderViewToggle()}
+      ${viewMode === 'visual' ? renderVisualTimeline(filtered) : ''}
+      ${viewMode === 'table' ? renderTable(pageEntries) : ''}
+      ${viewMode === 'table' ? renderPagination(filtered.length, totalPages) : ''}
       ${renderPageSummaries(r.page_summaries)}
     `;
 
     wireFilters(el);
-    wirePagination(el, filtered.length, totalPages);
+    wireViewToggle(el);
+    if (viewMode === 'visual') wireVisualTimeline();
+    if (viewMode === 'table') wirePagination(el, filtered.length, totalPages);
     wirePageLinks(el);
   }
 
@@ -225,6 +235,151 @@ export function createTimeline(container, _primaryData) {
         renderResults(el);
       });
     });
+  }
+
+  function renderViewToggle() {
+    return `
+      <div class="flex items-center gap-2 mt-4">
+        <span class="text-xs text-gray-500 uppercase">View:</span>
+        <button data-view="visual"
+          class="px-3 py-1 text-xs rounded ${viewMode === 'visual' ? 'bg-innodb-cyan/20 text-innodb-cyan' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">
+          Visual
+        </button>
+        <button data-view="table"
+          class="px-3 py-1 text-xs rounded ${viewMode === 'table' ? 'bg-innodb-cyan/20 text-innodb-cyan' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">
+          Table
+        </button>
+        ${viewMode === 'visual' ? `
+          <span class="ml-4 text-xs text-gray-500">Zoom:</span>
+          <button data-viz-zoom="out" class="px-2 py-1 text-xs rounded bg-gray-800 text-gray-400 hover:bg-gray-700">−</button>
+          <span class="text-xs text-gray-400">${vizZoom}x</span>
+          <button data-viz-zoom="in" class="px-2 py-1 text-xs rounded bg-gray-800 text-gray-400 hover:bg-gray-700">+</button>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function wireViewToggle(el) {
+    el.querySelectorAll('[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        viewMode = btn.dataset.view;
+        renderResults(el);
+      });
+    });
+    el.querySelectorAll('[data-viz-zoom]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.vizZoom === 'in') vizZoom = Math.min(vizZoom + 1, 8);
+        else vizZoom = Math.max(vizZoom - 1, 1);
+        renderResults(el);
+      });
+    });
+  }
+
+  function renderVisualTimeline(entries) {
+    if (entries.length === 0) {
+      return '<div class="text-sm text-gray-500 mt-4">No entries match the current filters.</div>';
+    }
+
+    // Group entries by page for the swimlane view
+    const pageGroups = new Map();
+    const noPage = [];
+    for (const e of entries) {
+      if (e.page_no != null) {
+        const key = `${e.space_id ?? '-'}:${e.page_no}`;
+        if (!pageGroups.has(key)) pageGroups.set(key, []);
+        pageGroups.get(key).push(e);
+      } else {
+        noPage.push(e);
+      }
+    }
+
+    // Sort page keys
+    const sortedKeys = [...pageGroups.keys()].sort((a, b) => {
+      const [, pa] = a.split(':');
+      const [, pb] = b.split(':');
+      return parseInt(pa) - parseInt(pb);
+    });
+
+    const barWidth = Math.max(4, 6 * vizZoom);
+    const maxPerLane = 200;
+
+    let html = '<div class="mt-4 space-y-3 overflow-x-auto">';
+
+    // Render swimlanes for each page
+    for (const key of sortedKeys) {
+      const group = pageGroups.get(key).slice(0, maxPerLane);
+      html += `
+        <div class="flex items-center gap-2">
+          <div class="w-20 flex-shrink-0 text-right">
+            <a class="text-xs text-innodb-cyan hover:underline cursor-pointer font-mono"
+              data-goto-page="${group[0].page_no}">${esc(key)}</a>
+          </div>
+          <div class="flex items-end gap-px overflow-x-auto py-1" style="min-height:28px;">
+            ${group.map(e => vizBar(e, barWidth)).join('')}
+          </div>
+          <span class="text-xs text-gray-600 flex-shrink-0">${group.length}</span>
+        </div>`;
+    }
+
+    // Unresolved entries (no page)
+    if (noPage.length > 0) {
+      const shown = noPage.slice(0, maxPerLane);
+      html += `
+        <div class="flex items-center gap-2">
+          <div class="w-20 flex-shrink-0 text-right">
+            <span class="text-xs text-gray-600 font-mono">no page</span>
+          </div>
+          <div class="flex items-end gap-px overflow-x-auto py-1" style="min-height:28px;">
+            ${shown.map(e => vizBar(e, barWidth)).join('')}
+          </div>
+          <span class="text-xs text-gray-600 flex-shrink-0">${noPage.length}</span>
+        </div>`;
+    }
+
+    html += '</div>';
+
+    // Legend
+    html += `
+      <div class="flex items-center gap-4 mt-3 text-xs text-gray-500">
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-blue-500"></span> Redo</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-yellow-500"></span> Undo</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-green-500"></span> Binlog</span>
+        <span class="ml-4 flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-green-400"></span> INSERT</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-yellow-400"></span> UPDATE</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-red-400"></span> DELETE</span>
+      </div>
+    `;
+
+    return html;
+  }
+
+  function vizBar(entry, barWidth) {
+    const color = vizColor(entry);
+    const height = 16 + (vizZoom * 2);
+    const title = `seq=${entry.seq} ${entry.source} ${formatAction(entry.action)}`;
+    return `<div class="rounded-sm cursor-pointer hover:opacity-80 transition-opacity"
+      style="width:${barWidth}px;height:${height}px;background:${color}"
+      title="${esc(title)}"
+      ${entry.page_no != null ? `data-goto-page="${entry.page_no}"` : ''}></div>`;
+  }
+
+  function vizColor(entry) {
+    if (entry.source === 'RedoLog') return '#3b82f6';
+    if (entry.source === 'UndoLog') return '#eab308';
+    if (entry.source === 'Binlog') {
+      const action = entry.action;
+      if (!action) return '#22c55e';
+      const et = (action.event_type || '').toUpperCase();
+      if (et.includes('WRITE') || et.includes('INSERT')) return '#4ade80';
+      if (et.includes('UPDATE')) return '#facc15';
+      if (et.includes('DELETE')) return '#f87171';
+      return '#22c55e';
+    }
+    return '#6b7280';
+  }
+
+  function wireVisualTimeline() {
+    // Page links are wired by wirePageLinks — no extra wiring needed
   }
 
   function renderTable(entries) {
@@ -295,6 +450,7 @@ export function createTimeline(container, _primaryData) {
         let s = action.event_type || '';
         if (action.database && action.table) s += ` ${action.database}.${action.table}`;
         if (action.xid) s += ` (xid=${action.xid})`;
+        if (action.pk_values && action.pk_values.length > 0) s += ` PK=(${action.pk_values.join(', ')})`;
         return s;
       }
       default:

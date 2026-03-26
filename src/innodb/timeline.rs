@@ -66,6 +66,9 @@ pub enum TimelineAction {
         table: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         xid: Option<u64>,
+        /// Primary key values decoded from the row image (if correlation succeeded).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pk_values: Option<Vec<String>>,
     },
 }
 
@@ -261,6 +264,7 @@ pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<Timeline
                         database: current_db.clone(),
                         table: current_table.clone(),
                         xid: None,
+                        pk_values: None,
                     },
                 });
             }
@@ -278,6 +282,7 @@ pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<Timeline
                         database: None,
                         table: None,
                         xid: None,
+                        pk_values: None,
                     },
                 });
             }
@@ -286,6 +291,301 @@ pub fn extract_binlog_timeline<R: Read + Seek>(reader: R) -> Result<Vec<Timeline
     }
 
     Ok(entries)
+}
+
+/// Result of enriched binlog extraction, carrying row data for correlation.
+pub struct BinlogExtractionResult {
+    /// Timeline entries (with `page_no: None` initially for row events).
+    pub entries: Vec<TimelineEntry>,
+    /// TABLE_MAP events keyed by table_id.
+    pub table_maps: HashMap<u64, crate::binlog::events::TableMapEvent>,
+    /// Raw row data keyed by entry index in `entries`.
+    pub row_data: HashMap<usize, Vec<u8>>,
+}
+
+/// Extract timeline entries from a binlog, retaining row data for correlation.
+///
+/// Like [`extract_binlog_timeline`] but also captures TABLE_MAP metadata and
+/// raw row image data from WRITE/UPDATE/DELETE events, enabling subsequent
+/// [`correlate_binlog_pages`] to resolve page numbers via B+Tree lookup.
+pub fn extract_binlog_timeline_enriched<R: Read + Seek>(
+    reader: R,
+) -> Result<BinlogExtractionResult, IdbError> {
+    use crate::binlog::constants::COMMON_HEADER_SIZE;
+    use crate::binlog::events::{RowsEvent, TableMapEvent};
+    use crate::binlog::header::{validate_binlog_magic, BinlogEventHeader};
+    use std::io::SeekFrom;
+
+    let mut reader = reader;
+
+    // Validate magic
+    let mut magic = [0u8; 4];
+    reader
+        .read_exact(&mut magic)
+        .map_err(|e| IdbError::Io(format!("Failed to read binlog magic: {e}")))?;
+
+    if !validate_binlog_magic(&magic) {
+        return Err(IdbError::Parse(
+            "Not a valid MySQL binary log file (bad magic)".to_string(),
+        ));
+    }
+
+    let file_size = reader
+        .seek(SeekFrom::End(0))
+        .map_err(|e| IdbError::Io(format!("Failed to seek: {e}")))?;
+    reader
+        .seek(SeekFrom::Start(4))
+        .map_err(|e| IdbError::Io(format!("Failed to seek: {e}")))?;
+
+    let mut entries = Vec::new();
+    let mut table_maps: HashMap<u64, TableMapEvent> = HashMap::new();
+    let mut row_data_map: HashMap<usize, Vec<u8>> = HashMap::new();
+
+    let mut current_db: Option<String> = None;
+    let mut current_table: Option<String> = None;
+
+    let mut position = 4u64;
+    let mut header_buf = vec![0u8; COMMON_HEADER_SIZE];
+
+    while position + COMMON_HEADER_SIZE as u64 <= file_size {
+        if reader.read_exact(&mut header_buf).is_err() {
+            break;
+        }
+
+        let hdr = match BinlogEventHeader::parse(&header_buf) {
+            Some(h) => h,
+            None => break,
+        };
+
+        if hdr.event_length < COMMON_HEADER_SIZE as u32 {
+            break;
+        }
+
+        let data_len = hdr.event_length as usize - COMMON_HEADER_SIZE;
+        let mut event_data = vec![0u8; data_len];
+        if reader.read_exact(&mut event_data).is_err() {
+            break;
+        }
+
+        match hdr.type_code {
+            // TABLE_MAP_EVENT
+            19 => {
+                if let Some(tme) = TableMapEvent::parse(&event_data) {
+                    current_db = Some(tme.database_name.clone());
+                    current_table = Some(tme.table_name.clone());
+                    table_maps.insert(tme.table_id, tme);
+                }
+            }
+            // WRITE_ROWS_EVENT_V2, UPDATE_ROWS_EVENT_V2, DELETE_ROWS_EVENT_V2
+            30..=32 => {
+                let entry_idx = entries.len();
+                entries.push(TimelineEntry {
+                    seq: 0,
+                    source: TimelineSource::Binlog,
+                    lsn: None,
+                    timestamp: Some(hdr.timestamp),
+                    space_id: None,
+                    page_no: None,
+                    action: TimelineAction::Binlog {
+                        event_type: crate::binlog::event::BinlogEventType::from_u8(hdr.type_code)
+                            .name()
+                            .to_string(),
+                        database: current_db.clone(),
+                        table: current_table.clone(),
+                        xid: None,
+                        pk_values: None,
+                    },
+                });
+
+                // Parse the RowsEvent to capture row data
+                if let Some(rows_ev) = RowsEvent::parse(&event_data, hdr.type_code) {
+                    if !rows_ev.row_data.is_empty() {
+                        row_data_map.insert(entry_idx, rows_ev.row_data);
+                    }
+                }
+            }
+            // QUERY_EVENT
+            2 => {
+                entries.push(TimelineEntry {
+                    seq: 0,
+                    source: TimelineSource::Binlog,
+                    lsn: None,
+                    timestamp: Some(hdr.timestamp),
+                    space_id: None,
+                    page_no: None,
+                    action: TimelineAction::Binlog {
+                        event_type: "QUERY".to_string(),
+                        database: None,
+                        table: None,
+                        xid: None,
+                        pk_values: None,
+                    },
+                });
+            }
+            _ => {}
+        }
+
+        position = if hdr.next_position > 0 {
+            hdr.next_position as u64
+        } else {
+            position + hdr.event_length as u64
+        };
+
+        if reader.seek(SeekFrom::Start(position)).is_err() {
+            break;
+        }
+    }
+
+    Ok(BinlogExtractionResult {
+        entries,
+        table_maps,
+        row_data: row_data_map,
+    })
+}
+
+/// Correlate binlog timeline entries with tablespace pages via B+Tree lookup.
+///
+/// For each row event entry that has raw row data, this function:
+/// 1. Resolves the TABLE_MAP metadata for the entry's table
+/// 2. Extracts PK values from the binlog row image
+/// 3. Searches the clustered index B+Tree to find the leaf page
+/// 4. Updates the entry's `page_no`, `space_id`, and `pk_values`
+///
+/// Returns the number of entries successfully correlated.
+pub fn correlate_binlog_pages(
+    entries: &mut [TimelineEntry],
+    ts: &mut crate::innodb::tablespace::Tablespace,
+    table_maps: &HashMap<u64, crate::binlog::events::TableMapEvent>,
+    row_data_map: &HashMap<usize, Vec<u8>>,
+) -> Result<usize, IdbError> {
+    use crate::binlog::row_image::{
+        extract_pk_from_row_image, parse_column_metadata, BinlogColumnMeta,
+    };
+    use crate::innodb::btree::{extract_clustered_index_info, search_btree, PkValue};
+
+    // Extract clustered index info from the tablespace SDI
+    let (root_page_no, index_id, pk_columns) = match extract_clustered_index_info(ts) {
+        Some(info) => info,
+        None => return Ok(0), // No SDI or no clustered index
+    };
+
+    // Get space_id from page 0
+    let page0 = ts.read_page(0)?;
+    let space_id = FilHeader::parse(&page0).map(|h| h.space_id);
+    let page_size = ts.page_size();
+
+    let mut correlated = 0usize;
+
+    for (entry_idx, entry) in entries.iter_mut().enumerate() {
+        // Only process Binlog entries that have row data
+        let row_data = match row_data_map.get(&entry_idx) {
+            Some(data) if !data.is_empty() => data,
+            _ => continue,
+        };
+
+        // Find the TABLE_MAP for this entry's table
+        // We need to match by database.table name since we don't store table_id on entries
+        let (db_name, tbl_name) = match &entry.action {
+            TimelineAction::Binlog {
+                database: Some(db),
+                table: Some(tbl),
+                ..
+            } => (db.clone(), tbl.clone()),
+            _ => continue,
+        };
+
+        // Find the TABLE_MAP that matches this database.table
+        let tme = match table_maps
+            .values()
+            .find(|t| t.database_name == db_name && t.table_name == tbl_name)
+        {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Parse column metadata from the TABLE_MAP
+        let meta_values = parse_column_metadata(&tme.column_types, &tme.column_metadata);
+
+        // Build BinlogColumnMeta for each column, marking PK columns
+        let columns: Vec<BinlogColumnMeta> = tme
+            .column_types
+            .iter()
+            .enumerate()
+            .map(|(i, &col_type)| {
+                let type_metadata = if i < meta_values.len() {
+                    meta_values[i]
+                } else {
+                    0
+                };
+                // Mark the first N columns as PK (matching the clustered index layout)
+                let is_pk = i < pk_columns.len();
+                let pk_ordinal = if is_pk { Some(i) } else { None };
+                // Determine signedness: default to unsigned for common PK types
+                // In practice, SDI provides this info through pk_columns
+                let is_unsigned = if is_pk && i < pk_columns.len() {
+                    pk_columns[i].is_unsigned
+                } else {
+                    false
+                };
+                BinlogColumnMeta {
+                    column_type: col_type,
+                    is_unsigned,
+                    type_metadata,
+                    is_pk,
+                    pk_ordinal,
+                }
+            })
+            .collect();
+
+        // Extract PK values from the row image
+        let pk_values = match extract_pk_from_row_image(row_data, &columns) {
+            Some(pks) => pks,
+            None => continue,
+        };
+
+        // Convert BinlogPkValue → PkValue for B+Tree search
+        let search_key: Vec<PkValue> = pk_values
+            .iter()
+            .map(|v| match v {
+                crate::binlog::row_image::BinlogPkValue::Int(n) => PkValue::Int(*n),
+                crate::binlog::row_image::BinlogPkValue::Uint(n) => PkValue::Uint(*n),
+                crate::binlog::row_image::BinlogPkValue::Str(s) => PkValue::Str(s.clone()),
+                crate::binlog::row_image::BinlogPkValue::Bytes(b) => PkValue::Bytes(b.clone()),
+            })
+            .collect();
+
+        // Search the B+Tree for the leaf page
+        match search_btree(
+            ts,
+            root_page_no,
+            index_id,
+            &pk_columns,
+            &search_key,
+            page_size,
+        ) {
+            Ok(result) => {
+                entry.page_no = Some(result.leaf_page_no);
+                entry.space_id = space_id;
+
+                // Store PK values as display strings
+                let pk_strs: Vec<String> = pk_values.iter().map(|v| v.to_string()).collect();
+                if let TimelineAction::Binlog {
+                    ref mut pk_values, ..
+                } = entry.action
+                {
+                    *pk_values = Some(pk_strs);
+                }
+
+                correlated += 1;
+            }
+            Err(_) => {
+                // B+Tree search failed for this entry; skip silently
+                continue;
+            }
+        }
+    }
+
+    Ok(correlated)
 }
 
 // ── Merge & correlation ─────────────────────────────────────────────────
@@ -595,6 +895,7 @@ mod tests {
                 database: Some("test".to_string()),
                 table: Some("users".to_string()),
                 xid: None,
+                pk_values: None,
             },
         }];
 

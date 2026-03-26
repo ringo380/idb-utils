@@ -1713,6 +1713,9 @@ pub fn diff_backup_lsn(base_data: &[u8], current_data: &[u8]) -> Result<String, 
 /// and binary log data.  Pass empty slices (`new Uint8Array(0)`) for sources
 /// that are not available.
 ///
+/// When `tablespace_data` is non-empty and `binlog_data` is present, performs
+/// B+Tree lookup to correlate binlog row events with specific tablespace pages.
+///
 /// Returns a JSON `TimelineReport` with chronologically sorted entries and
 /// per-page summaries.
 #[wasm_bindgen]
@@ -1720,9 +1723,11 @@ pub fn build_timeline(
     redo_data: &[u8],
     undo_data: &[u8],
     binlog_data: &[u8],
+    tablespace_data: &[u8],
 ) -> Result<String, JsValue> {
     use crate::innodb::timeline::{
-        extract_binlog_timeline, extract_redo_timeline, extract_undo_timeline, merge_timeline,
+        correlate_binlog_pages, extract_binlog_timeline, extract_binlog_timeline_enriched,
+        extract_redo_timeline, extract_undo_timeline, merge_timeline,
     };
 
     let redo_entries = if !redo_data.is_empty() {
@@ -1741,8 +1746,22 @@ pub fn build_timeline(
     };
 
     let binlog_entries = if !binlog_data.is_empty() {
-        let cursor = std::io::Cursor::new(binlog_data.to_vec());
-        extract_binlog_timeline(cursor).map_err(to_js_err)?
+        if !tablespace_data.is_empty() {
+            // Enriched extraction with B+Tree correlation
+            let cursor = std::io::Cursor::new(binlog_data.to_vec());
+            let mut result = extract_binlog_timeline_enriched(cursor).map_err(to_js_err)?;
+            let mut ts = Tablespace::from_bytes(tablespace_data.to_vec()).map_err(to_js_err)?;
+            let _ = correlate_binlog_pages(
+                &mut result.entries,
+                &mut ts,
+                &result.table_maps,
+                &result.row_data,
+            );
+            result.entries
+        } else {
+            let cursor = std::io::Cursor::new(binlog_data.to_vec());
+            extract_binlog_timeline(cursor).map_err(to_js_err)?
+        }
     } else {
         Vec::new()
     };

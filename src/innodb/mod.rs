@@ -33,6 +33,7 @@
 //! | [`constants`] | InnoDB page/file structure constants from MySQL source headers |
 
 pub mod backup;
+pub mod btree;
 pub mod checksum;
 pub mod compat;
 pub mod compression;

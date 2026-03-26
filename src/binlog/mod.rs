@@ -11,9 +11,13 @@ pub mod event;
 pub mod events;
 pub mod file;
 pub mod header;
+pub mod row_image;
 
 pub use checksum::validate_event_checksum;
 pub use event::{BinlogEvent, BinlogEventType, CommonEventHeader};
 pub use events::{analyze_binlog, BinlogAnalysis, BinlogEventSummary, RowsEvent, TableMapEvent};
 pub use file::BinlogFile;
 pub use header::{FormatDescriptionEvent, RotateEvent};
+pub use row_image::{
+    extract_pk_from_row_image, parse_column_metadata, BinlogColumnMeta, BinlogPkValue,
+};
