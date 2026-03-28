@@ -1542,6 +1542,29 @@ pub fn analyze_binlog(data: &[u8]) -> Result<String, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// correlate_binlog_events — maps binlog row events to tablespace pages
+// ---------------------------------------------------------------------------
+
+/// Correlate binlog row events with tablespace pages via B+Tree lookup.
+///
+/// For each row event (INSERT/UPDATE/DELETE) in the binlog, extracts the
+/// primary key from the row image and searches the tablespace's clustered
+/// index to find the leaf page containing that row.
+///
+/// Returns a JSON array of correlated events with page numbers and LSNs.
+#[wasm_bindgen]
+pub fn correlate_binlog_events(
+    binlog_data: &[u8],
+    tablespace_data: &[u8],
+) -> Result<String, JsValue> {
+    let mut binlog =
+        crate::binlog::BinlogFile::from_bytes(binlog_data.to_vec()).map_err(to_js_err)?;
+    let mut ts = Tablespace::from_bytes(tablespace_data.to_vec()).map_err(to_js_err)?;
+    let results = crate::binlog::correlate_events(&mut binlog, &mut ts).map_err(to_js_err)?;
+    to_json(&results)
+}
+
+// ---------------------------------------------------------------------------
 // scan_deleted_records — mirrors `inno undelete`
 // ---------------------------------------------------------------------------
 

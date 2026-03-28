@@ -7,6 +7,7 @@
 
 pub mod checksum;
 pub mod constants;
+pub mod correlate;
 pub mod event;
 pub mod events;
 pub mod file;
@@ -14,6 +15,7 @@ pub mod header;
 pub mod row_image;
 
 pub use checksum::validate_event_checksum;
+pub use correlate::{correlate_events, CorrelatedEvent, RowEventType};
 pub use event::{BinlogEvent, BinlogEventType, CommonEventHeader};
 pub use events::{analyze_binlog, BinlogAnalysis, BinlogEventSummary, RowsEvent, TableMapEvent};
 pub use file::BinlogFile;

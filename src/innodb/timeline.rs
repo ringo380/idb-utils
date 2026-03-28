@@ -458,16 +458,20 @@ pub fn correlate_binlog_pages(
     table_maps: &HashMap<u64, crate::binlog::events::TableMapEvent>,
     row_data_map: &HashMap<usize, Vec<u8>>,
 ) -> Result<usize, IdbError> {
-    use crate::binlog::row_image::{
-        extract_pk_from_row_image, parse_column_metadata, BinlogColumnMeta,
+    use crate::binlog::correlate::{
+        build_column_meta, convert_pk_values, extract_ddl_column_names,
     };
-    use crate::innodb::btree::{extract_clustered_index_info, search_btree, PkValue};
+    use crate::binlog::row_image::extract_pk_from_row_image;
+    use crate::innodb::btree::{extract_clustered_index_info, search_btree};
 
     // Extract clustered index info from the tablespace SDI
     let (root_page_no, index_id, pk_columns) = match extract_clustered_index_info(ts) {
         Some(info) => info,
         None => return Ok(0), // No SDI or no clustered index
     };
+
+    // Get DDL-ordered column names for correct PK matching
+    let ddl_column_names = extract_ddl_column_names(ts).unwrap_or_default();
 
     // Get space_id from page 0
     let page0 = ts.read_page(0)?;
@@ -503,39 +507,8 @@ pub fn correlate_binlog_pages(
             None => continue,
         };
 
-        // Parse column metadata from the TABLE_MAP
-        let meta_values = parse_column_metadata(&tme.column_types, &tme.column_metadata);
-
         // Build BinlogColumnMeta for each column, marking PK columns
-        let columns: Vec<BinlogColumnMeta> = tme
-            .column_types
-            .iter()
-            .enumerate()
-            .map(|(i, &col_type)| {
-                let type_metadata = if i < meta_values.len() {
-                    meta_values[i]
-                } else {
-                    0
-                };
-                // Mark the first N columns as PK (matching the clustered index layout)
-                let is_pk = i < pk_columns.len();
-                let pk_ordinal = if is_pk { Some(i) } else { None };
-                // Determine signedness: default to unsigned for common PK types
-                // In practice, SDI provides this info through pk_columns
-                let is_unsigned = if is_pk && i < pk_columns.len() {
-                    pk_columns[i].is_unsigned
-                } else {
-                    false
-                };
-                BinlogColumnMeta {
-                    column_type: col_type,
-                    is_unsigned,
-                    type_metadata,
-                    is_pk,
-                    pk_ordinal,
-                }
-            })
-            .collect();
+        let columns = build_column_meta(tme, &pk_columns, &ddl_column_names);
 
         // Extract PK values from the row image
         let pk_values = match extract_pk_from_row_image(row_data, &columns) {
@@ -544,15 +517,7 @@ pub fn correlate_binlog_pages(
         };
 
         // Convert BinlogPkValue → PkValue for B+Tree search
-        let search_key: Vec<PkValue> = pk_values
-            .iter()
-            .map(|v| match v {
-                crate::binlog::row_image::BinlogPkValue::Int(n) => PkValue::Int(*n),
-                crate::binlog::row_image::BinlogPkValue::Uint(n) => PkValue::Uint(*n),
-                crate::binlog::row_image::BinlogPkValue::Str(s) => PkValue::Str(s.clone()),
-                crate::binlog::row_image::BinlogPkValue::Bytes(b) => PkValue::Bytes(b.clone()),
-            })
-            .collect();
+        let search_key = convert_pk_values(&pk_values);
 
         // Search the B+Tree for the leaf page
         match search_btree(
