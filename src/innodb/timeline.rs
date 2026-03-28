@@ -458,7 +458,9 @@ pub fn correlate_binlog_pages(
     table_maps: &HashMap<u64, crate::binlog::events::TableMapEvent>,
     row_data_map: &HashMap<usize, Vec<u8>>,
 ) -> Result<usize, IdbError> {
-    use crate::binlog::correlate::{build_column_meta, convert_pk_values, extract_ddl_column_names};
+    use crate::binlog::correlate::{
+        build_column_meta, convert_pk_values, extract_ddl_column_names,
+    };
     use crate::binlog::row_image::extract_pk_from_row_image;
     use crate::innodb::btree::{extract_clustered_index_info, search_btree};
 

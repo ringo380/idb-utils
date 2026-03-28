@@ -59,7 +59,7 @@ fn make_minimal_binlog() -> Vec<u8> {
     // FDE payload
     let mut fde = vec![0u8; fde_data_len];
     LittleEndian::write_u16(&mut fde[0..], 4); // binlog_version = 4
-    // server_version: "8.0.35" (50 bytes, null-padded)
+                                               // server_version: "8.0.35" (50 bytes, null-padded)
     fde[2..8].copy_from_slice(b"8.0.35");
     LittleEndian::write_u32(&mut fde[52..], 1_700_000_000); // create_timestamp
     fde[56] = 19; // header_length = 19
@@ -79,7 +79,10 @@ fn correlate_events_returns_empty_for_no_sdi() {
     let mut binlog = BinlogFile::from_bytes(binlog_data).unwrap();
 
     let result = correlate_events(&mut binlog, &mut ts).unwrap();
-    assert!(result.is_empty(), "Expected empty results for tablespace without SDI");
+    assert!(
+        result.is_empty(),
+        "Expected empty results for tablespace without SDI"
+    );
 }
 
 #[test]

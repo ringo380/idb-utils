@@ -1560,8 +1560,7 @@ pub fn correlate_binlog_events(
     let mut binlog =
         crate::binlog::BinlogFile::from_bytes(binlog_data.to_vec()).map_err(to_js_err)?;
     let mut ts = Tablespace::from_bytes(tablespace_data.to_vec()).map_err(to_js_err)?;
-    let results =
-        crate::binlog::correlate_events(&mut binlog, &mut ts).map_err(to_js_err)?;
+    let results = crate::binlog::correlate_events(&mut binlog, &mut ts).map_err(to_js_err)?;
     to_json(&results)
 }
 

@@ -138,9 +138,7 @@ pub(crate) fn build_column_meta(
 /// Returns column names in DDL definition order (by `ordinal_position`),
 /// excluding virtual/generated columns and SE-hidden system columns.
 /// This order matches the TABLE_MAP column order in binlog events.
-pub(crate) fn extract_ddl_column_names(
-    ts: &mut Tablespace,
-) -> Option<Vec<String>> {
+pub(crate) fn extract_ddl_column_names(ts: &mut Tablespace) -> Option<Vec<String>> {
     use crate::innodb::schema::SdiEnvelope;
     use crate::innodb::sdi;
 
@@ -268,11 +266,17 @@ pub fn correlate_events(
         let search_key = convert_pk_values(&pk_values);
 
         // Search B+Tree for the leaf page
-        let search_result =
-            match search_btree(ts, root_page_no, index_id, &pk_columns, &search_key, page_size) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
+        let search_result = match search_btree(
+            ts,
+            root_page_no,
+            index_id,
+            &pk_columns,
+            &search_key,
+            page_size,
+        ) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
 
         // Read the leaf page to get its current LSN
         let page_lsn = ts
