@@ -8,6 +8,9 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::binlog::constants::{
+    DELETE_ROWS_EVENT, TABLE_MAP_EVENT, UPDATE_ROWS_EVENT, WRITE_ROWS_EVENT,
+};
 use crate::binlog::events::{RowsEvent, TableMapEvent};
 use crate::binlog::file::BinlogFile;
 use crate::binlog::row_image::{
@@ -35,9 +38,9 @@ impl RowEventType {
     /// Returns `None` for non-row event types.
     pub fn from_type_code(code: u8) -> Option<Self> {
         match code {
-            30 => Some(RowEventType::Insert),  // WRITE_ROWS_EVENT_V2
-            31 => Some(RowEventType::Update),  // UPDATE_ROWS_EVENT_V2
-            32 => Some(RowEventType::Delete),  // DELETE_ROWS_EVENT_V2
+            WRITE_ROWS_EVENT => Some(RowEventType::Insert),
+            UPDATE_ROWS_EVENT => Some(RowEventType::Update),
+            DELETE_ROWS_EVENT => Some(RowEventType::Delete),
             _ => None,
         }
     }
@@ -80,11 +83,24 @@ pub struct CorrelatedEvent {
 
 /// Build `BinlogColumnMeta` for each column in a `TableMapEvent`, marking PK
 /// columns based on the clustered index layout from SDI.
+///
+/// `ddl_column_names` provides the DDL-ordered column names from SDI metadata.
+/// TABLE_MAP columns follow DDL definition order (NOT InnoDB's PK-first
+/// physical order), so PK columns are identified by matching names against
+/// `pk_columns` rather than by positional index.
 pub(crate) fn build_column_meta(
     tme: &TableMapEvent,
     pk_columns: &[ColumnStorageInfo],
+    ddl_column_names: &[String],
 ) -> Vec<BinlogColumnMeta> {
     let meta_values = parse_column_metadata(&tme.column_types, &tme.column_metadata);
+
+    // Build a set of PK column names for lookup
+    let pk_names: HashMap<&str, (usize, bool)> = pk_columns
+        .iter()
+        .enumerate()
+        .map(|(ord, c)| (c.name.as_str(), (ord, c.is_unsigned)))
+        .collect();
 
     tme.column_types
         .iter()
@@ -95,13 +111,17 @@ pub(crate) fn build_column_meta(
             } else {
                 0
             };
-            let is_pk = i < pk_columns.len();
-            let pk_ordinal = if is_pk { Some(i) } else { None };
-            let is_unsigned = if is_pk && i < pk_columns.len() {
-                pk_columns[i].is_unsigned
-            } else {
-                false
+
+            // Match by column name: DDL-ordered name at position i
+            let pk_info = ddl_column_names
+                .get(i)
+                .and_then(|name| pk_names.get(name.as_str()));
+
+            let (is_pk, pk_ordinal, is_unsigned) = match pk_info {
+                Some(&(ord, unsigned)) => (true, Some(ord), unsigned),
+                None => (false, None, false),
             };
+
             BinlogColumnMeta {
                 column_type: col_type,
                 is_unsigned,
@@ -111,6 +131,39 @@ pub(crate) fn build_column_meta(
             }
         })
         .collect()
+}
+
+/// Extract DDL-ordered visible column names from tablespace SDI.
+///
+/// Returns column names in DDL definition order (by `ordinal_position`),
+/// excluding virtual/generated columns and SE-hidden system columns.
+/// This order matches the TABLE_MAP column order in binlog events.
+pub(crate) fn extract_ddl_column_names(
+    ts: &mut Tablespace,
+) -> Option<Vec<String>> {
+    use crate::innodb::schema::SdiEnvelope;
+    use crate::innodb::sdi;
+
+    let sdi_pages = sdi::find_sdi_pages(ts).ok()?;
+    if sdi_pages.is_empty() {
+        return None;
+    }
+    let records = sdi::extract_sdi_from_pages(ts, &sdi_pages).ok()?;
+
+    for rec in &records {
+        if rec.sdi_type == 1 {
+            let envelope: SdiEnvelope = serde_json::from_str(&rec.data).ok()?;
+            let mut cols: Vec<_> = envelope
+                .dd_object
+                .columns
+                .iter()
+                .filter(|c| !c.is_virtual && (c.hidden == 1 || c.hidden == 4))
+                .collect();
+            cols.sort_by_key(|c| c.ordinal_position);
+            return Some(cols.iter().map(|c| c.name.clone()).collect());
+        }
+    }
+    None
 }
 
 /// Convert `BinlogPkValue` slice to `PkValue` slice for B+Tree search.
@@ -152,6 +205,9 @@ pub fn correlate_events(
         None => return Ok(vec![]),
     };
 
+    // Get DDL-ordered column names for correct PK matching
+    let ddl_column_names = extract_ddl_column_names(ts).unwrap_or_default();
+
     // Get space_id and page_size from page 0
     let page0 = ts.read_page(0)?;
     let space_id = match FilHeader::parse(&page0) {
@@ -170,7 +226,7 @@ pub fn correlate_events(
         let type_code = header.type_code.type_code();
 
         // Track TABLE_MAP events for schema context
-        if type_code == 19 {
+        if type_code == TABLE_MAP_EVENT {
             if let crate::binlog::event::BinlogEvent::Unknown { payload, .. } = &event {
                 if let Some(tme) = TableMapEvent::parse(payload) {
                     table_maps.insert(tme.table_id, tme);
@@ -203,7 +259,7 @@ pub fn correlate_events(
         };
 
         // Build column metadata and extract PK
-        let columns = build_column_meta(tme, &pk_columns);
+        let columns = build_column_meta(tme, &pk_columns, &ddl_column_names);
         let pk_values = match extract_pk_from_row_image(&row_data.row_data, &columns) {
             Some(pks) => pks,
             None => continue,
@@ -250,10 +306,19 @@ mod tests {
 
     #[test]
     fn test_row_event_type_from_type_code() {
-        assert_eq!(RowEventType::from_type_code(30), Some(RowEventType::Insert));
-        assert_eq!(RowEventType::from_type_code(31), Some(RowEventType::Update));
-        assert_eq!(RowEventType::from_type_code(32), Some(RowEventType::Delete));
-        assert_eq!(RowEventType::from_type_code(19), None);
+        assert_eq!(
+            RowEventType::from_type_code(WRITE_ROWS_EVENT),
+            Some(RowEventType::Insert)
+        );
+        assert_eq!(
+            RowEventType::from_type_code(UPDATE_ROWS_EVENT),
+            Some(RowEventType::Update)
+        );
+        assert_eq!(
+            RowEventType::from_type_code(DELETE_ROWS_EVENT),
+            Some(RowEventType::Delete)
+        );
+        assert_eq!(RowEventType::from_type_code(TABLE_MAP_EVENT), None);
         assert_eq!(RowEventType::from_type_code(0), None);
     }
 
@@ -288,7 +353,8 @@ mod tests {
     }
 
     #[test]
-    fn test_build_column_meta_basic() {
+    fn test_build_column_meta_pk_first_in_ddl() {
+        // DDL: CREATE TABLE t1 (id INT UNSIGNED PRIMARY KEY, name VARCHAR(100), val BIGINT)
         let tme = TableMapEvent {
             table_id: 1,
             database_name: "test".to_string(),
@@ -315,10 +381,12 @@ mod tests {
             numeric_scale: 0,
         }];
 
-        let meta = build_column_meta(&tme, &pk_columns);
+        let ddl_names = vec!["id".to_string(), "name".to_string(), "val".to_string()];
+
+        let meta = build_column_meta(&tme, &pk_columns, &ddl_names);
         assert_eq!(meta.len(), 3);
 
-        // First column is PK
+        // First column (id) is PK
         assert!(meta[0].is_pk);
         assert_eq!(meta[0].pk_ordinal, Some(0));
         assert!(meta[0].is_unsigned);
@@ -327,9 +395,59 @@ mod tests {
         // Second column is not PK
         assert!(!meta[1].is_pk);
         assert_eq!(meta[1].pk_ordinal, None);
-        assert!(!meta[1].is_unsigned);
 
         // Third column is not PK
+        assert!(!meta[2].is_pk);
+    }
+
+    #[test]
+    fn test_build_column_meta_pk_not_first_in_ddl() {
+        // DDL: CREATE TABLE t2 (name VARCHAR(100), id INT UNSIGNED PRIMARY KEY, val BIGINT)
+        // TABLE_MAP columns follow DDL order: name, id, val
+        let tme = TableMapEvent {
+            table_id: 2,
+            database_name: "test".to_string(),
+            table_name: "t2".to_string(),
+            column_count: 3,
+            column_types: vec![15, 3, 8], // VARCHAR, LONG, LONGLONG
+            column_metadata: vec![100, 0, 0],
+            null_bitmap: vec![0],
+        };
+
+        let pk_columns = vec![ColumnStorageInfo {
+            name: "id".to_string(),
+            column_type: "int".to_string(),
+            dd_type: 0,
+            is_nullable: false,
+            is_unsigned: true,
+            fixed_len: 4,
+            is_variable: false,
+            charset_max_bytes: 0,
+            datetime_precision: 0,
+            is_system_column: false,
+            elements: vec![],
+            numeric_precision: 0,
+            numeric_scale: 0,
+        }];
+
+        // DDL order: name, id, val
+        let ddl_names = vec!["name".to_string(), "id".to_string(), "val".to_string()];
+
+        let meta = build_column_meta(&tme, &pk_columns, &ddl_names);
+        assert_eq!(meta.len(), 3);
+
+        // First column (name) is NOT PK
+        assert!(!meta[0].is_pk);
+        assert_eq!(meta[0].pk_ordinal, None);
+        assert!(!meta[0].is_unsigned);
+
+        // Second column (id) IS PK — correctly identified by name match
+        assert!(meta[1].is_pk);
+        assert_eq!(meta[1].pk_ordinal, Some(0));
+        assert!(meta[1].is_unsigned);
+        assert_eq!(meta[1].column_type, 3);
+
+        // Third column (val) is NOT PK
         assert!(!meta[2].is_pk);
     }
 }

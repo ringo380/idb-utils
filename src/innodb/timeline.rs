@@ -458,7 +458,7 @@ pub fn correlate_binlog_pages(
     table_maps: &HashMap<u64, crate::binlog::events::TableMapEvent>,
     row_data_map: &HashMap<usize, Vec<u8>>,
 ) -> Result<usize, IdbError> {
-    use crate::binlog::correlate::{build_column_meta, convert_pk_values};
+    use crate::binlog::correlate::{build_column_meta, convert_pk_values, extract_ddl_column_names};
     use crate::binlog::row_image::extract_pk_from_row_image;
     use crate::innodb::btree::{extract_clustered_index_info, search_btree};
 
@@ -467,6 +467,9 @@ pub fn correlate_binlog_pages(
         Some(info) => info,
         None => return Ok(0), // No SDI or no clustered index
     };
+
+    // Get DDL-ordered column names for correct PK matching
+    let ddl_column_names = extract_ddl_column_names(ts).unwrap_or_default();
 
     // Get space_id from page 0
     let page0 = ts.read_page(0)?;
@@ -503,7 +506,7 @@ pub fn correlate_binlog_pages(
         };
 
         // Build BinlogColumnMeta for each column, marking PK columns
-        let columns = build_column_meta(tme, &pk_columns);
+        let columns = build_column_meta(tme, &pk_columns, &ddl_column_names);
 
         // Extract PK values from the row image
         let pk_values = match extract_pk_from_row_image(row_data, &columns) {
