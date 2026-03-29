@@ -3,14 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>InnoDB Analyzer</title>
-    <meta name="description" content="Browser-based InnoDB tablespace analyzer — parse pages, validate checksums, extract SDI, hex dump, diff, and assess recovery. Powered by idb-utils WASM." />
+    <title>InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser</title>
+    <meta name="description" content="Free browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd pages, validate checksums (CRC-32C, legacy, MariaDB), extract SDI metadata, hex dump, diff tablespaces, assess recovery, and analyze redo logs. No uploads — runs locally via WebAssembly." />
     <meta name="theme-color" content="#0f172a" />
-    <meta property="og:title" content="InnoDB Analyzer" />
-    <meta property="og:description" content="Analyze InnoDB .ibd files directly in the browser with idb-utils WASM." />
+    <link rel="canonical" href="https://innodb.fyi/" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser" />
+    <meta property="og:description" content="Free browser-based InnoDB file analyzer for MySQL DBAs. Parse pages, validate checksums, extract SDI, diff tablespaces, and assess recovery. Runs entirely client-side via WebAssembly." />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://ringo380.github.io/idb-utils/" />
-    <link rel="icon" href="/idb-utils/favicon.svg" type="image/svg+xml" />
+    <meta property="og:url" content="https://innodb.fyi/" />
+    <meta property="og:site_name" content="InnoDB Analyzer" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser" />
+    <meta name="twitter:description" content="Free browser-based InnoDB file analyzer. Parse pages, validate checksums, extract SDI, diff tablespaces. Runs locally via WASM — no uploads." />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "InnoDB Analyzer",
+      "url": "https://innodb.fyi/",
+      "description": "Browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd page structures, validate checksums, extract SDI metadata, hex dump pages, diff tablespaces, and assess data recovery — all client-side via WebAssembly.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Any",
+      "browserRequirements": "Requires a browser with WebAssembly support",
+      "softwareVersion": "5.1.0",
+      "author": {
+        "@type": "Person",
+        "name": "Ryan Robson",
+        "url": "https://github.com/ringo380"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "isAccessibleForFree": true,
+      "license": "https://opensource.org/licenses/MIT"
+    }
+    </script>
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-SMQDMQW24Y"></script>
     <script>
       window.dataLayer = window.dataLayer || [];

@@ -1,10 +1,11 @@
 [book]
 title = "IDB Utils Documentation"
+description = "CLI reference, library API, guides, and internals for inspecting, validating, and manipulating InnoDB tablespace files, redo logs, and binary logs with the inno command-line tool."
 authors = ["Ryan Robson"]
 language = "en"
 src = "src"
 
 [output.html]
-site-url = "/idb-utils/book/"
+site-url = "/book/"
 git-repository-url = "https://github.com/ringo380/idb-utils"
 edit-url-template = "https://github.com/ringo380/idb-utils/edit/master/docs/{path}"
