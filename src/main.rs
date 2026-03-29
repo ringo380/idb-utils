@@ -653,6 +653,7 @@ fn main() {
             filter_type,
             verbose,
             json,
+            correlate,
         } => cli::binlog::execute(
             &cli::binlog::BinlogOptions {
                 file,
@@ -661,6 +662,7 @@ fn main() {
                 verbose,
                 json: json || global_format == OutputFormat::Json,
                 csv: global_format == OutputFormat::Csv,
+                correlate,
             },
             &mut writer,
         ),

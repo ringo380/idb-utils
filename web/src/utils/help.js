@@ -204,8 +204,13 @@ export const TAB_DESCRIPTIONS = {
     tips: ['Blocks are 512-byte units within the redo log', 'Empty blocks indicate unused log space'],
   },
   binlog: {
-    description: 'Binary log event listing — transactions, row changes, DDL statements, and replication metadata.',
-    tips: ['Events are shown in file order with timestamps', 'CRC-32C checksum validation per event'],
+    description: 'Binary log event listing — transactions, row changes, DDL statements, and replication metadata. Drop a .ibd tablespace to correlate row events with specific pages.',
+    tips: [
+      'Events are shown in file order with timestamps',
+      'CRC-32C checksum validation per event',
+      'Drop a tablespace (.ibd) file to see which page each row event affects',
+      'Click a page number to navigate to that page in the Pages tab',
+    ],
   },
   diff: {
     description: 'Side-by-side comparison of two tablespace files. Shows page-level differences in headers, checksums, and content.',
