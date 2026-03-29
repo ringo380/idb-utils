@@ -39,4 +39,4 @@ Vendor detection is automatic based on FSP flags and redo log headers.
 
 - [GitHub Repository](https://github.com/ringo380/idb-utils) -- Source code, issue tracker, and releases.
 - [API Documentation](https://docs.rs/innodb-utils) -- Rust library API reference on docs.rs.
-- [Web Analyzer](https://ringo380.github.io/idb-utils/) -- Browser-based tablespace analysis tool.
+- [Web Analyzer](https://innodb.fyi/) -- Browser-based tablespace analysis tool.

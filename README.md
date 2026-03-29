@@ -2,9 +2,9 @@
 
 A command-line toolkit for inspecting, validating, and manipulating InnoDB database files. Written in Rust for performance and reliability, the `inno` binary operates directly on `.ibd` tablespace files, redo logs, and system tablespaces — no running MySQL instance required.
 
-Also available as a [browser-based analyzer](https://ringo380.github.io/idb-utils/) powered by WebAssembly.
+Also available as a [browser-based analyzer](https://innodb.fyi/) powered by WebAssembly.
 
-**[Full Documentation](https://ringo380.github.io/idb-utils/book/)**
+**[Full Documentation](https://innodb.fyi/book/)**
 
 ## What It Does
 
@@ -90,7 +90,7 @@ Every subcommand supports `--json` for machine-readable output and `--help` for 
 | `log` | Analyze InnoDB redo log files |
 | `info` | Inspect ibdata1 headers, compare LSNs, query MySQL |
 
-See the [CLI Reference](https://ringo380.github.io/idb-utils/book/cli/overview.html) for detailed documentation on each subcommand.
+See the [CLI Reference](https://innodb.fyi/book/cli/overview.html) for detailed documentation on each subcommand.
 
 ## Supported InnoDB Variants
 
@@ -120,9 +120,9 @@ cargo clippy -- -D warnings
 
 ## Documentation
 
-- **[User Guide & CLI Reference](https://ringo380.github.io/idb-utils/book/)** — full documentation site
+- **[User Guide & CLI Reference](https://innodb.fyi/book/)** — full documentation site
 - **[API Docs (docs.rs)](https://docs.rs/innodb-utils)** — Rust library API reference
-- **[Web Analyzer](https://ringo380.github.io/idb-utils/)** — browser-based file analysis
+- **[Web Analyzer](https://innodb.fyi/)** — browser-based file analysis
 - **[Contributing](CONTRIBUTING.md)** — development setup and contribution guidelines
 
 ## License

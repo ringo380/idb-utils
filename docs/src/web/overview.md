@@ -2,7 +2,7 @@
 
 IDB Utils includes a browser-based InnoDB file analyzer powered by WebAssembly. The web UI provides the same core analysis capabilities as the CLI, running entirely client-side with no server uploads.
 
-**Live instance**: [ringo380.github.io/idb-utils](https://ringo380.github.io/idb-utils/)
+**Live instance**: [innodb.fyi](https://innodb.fyi/)
 
 ## What It Does
 

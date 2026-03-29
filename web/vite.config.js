@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [wasm(), tailwindcss()],
-  base: process.env.BASE_URL || '/idb-utils/',
+  base: process.env.BASE_URL || '/',
   build: {
     target: 'esnext',
   },

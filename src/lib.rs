@@ -134,7 +134,7 @@
 //! function signatures and return schemas.
 //!
 //! A live web analyzer built on these bindings is available at
-//! <https://ringo380.github.io/idb-utils/>.
+//! <https://innodb.fyi/>.
 
 pub mod binlog;
 #[cfg(feature = "cli")]

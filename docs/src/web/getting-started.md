@@ -2,7 +2,7 @@
 
 ## Opening the Analyzer
 
-Visit [ringo380.github.io/idb-utils](https://ringo380.github.io/idb-utils/) or run it locally:
+Visit [innodb.fyi](https://innodb.fyi/) or run it locally:
 
 ```bash
 cd web
