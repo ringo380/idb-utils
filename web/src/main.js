@@ -165,6 +165,7 @@ function onFile(name, data) {
   encryptionInfo = null;
   auditFiles = null;
   binlogCorrelationTs = null;
+  savedBinlogState = null;
 
   const wasm = getWasm();
 
@@ -311,6 +312,7 @@ function restoreBinlogState() {
   binlogCorrelationTs = savedBinlogState.binlogCorrelationTs;
   savedBinlogState = null;
   pageCount = 0;
+  currentTab = 0;
   renderAnalyzer();
 }
 

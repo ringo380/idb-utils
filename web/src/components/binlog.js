@@ -298,8 +298,11 @@ function renderEventsTable(events, correlatedMap) {
       <tbody>
         ${events.map((evt) => {
           const ce = hasCorrelation ? correlatedMap.get(evt.offset) : null;
+          const rowCls = ce
+            ? 'border-b border-gray-800/30 hover:bg-surface-2/50 bg-innodb-green/5'
+            : 'border-b border-gray-800/30 hover:bg-surface-2/50';
           return `
-            <tr class="border-b border-gray-800/30 hover:bg-surface-2/50${ce ? ' bg-innodb-green/5' : ''}">
+            <tr class="${rowCls}">
               <td class="py-1 pr-3 text-innodb-cyan">${evt.offset}</td>
               <td class="py-1 pr-3 text-gray-300">${esc(evt.event_type)}</td>
               <td class="py-1 pr-3 text-gray-400">${evt.event_length}</td>
