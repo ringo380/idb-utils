@@ -1129,6 +1129,10 @@ pub enum Commands {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
+
+        /// Path to .ibd tablespace for page correlation
+        #[arg(long)]
+        correlate: Option<String>,
     },
 
     /// Analyze undo tablespace files (.ibu or .ibd)

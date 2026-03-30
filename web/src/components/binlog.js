@@ -10,9 +10,12 @@ const PAGE_SIZE = 100;
 /**
  * Create the binlog tab for a binary log file.
  * @param {HTMLElement} container
- * @param {Uint8Array} fileData
+ * @param {Uint8Array} fileData — raw binlog bytes
+ * @param {{ name: string, data: Uint8Array }|null} correlationTs — optional tablespace for page correlation
+ * @param {((name: string, data: Uint8Array) => void)|null} onCorrelateFile — callback when .ibd dropped
+ * @param {((pageNo: number) => void)|null} onPageClick — callback when a correlated page number is clicked
  */
-export function createBinlog(container, fileData) {
+export function createBinlog(container, fileData, correlationTs, onCorrelateFile, onPageClick) {
   const wasm = getWasm();
   let result;
   try {
@@ -22,12 +25,27 @@ export function createBinlog(container, fileData) {
     return;
   }
 
+  // Run correlation if tablespace is available
+  let correlatedMap = null; // Map<binlog_pos, CorrelatedEvent>
+  let correlatedCount = 0;
+  if (correlationTs) {
+    try {
+      const correlated = JSON.parse(wasm.correlate_binlog_events(fileData, correlationTs.data));
+      correlatedMap = new Map(correlated.map((e) => [e.binlog_pos, e]));
+      correlatedCount = correlated.length;
+      trackFeatureUse('binlog_correlate', { event_count: correlatedCount });
+    } catch (e) {
+      // Show error but continue with uncorrelated view
+      correlatedMap = null;
+      console.warn('Binlog correlation failed:', e);
+    }
+  }
+
   const fd = result.format_description || {};
   const events = result.events || [];
   const tableMaps = result.table_maps || [];
   const typeCounts = result.event_type_counts || {};
   let currentPage = 0;
-  const totalPages = Math.max(1, Math.ceil(events.length / PAGE_SIZE));
 
   // Sort type counts by count descending
   const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
@@ -53,8 +71,25 @@ export function createBinlog(container, fileData) {
         ${statCard('Total Events', result.event_count || 0)}
         ${statCard('Event Types', sortedTypes.length)}
         ${statCard('Table Maps', tableMaps.length)}
-        ${statCard('Server ID', events.length > 0 ? events[0].server_id : '\u2014')}
+        ${correlatedMap
+          ? statCard('Correlated', correlatedCount, 'text-innodb-green')
+          : statCard('Server ID', events.length > 0 ? events[0].server_id : '\u2014')}
       </div>
+
+      ${!correlationTs ? `
+        <div id="binlog-correlate-zone" class="border-2 border-dashed border-gray-700 rounded-lg p-4 text-center cursor-pointer hover:border-innodb-cyan/50 transition-colors">
+          <div class="text-gray-400 text-sm">Drop a <span class="text-innodb-cyan font-medium">.ibd</span> tablespace file here to correlate row events with pages</div>
+          <div class="text-gray-600 text-xs mt-1">Maps each INSERT/UPDATE/DELETE to the specific B+Tree leaf page it affected</div>
+          <input type="file" accept=".ibd" class="hidden" id="binlog-correlate-input" />
+        </div>
+      ` : `
+        <div class="flex items-center gap-3 text-sm">
+          <span class="px-2 py-1 bg-innodb-green/10 text-innodb-green rounded text-xs">Correlated</span>
+          <span class="text-gray-400">Tablespace: <span class="text-gray-200 font-mono">${esc(correlationTs.name)}</span></span>
+          <span class="text-gray-500">${correlatedCount} row events mapped to pages</span>
+          <button id="binlog-clear-correlate" class="text-xs text-gray-500 hover:text-gray-300 underline">Clear</button>
+        </div>
+      `}
 
       ${sortedTypes.length > 0 ? `
         <h3 class="text-md font-semibold text-gray-300">Event Type Distribution</h3>
@@ -86,7 +121,44 @@ export function createBinlog(container, fileData) {
   // Export bar
   const exportSlot = container.querySelector('#binlog-export');
   if (exportSlot) {
-    exportSlot.appendChild(createExportBar(() => result, 'binlog'));
+    const exportData = correlatedMap
+      ? () => ({ ...result, correlated_events: [...correlatedMap.values()] })
+      : () => result;
+    exportSlot.appendChild(createExportBar(exportData, 'binlog'));
+  }
+
+  // Correlation dropzone (when no tablespace yet)
+  const dropzone = container.querySelector('#binlog-correlate-zone');
+  if (dropzone && onCorrelateFile) {
+    const fileInput = container.querySelector('#binlog-correlate-input');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) readFile(file, onCorrelateFile);
+    });
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('border-innodb-cyan/50', 'bg-innodb-cyan/5');
+    });
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('border-innodb-cyan/50', 'bg-innodb-cyan/5');
+    });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-innodb-cyan/50', 'bg-innodb-cyan/5');
+      const file = e.dataTransfer.files[0];
+      if (file) readFile(file, onCorrelateFile);
+    });
+  }
+
+  // Clear correlation button
+  const clearBtn = container.querySelector('#binlog-clear-correlate');
+  if (clearBtn && onCorrelateFile) {
+    clearBtn.addEventListener('click', () => {
+      // Pass null to clear; main.js handles reset
+      onCorrelateFile(null, null);
+    });
   }
 
   // Event listing with filter and pagination
@@ -109,7 +181,18 @@ export function createBinlog(container, fileData) {
       const pageEvents = filteredEvents.slice(start, start + PAGE_SIZE);
       const wrap = container.querySelector('#binlog-events-wrap');
 
-      wrap.innerHTML = renderEventsTable(pageEvents);
+      wrap.innerHTML = renderEventsTable(pageEvents, correlatedMap);
+
+      // Wire up page click handlers
+      if (correlatedMap && onPageClick) {
+        wrap.querySelectorAll('[data-goto-page]').forEach((el) => {
+          el.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pageNo = parseInt(el.dataset.gotoPage, 10);
+            onPageClick(pageNo);
+          });
+        });
+      }
 
       const pag = container.querySelector('#binlog-pagination');
       pag.innerHTML = `
@@ -129,6 +212,13 @@ export function createBinlog(container, fileData) {
     filterInput.addEventListener('input', () => { trackFeatureUse('binlog_filter'); applyFilter(); });
     renderEvents();
   }
+}
+
+/** Read a dropped/selected file as Uint8Array. */
+function readFile(file, callback) {
+  const reader = new FileReader();
+  reader.onload = () => callback(file.name, new Uint8Array(reader.result));
+  reader.readAsArrayBuffer(file);
 }
 
 function renderTypeDistribution(sortedTypes, total) {
@@ -186,7 +276,13 @@ function renderTableMaps(tableMaps) {
     </table>`;
 }
 
-function renderEventsTable(events) {
+/**
+ * Render the events table, optionally with correlation columns.
+ * @param {Array} events
+ * @param {Map<number, object>|null} correlatedMap
+ */
+function renderEventsTable(events, correlatedMap) {
+  const hasCorrelation = !!correlatedMap;
   return `
     <table class="w-full text-xs font-mono">
       <thead class="sticky top-0 bg-gray-950">
@@ -196,18 +292,29 @@ function renderEventsTable(events) {
           <th scope="col" class="py-1 pr-3">Size</th>
           <th scope="col" class="py-1 pr-3">Timestamp</th>
           <th scope="col" class="py-1 pr-3">Server ID</th>
+          ${hasCorrelation ? '<th scope="col" class="py-1 pr-3">Page</th><th scope="col" class="py-1 pr-3">PK</th>' : ''}
         </tr>
       </thead>
       <tbody>
-        ${events.map((evt) => `
-          <tr class="border-b border-gray-800/30 hover:bg-surface-2/50">
-            <td class="py-1 pr-3 text-innodb-cyan">${evt.offset}</td>
-            <td class="py-1 pr-3 text-gray-300">${esc(evt.event_type)}</td>
-            <td class="py-1 pr-3 text-gray-400">${evt.event_length}</td>
-            <td class="py-1 pr-3 text-gray-400">${formatTimestamp(evt.timestamp)}</td>
-            <td class="py-1 pr-3 text-gray-500">${evt.server_id}</td>
-          </tr>
-        `).join('')}
+        ${events.map((evt) => {
+          const ce = hasCorrelation ? correlatedMap.get(evt.offset) : null;
+          const rowCls = ce
+            ? 'border-b border-gray-800/30 hover:bg-surface-2/50 bg-innodb-green/5'
+            : 'border-b border-gray-800/30 hover:bg-surface-2/50';
+          return `
+            <tr class="${rowCls}">
+              <td class="py-1 pr-3 text-innodb-cyan">${evt.offset}</td>
+              <td class="py-1 pr-3 text-gray-300">${esc(evt.event_type)}</td>
+              <td class="py-1 pr-3 text-gray-400">${evt.event_length}</td>
+              <td class="py-1 pr-3 text-gray-400">${formatTimestamp(evt.timestamp)}</td>
+              <td class="py-1 pr-3 text-gray-500">${evt.server_id}</td>
+              ${hasCorrelation ? (ce
+                ? `<td class="py-1 pr-3"><a href="#" data-goto-page="${ce.page_no}" class="text-innodb-cyan hover:underline cursor-pointer">${ce.page_no}</a></td>
+                   <td class="py-1 pr-3 text-gray-400">${esc(ce.pk_values.length ? '(' + ce.pk_values.join(', ') + ')' : '--')}</td>`
+                : '<td class="py-1 pr-3 text-gray-600">--</td><td class="py-1 pr-3 text-gray-600">--</td>'
+              ) : ''}
+            </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }

@@ -44,6 +44,7 @@ let isBinlog = false;
 let decryptedData = null;
 let encryptionInfo = null;
 let auditFiles = null;
+let binlogCorrelationTs = null; // { name, data } for binlog-to-page correlation
 
 // ── Bootstrap ────────────────────────────────────────────────────────
 initTheme();
@@ -163,6 +164,8 @@ function onFile(name, data) {
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
+  binlogCorrelationTs = null;
+  savedBinlogState = null;
 
   const wasm = getWasm();
 
@@ -270,6 +273,49 @@ function onDecrypt(kData) {
   }
 }
 
+/** Called when a .ibd file is dropped on the binlog correlation dropzone (null to clear). */
+function onBinlogCorrelate(name, data) {
+  binlogCorrelationTs = name ? { name, data } : null;
+  trackFeatureUse('binlog_correlate_drop');
+  renderTab(); // Re-render binlog tab with correlation data
+}
+
+/** Called when a correlated page number is clicked in the binlog tab. */
+let savedBinlogState = null;
+
+function onBinlogPageClick(pageNo) {
+  if (!binlogCorrelationTs) return;
+  trackFeatureUse('binlog_page_nav', { page_no: pageNo });
+  // Save current binlog state
+  savedBinlogState = { fileData, fileName, isBinlog: true, binlogCorrelationTs };
+  // Load tablespace as primary file
+  fileData = binlogCorrelationTs.data;
+  fileName = binlogCorrelationTs.name;
+  isBinlog = false;
+  try {
+    const info = JSON.parse(getWasm().get_tablespace_info(fileData));
+    pageCount = info.page_count;
+  } catch {
+    pageCount = 0;
+  }
+  renderAnalyzer();
+  requestPage(pageNo);
+  navigateToTab('pages');
+}
+
+/** Restore binlog state after navigating to a tablespace page. */
+function restoreBinlogState() {
+  if (!savedBinlogState) return;
+  fileData = savedBinlogState.fileData;
+  fileName = savedBinlogState.fileName;
+  isBinlog = savedBinlogState.isBinlog;
+  binlogCorrelationTs = savedBinlogState.binlogCorrelationTs;
+  savedBinlogState = null;
+  pageCount = 0;
+  currentTab = 0;
+  renderAnalyzer();
+}
+
 function renderAnalyzer() {
   app.innerHTML = '';
   // Skip-to-content link
@@ -328,6 +374,8 @@ function renderAnalyzer() {
     decryptedData = null;
     encryptionInfo = null;
     auditFiles = null;
+    binlogCorrelationTs = null;
+    savedBinlogState = null;
     showDropzone();
   });
 
@@ -355,6 +403,20 @@ function renderAnalyzer() {
       reader.onload = () => onDecrypt(new Uint8Array(reader.result));
       reader.readAsArrayBuffer(file);
     });
+  }
+
+  // "Back to Binlog" banner when navigating from correlated binlog view
+  if (savedBinlogState) {
+    const backBanner = document.createElement('div');
+    backBanner.className = 'px-6 py-2 bg-innodb-cyan/10 border-b border-innodb-cyan/30 flex items-center gap-3';
+    backBanner.innerHTML = `
+      <button id="back-to-binlog" class="px-3 py-1 bg-innodb-cyan/20 hover:bg-innodb-cyan/30 text-innodb-cyan rounded text-xs font-medium transition-colors">
+        &larr; Back to Binlog
+      </button>
+      <span class="text-xs text-gray-400">Viewing tablespace from binlog correlation</span>
+    `;
+    app.appendChild(backBanner);
+    backBanner.querySelector('#back-to-binlog').addEventListener('click', restoreBinlogState);
   }
 
   // Tabs
@@ -461,7 +523,7 @@ function renderTab() {
       createUndo(content, data);
       break;
     case 'binlog':
-      createBinlog(content, data);
+      createBinlog(content, data, binlogCorrelationTs, onBinlogCorrelate, onBinlogPageClick);
       break;
     case 'spatial':
       createSpatial(content, data);
