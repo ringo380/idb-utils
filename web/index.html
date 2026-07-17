@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser</title>
-    <meta name="description" content="Free browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd pages, validate checksums (CRC-32C, legacy, MariaDB), extract SDI metadata, hex dump, diff tablespaces, assess recovery, and analyze redo logs. No uploads — runs locally via WebAssembly." />
+    <meta name="description" content="Free browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd pages, validate checksums (CRC-32C, legacy, MariaDB), extract SDI metadata, hex dump, diff tablespaces, assess recovery, and analyze redo logs. Runs locally via WebAssembly - nothing is sent anywhere unless you explicitly choose to share a file." />
     <meta name="theme-color" content="#0f172a" />
     <link rel="canonical" href="https://innodb.fyi/" />
 
     <!-- Open Graph -->
     <meta property="og:title" content="InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser" />
-    <meta property="og:description" content="Free browser-based InnoDB file analyzer for MySQL DBAs. Parse pages, validate checksums, extract SDI, diff tablespaces, and assess recovery. Runs entirely client-side via WebAssembly." />
+    <meta property="og:description" content="Free browser-based InnoDB file analyzer for MySQL DBAs. Parse pages, validate checksums, extract SDI, diff tablespaces, and assess recovery. Analysis runs client-side via WebAssembly." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://innodb.fyi/" />
     <meta property="og:site_name" content="InnoDB Analyzer" />
@@ -19,7 +19,7 @@
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="InnoDB Analyzer — Inspect MySQL .ibd Files in Your Browser" />
-    <meta name="twitter:description" content="Free browser-based InnoDB file analyzer. Parse pages, validate checksums, extract SDI, diff tablespaces. Runs locally via WASM — no uploads." />
+    <meta name="twitter:description" content="Free browser-based InnoDB file analyzer. Parse pages, validate checksums, extract SDI, diff tablespaces. Analysis runs locally via WASM; sharing a file is opt-in." />
 
     <!-- Structured Data -->
     <script type="application/ld+json">
@@ -28,7 +28,7 @@
       "@type": "WebApplication",
       "name": "InnoDB Analyzer",
       "url": "https://innodb.fyi/",
-      "description": "Browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd page structures, validate checksums, extract SDI metadata, hex dump pages, diff tablespaces, and assess data recovery — all client-side via WebAssembly.",
+      "description": "Browser-based InnoDB tablespace analyzer for MySQL DBAs. Parse .ibd page structures, validate checksums, extract SDI metadata, hex dump pages, diff tablespaces, and assess data recovery - analysis runs client-side via WebAssembly.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Any",
       "browserRequirements": "Requires a browser with WebAssembly support",
@@ -49,12 +49,17 @@
     </script>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-SMQDMQW24Y"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-SMQDMQW24Y');
+      if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        var _s = document.createElement('script');
+        _s.async = true; _s.src = 'https://www.googletagmanager.com/gtag/js?id=G-SMQDMQW24Y';
+        document.head.appendChild(_s);
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        window.gtag = gtag;
+        gtag('js', new Date());
+        gtag('config', 'G-SMQDMQW24Y');
+      }
     </script>
   </head>
   <body class="h-full bg-gray-950 text-gray-100 font-mono antialiased">

@@ -15,6 +15,9 @@ docs/plans/
 npm/pkg/
 npm/*.tgz
 
+# Wrangler local state / simulated bindings
+.wrangler/
+
 # Added by cargo
 
 /target

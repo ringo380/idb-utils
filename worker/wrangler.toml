@@ -1,0 +1,27 @@
+name = "innodb-fyi-submissions"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# Observability on: if this endpoint gets abused, the logs are how we find out.
+[observability]
+enabled = true
+
+# Private bucket. Objects in it are deleted after 90 days by the
+# "delete-after-90-days" lifecycle rule, which is set on the bucket itself and
+# not by this Worker. Do not rely on application code to honour retention.
+[[r2_buckets]]
+binding = "SUBMISSIONS"
+bucket_name = "innodb-fyi-submissions"
+
+# Per-IP rate limit on the upload path. Namespace id is local to this Worker.
+[[unsafe.bindings]]
+name = "UPLOAD_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
+[vars]
+MAX_UPLOAD_BYTES = "52428800"      # 50 MB, matches the cap advertised in the UI
+ALLOWED_ORIGINS = "https://innodb.fyi,http://localhost:5173"
+
+# TURNSTILE_SECRET is set via `wrangler secret put`, never committed.

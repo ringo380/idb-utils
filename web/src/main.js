@@ -30,6 +30,8 @@ import { downloadJson } from './utils/export.js';
 import { isFirstVisit, markWelcomed } from './utils/help.js';
 import { initNavigation, requestPage, navigateToTab } from './utils/navigation.js';
 import { trackFileUpload, trackTabView, trackExport, trackFeatureUse, trackError, trackPerformance } from './utils/analytics.js';
+import { createSharePanel } from './components/share.js';
+import { clearConsent } from './utils/consent.js';
 
 import './style.css';
 
@@ -126,7 +128,7 @@ function showDropzone() {
     overlay.innerHTML = `
       <div class="bg-surface-2 border border-gray-700 rounded-lg p-6 max-w-md mx-4 shadow-xl">
         <h2 class="text-lg font-bold text-innodb-cyan mb-3">Welcome to InnoDB Analyzer</h2>
-        <p class="text-sm text-gray-300 mb-4">Analyze InnoDB tablespace files, redo logs, and binary logs directly in your browser. All processing happens locally via WebAssembly &mdash; no data leaves your machine.</p>
+        <p class="text-sm text-gray-300 mb-4">Analyze InnoDB tablespace files, redo logs, and binary logs directly in your browser. All analysis happens locally via WebAssembly. Nothing leaves your machine unless you explicitly choose to send us a file.</p>
         <ul class="text-xs text-gray-400 space-y-1.5 mb-4">
           <li>Parse page headers, checksums, and B+Tree structures</li>
           <li>Extract schema DDL and SDI metadata</li>
@@ -166,6 +168,7 @@ function onFile(name, data) {
   auditFiles = null;
   binlogCorrelationTs = null;
   savedBinlogState = null;
+  clearConsent();
 
   const wasm = getWasm();
 
@@ -219,6 +222,7 @@ function onDiffFiles(name1, data1, name2, data2) {
   decryptedData = null;
   encryptionInfo = null;
   auditFiles = null;
+  clearConsent();
   try {
     const info = JSON.parse(getWasm().get_tablespace_info(data1));
     pageCount = info.page_count;
@@ -240,6 +244,7 @@ function onMultiFiles(files) {
   isBinlog = false;
   decryptedData = null;
   encryptionInfo = null;
+  clearConsent();
   try {
     const info = JSON.parse(getWasm().get_tablespace_info(fileData));
     pageCount = info.page_count;
@@ -376,6 +381,7 @@ function renderAnalyzer() {
     auditFiles = null;
     binlogCorrelationTs = null;
     savedBinlogState = null;
+    clearConsent();
     showDropzone();
   });
 
@@ -431,6 +437,13 @@ function renderAnalyzer() {
   content.setAttribute('role', 'tabpanel');
   content.setAttribute('aria-labelledby', getTabId(currentTab, opts) || '');
   app.appendChild(content);
+
+  // Optional share panel. Single-file mode only: consent is scoped to one named
+  // file, so it must not be shown while a diff or audit has several in play.
+  if (fileData && !diffData && !auditFiles) {
+    const share = createSharePanel(fileName, fileData);
+    if (share) app.appendChild(share);
+  }
 
   renderTab();
 }

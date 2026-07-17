@@ -1,6 +1,6 @@
 # Web Analyzer
 
-IDB Utils includes a browser-based InnoDB file analyzer powered by WebAssembly. The web UI provides the same core analysis capabilities as the CLI, running entirely client-side with no server uploads.
+IDB Utils includes a browser-based InnoDB file analyzer powered by WebAssembly. The web UI provides the same core analysis capabilities as the CLI, running client-side, with no uploads unless you explicitly opt in to share a file.
 
 **Live instance**: [innodb.fyi](https://innodb.fyi/)
 
@@ -19,7 +19,9 @@ The web analyzer lets you drag and drop `.ibd` tablespace files or redo log file
 
 ## Privacy
 
-All file processing happens locally in your browser via WebAssembly. Your `.ibd` files are never uploaded to any server. The WASM module runs the same Rust parsing code as the CLI `inno` binary, compiled to WebAssembly.
+All file analysis happens locally in your browser via WebAssembly. The WASM module runs the same Rust parsing code as the CLI `inno` binary, compiled to WebAssembly.
+
+Your `.ibd` files are not uploaded to any server as part of normal use. The one exception is deliberate and opt-in: after analyzing a file, you may choose to share it with the maintainers to help fix a bug you hit. That requires ticking an unchecked box **and** clicking Send - the checkbox alone does nothing, consent applies to that one file only, and you are asked again for any other file. Shared files are kept for 90 days, then deleted automatically. They are used only for reproducing bugs, regression test fixtures, and checksum/page-format verification. They are not sold and not shared with anyone else.
 
 ## Technology
 
