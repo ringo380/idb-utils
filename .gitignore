@@ -5,7 +5,6 @@ docs/book/
 .DS_Store
 .env
 IdbHelpers/
-docs/plans/
 
 # Generated WASM output
 npm/pkg/
