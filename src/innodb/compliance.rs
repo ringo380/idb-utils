@@ -570,7 +570,7 @@ pub struct EncryptionAuditReport {
 /// Audit which pages of a tablespace are encrypted and whether a key is available.
 pub fn encryption_audit(ts: &mut Tablespace) -> Result<EncryptionAuditReport, IdbError> {
     let tablespace_encrypted = ts.is_encrypted();
-    let key_available = ts.encryption_info().is_some();
+    let key_available = ts.has_decryption_key();
     let algorithm = if tablespace_encrypted {
         let flags = ts.fsp_header().map(|h| h.flags).unwrap_or(0);
         match crate::innodb::encryption::detect_encryption(flags, Some(ts.vendor_info())) {
