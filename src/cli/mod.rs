@@ -59,6 +59,7 @@ pub mod backup;
 pub mod binlog;
 pub mod checksum;
 pub mod compat;
+pub mod comply;
 pub mod corrupt;
 pub mod defrag;
 pub mod diff;

@@ -110,6 +110,8 @@ fn audit_opts(datadir: &str) -> idb::cli::audit::AuditOptions {
         bloat: false,
         max_bloat_grade: None,
         depth: None,
+        compliance: false,
+        pattern: None,
     }
 }
 
