@@ -604,6 +604,33 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
                     .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
                 wprintln!(writer, "{}", json)?;
             }
+        } else if opts.csv {
+            if opts.compliance {
+                wprintln!(writer, "file,match_count,pages_with_matches,capped,error")?;
+            } else if opts.health {
+                let do_bloat = opts.bloat || opts.max_bloat_grade.is_some();
+                if do_bloat {
+                    wprintln!(
+                        writer,
+                        "file,avg_fill_factor,avg_fragmentation,avg_garbage_ratio,index_count,total_index_pages,worst_bloat_grade,worst_bloat_score"
+                    )?;
+                } else {
+                    wprintln!(
+                        writer,
+                        "file,avg_fill_factor,avg_fragmentation,avg_garbage_ratio,index_count,total_index_pages"
+                    )?;
+                }
+            } else if opts.checksum_mismatch {
+                wprintln!(
+                    writer,
+                    "file,page_number,stored_checksum,calculated_checksum,algorithm"
+                )?;
+            } else {
+                wprintln!(
+                    writer,
+                    "file,status,total_pages,empty_pages,valid_pages,invalid_pages,lsn_mismatches"
+                )?;
+            }
         } else {
             wprintln!(writer, "No .ibd files found in {}", opts.datadir)?;
         }

@@ -217,6 +217,39 @@ fn test_audit_empty_directory() {
 }
 
 #[test]
+fn test_audit_empty_directory_csv_emits_header() {
+    // An empty datadir with --format csv must emit the mode's CSV header (no rows),
+    // not the plain-text "No .ibd files found" message, so downstream parsers don't break.
+    let dir = TempDir::new().unwrap();
+    let datadir = dir.path().to_str().unwrap();
+
+    // Compliance mode.
+    let mut opts = audit_opts(datadir);
+    opts.csv = true;
+    opts.compliance = true;
+    opts.pattern = Some("alice".to_string());
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert_eq!(
+        text.trim(),
+        "file,match_count,pages_with_matches,capped,error"
+    );
+
+    // Default integrity mode.
+    let mut opts = audit_opts(datadir);
+    opts.csv = true;
+    let mut output = Vec::new();
+    idb::cli::audit::execute(&opts, &mut output).unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert_eq!(
+        text.trim(),
+        "file,status,total_pages,empty_pages,valid_pages,invalid_pages,lsn_mismatches"
+    );
+    assert!(!text.contains("No .ibd files found"));
+}
+
+#[test]
 fn test_audit_empty_directory_prometheus() {
     let dir = TempDir::new().unwrap();
     let datadir = dir.path().to_str().unwrap();
