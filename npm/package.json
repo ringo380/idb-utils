@@ -1,6 +1,6 @@
 {
   "name": "@ringo380/innodb-utils",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "InnoDB file analysis toolkit - WebAssembly module",
   "main": "pkg/idb.js",
   "types": "pkg/idb.d.ts",

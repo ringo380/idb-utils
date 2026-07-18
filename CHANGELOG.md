@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-07-18
+
+### Added
+
+- **`inno comply` subcommand** - GDPR / forensic deletion verification and data-residue scanning; the inverse of `inno undelete`. Three modes: `--verify-deleted --where <col>=<value>` decodes and compares clustered-index records (live, delete-marked, and free-list) plus primary-key undo entries to check whether a value has been purged; `--scan-residue --pattern <text|hex:...>` runs a raw literal byte sweep across all page regions; `--encryption-audit` reports encrypted vs plaintext pages and key availability. `--thorough` adds a raw byte pass tagged by page region. Also wired into `inno audit --compliance --pattern` for directory-wide residue scans. Text, JSON, and CSV output. Library: `src/innodb/compliance.rs`. (Epic #165; closes #175, #176, #177, #182, #183)
+- **`inno timeline` subcommand** - Unified modification timeline correlating redo, undo, and binary logs into a single ordered view of tablespace changes. (Epic #164; #200)
+- **Binlog-to-page correlation** - Map MySQL binary log row events to InnoDB tablespace pages via top-down B+Tree lookup of primary-key values. Standalone `correlate_events()` API (#178), B+Tree traversal in `src/innodb/btree.rs` (#202), and CLI plus web UI integration (#205).
+- **Web UI help and onboarding** - Contextual help icons, per-tab intros, and a first-visit welcome modal. (#201)
+- **Opt-in file sharing** - Optional consent flow in the web UI to share a tablespace sample for bug reproduction.
+- **SEO optimization for innodb.fyi** - Structured data, sitemap, and meta tags for the web UI and documentation site. (#204)
+
+### Changed
+
+- Migrated all project URLs from `ringo380.github.io/idb-utils` to the `innodb.fyi` custom domain.
+
+### Fixed
+
+- `inno audit` now emits a valid CSV header (rather than the plain-text "no files found" message) when a data directory is empty under `--format csv`, for all modes. (#213)
+- `inno comply --encryption-audit` reports `key_available` from an actually-installed decryption context instead of mirroring `is_encrypted()`. (#212)
+- Upgraded Binaryen to 128 and enabled the required WASM features (`nontrapping-float-to-int-conversions`) so `wasm-opt` supports the output of newer Rust toolchains.
+
 ## [5.1.0] - 2026-03-25
 
 ### Added
