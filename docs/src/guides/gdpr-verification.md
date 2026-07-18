@@ -21,9 +21,9 @@ Before deletion you expect a `live_record` hit:
 
 ```text
 Deletion verification: users.email = 'alice@example.com'
-Scanned: clustered_leaf_live, clustered_leaf_delete_marked, free_list — logical structures only; pass --thorough to also sweep slack space
+Scanned: clustered_leaf_live, clustered_leaf_delete_marked, free_list - logical structures only; pass --thorough to also sweep slack space
 
-RESULT: NOT purged — 1 residue site(s) found:
+RESULT: NOT purged - 1 residue site(s) found:
   [live_record] page 12 offset 0
 ```
 
@@ -34,14 +34,14 @@ This confirms you are checking the right column and value.
 After running your `DELETE` and letting InnoDB's purge thread run, re-run the same command. Immediately after a delete you will often see a `delete_marked` site - the row is gone logically but not yet purged:
 
 ```text
-RESULT: NOT purged — 1 residue site(s) found:
+RESULT: NOT purged - 1 residue site(s) found:
   [delete_marked] page 12 offset 0, delete-marked, trx_id=1875
 ```
 
 Once purge completes and the space is reused, the logical pass reports:
 
 ```text
-RESULT: fully purged — no residue found in the scanned regions of this file.
+RESULT: fully purged - no residue found in the scanned regions of this file.
 ```
 
 ## Step 3: Sweep slack space with `--thorough`
@@ -53,7 +53,7 @@ inno comply -f /var/lib/mysql/app/users.ibd \
   --verify-deleted --where email=alice@example.com --thorough
 ```
 
-This encodes the value (UTF-8 for strings, InnoDB's big-endian sign-flipped form for integers) and scans every page's raw bytes. A `raw_slack` hit means the value's bytes are still physically on disk even though no record references them. Full erasure at the storage layer means a clean `--thorough` result - which typically requires the page to be rewritten (e.g. `OPTIMIZE TABLE`, or natural reuse) after purge.
+This encodes the value (UTF-8 for strings, InnoDB's big-endian sign-flipped form for integers) and scans every page's raw bytes. Each hit is tagged `raw_<region>` for the page region it landed in: a `raw_free_space` hit means the bytes sit in unreferenced slack, while `raw_record_heap` means they overlap a live record heap (so the same value may also appear as a `live_record` from the logical pass). Full erasure at the storage layer means a clean `--thorough` result - which typically requires the page to be rewritten (e.g. `OPTIMIZE TABLE`, or natural reuse) after purge.
 
 ## Step 4: Scan across a whole data directory
 
@@ -81,7 +81,7 @@ This is a raw literal byte scan (no decoding), so it finds the value wherever it
 | `delete_marked` | Deleted but not yet purged; still fully recoverable |
 | `free_list` | Purged from the active chain but not overwritten |
 | `undo_del_mark` | Present in undo (PK columns only); needs `ibdata1`/undo tablespace |
-| `raw_slack` | Bytes physically on disk in slack/unallocated space (`--thorough`) |
+| `raw_<region>` | Raw byte-pass hit (`--thorough`), tagged with its page region, e.g. `raw_free_space` (slack/unallocated) or `raw_record_heap` (overlaps a live record) |
 
 ## A note on encryption
 

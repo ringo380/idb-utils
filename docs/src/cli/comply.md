@@ -1,6 +1,6 @@
 # inno comply
 
-Forensic deletion verification and data-residue scanning - the inverse of [`inno undelete`](undelete.md). Where `undelete` recovers data that still lingers, `comply` proves a value has been *purged* from every InnoDB-retained location in a file, and reports every place it still appears.
+Forensic deletion verification and data-residue scanning - the inverse of [`inno undelete`](undelete.md). Where `undelete` recovers data that still lingers, `comply` checks whether a value has been *purged* from the InnoDB structures in a file - clustered-index records (live, delete-marked, and free-list) plus undo entries for primary-key columns - and reports every place it still appears. Add `--thorough` to also sweep raw page bytes (slack space and other page regions).
 
 ## Scope and honesty
 
@@ -70,7 +70,7 @@ The global `--format csv` flag produces CSV output for any mode.
 
 The logical pass is type-aware and authoritative for "is this value still reachable as a record field." It is **blind** to torn or overwritten bytes sitting in page slack space.
 
-`--thorough` adds a **raw** pass: it encodes the target value the way InnoDB stores it (UTF-8 for strings; big-endian with the sign bit flipped for signed integers) and searches every page's bytes, including slack and unallocated regions (`raw_slack`). This is `O(file)` per value and noisier, so it is opt-in. Without `--thorough`, the summary states plainly that only logical structures were checked.
+`--thorough` adds a **raw** pass: it encodes the target value the way InnoDB stores it (UTF-8 for strings; big-endian with the sign bit flipped for signed integers) and searches every page's bytes across all page regions. Each hit is tagged `raw_<region>` (e.g. `raw_free_space` for slack, `raw_record_heap` when it overlaps a live record), so a match inside a live record is not mislabeled as slack. This is `O(file)` per value and noisier, so it is opt-in. Without `--thorough`, the summary states plainly that only logical structures were checked.
 
 `fully_purged` is `true` only when no residue site was found in any scanned region.
 

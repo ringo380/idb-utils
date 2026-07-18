@@ -90,7 +90,7 @@ struct AuditSummary {
 }
 
 // ---------------------------------------------------------------------------
-// JSON output structs — compliance (data-residue) mode (#182)
+// JSON output structs - compliance (data-residue) mode (#182)
 // ---------------------------------------------------------------------------
 
 /// Per-file residue result. Caps stored matches; `capped` flags truncation so a
@@ -757,7 +757,7 @@ fn execute_compliance(
                 r.match_count,
                 r.pages_with_matches,
                 if r.capped { "Y" } else { "N" },
-                r.error.as_deref().unwrap_or(""),
+                csv_escape(r.error.as_deref().unwrap_or("")),
             )?;
         }
         return Ok(());

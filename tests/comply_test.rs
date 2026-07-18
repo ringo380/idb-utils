@@ -130,9 +130,13 @@ fn verify_thorough_adds_raw_pass() {
     let report = verify_deleted(&mut ts, "name", "test_row_1", true).unwrap();
     assert!(report.thorough);
     assert!(report.regions_scanned.iter().any(|r| r == "raw_page_bytes"));
-    // Logical (live_record) hit + at least one raw_slack hit for the utf8 form.
+    // Logical (live_record) hit + at least one raw byte-pass hit for the utf8 form,
+    // tagged with the page region it landed in (e.g. raw_record_heap).
     assert!(report.residue_sites.len() >= 2);
-    assert!(report.residue_sites.iter().any(|s| s.region == "raw_slack"));
+    assert!(report
+        .residue_sites
+        .iter()
+        .any(|s| s.region.starts_with("raw_")));
 }
 
 #[test]

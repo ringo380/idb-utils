@@ -6,12 +6,12 @@
 //!
 //! Two strategies, deliberately kept separate:
 //!
-//! 1. **Deletion verification** ([`verify_deleted`]) — decode-and-compare over real
+//! 1. **Deletion verification** ([`verify_deleted`]) - decode-and-compare over real
 //!    record structures (live clustered records, delete-marked records, free-list
 //!    records, and undo `DEL_MARK` entries). Type-aware and authoritative for "is
 //!    this value still reachable as a record field". Blind to torn/overwritten bytes
 //!    in slack space.
-//! 2. **Residue scanning** ([`scan_residue`]) — a raw literal byte-pattern sweep over
+//! 2. **Residue scanning** ([`scan_residue`]) - a raw literal byte-pattern sweep over
 //!    every page region including free/slack space. Catches residue a record-structure
 //!    scan cannot see, but cannot attribute a match to a column/row.
 //!
@@ -57,9 +57,10 @@ impl Pattern {
     pub fn parse(s: &str) -> Result<Self, IdbError> {
         if let Some(hex) = s.strip_prefix("hex:") {
             let hex: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
-            if hex.is_empty() || (hex.len() & 1) != 0 {
+            if hex.is_empty() || (hex.len() & 1) != 0 || !hex.bytes().all(|b| b.is_ascii_hexdigit())
+            {
                 return Err(IdbError::Argument(
-                    "hex: pattern must have an even number of hex digits".to_string(),
+                    "hex: pattern must be an even number of hex digits".to_string(),
                 ));
             }
             let mut bytes = Vec::with_capacity(hex.len() / 2);
@@ -243,7 +244,8 @@ pub fn scan_residue(
 #[derive(Debug, Clone, Serialize)]
 pub struct ResidueSite {
     /// How the value was found: `live_record`, `delete_marked`, `free_list`,
-    /// `undo_del_mark`, or `raw_slack`.
+    /// `undo_del_mark`, or `raw_<region>` (a raw byte-pass hit, tagged with the
+    /// page region it landed in, e.g. `raw_free_space` or `raw_record_heap`).
     pub region: String,
     /// Page number.
     pub page_number: u64,
@@ -489,7 +491,7 @@ pub fn verify_deleted(
         "free_list".to_string(),
     ];
 
-    // Undo DEL_MARK scan — only meaningful when the target is a PK column (undo
+    // Undo DEL_MARK scan - only meaningful when the target is a PK column (undo
     // stores PK fields for deletes). Undo pages live in ibdata1/undo tablespaces;
     // on a bare .ibd this simply finds nothing.
     if target_is_pk {
@@ -523,7 +525,7 @@ pub fn verify_deleted(
             let pat = Pattern::Bytes(needle);
             for m in scan_residue(ts, &pat, 10_000)? {
                 sites.push(ResidueSite {
-                    region: "raw_slack".to_string(),
+                    region: format!("raw_{}", m.region.name()),
                     page_number: m.page_number,
                     offset: m.offset,
                     delete_marked: false,

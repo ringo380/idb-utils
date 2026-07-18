@@ -1,12 +1,12 @@
 //! CLI implementation for the `inno comply` subcommand.
 //!
-//! Forensic deletion-verification and data-residue scanning — the inverse of
+//! Forensic deletion-verification and data-residue scanning - the inverse of
 //! `inno undelete`. Three modes, exactly one per invocation:
 //!
-//! - `--verify-deleted --where <col>=<value>` — confirm a value has been purged
+//! - `--verify-deleted --where <col>=<value>` - confirm a value has been purged
 //!   from every InnoDB-retained location (live/delete-marked/free-list/undo records).
-//! - `--scan-residue --pattern <needle>` — raw literal byte sweep across all pages.
-//! - `--encryption-audit` — report encrypted vs plaintext pages and key availability.
+//! - `--scan-residue --pattern <needle>` - raw literal byte sweep across all pages.
+//! - `--encryption-audit` - report encrypted vs plaintext pages and key availability.
 //!
 //! This verifies residue within the file passed in. It cannot see the OS page cache,
 //! replicas, other backups, or binlog archives, and does not certify legal compliance.
@@ -103,6 +103,12 @@ fn run_verify(
             "--where column name must not be empty".to_string(),
         ));
     }
+    if val.is_empty() {
+        return Err(IdbError::Argument(
+            "--where value must not be empty (an empty value would match every NULL row)"
+                .to_string(),
+        ));
+    }
 
     // Optional table-name filter.
     if let Some(ref filter) = opts.table {
@@ -164,19 +170,19 @@ fn run_verify(
         if report.thorough {
             ""
         } else {
-            " — logical structures only; pass --thorough to also sweep slack space"
+            " - logical structures only; pass --thorough to also sweep slack space"
         }
     )?;
 
     if report.fully_purged {
         wprintln!(
             writer,
-            "\nRESULT: fully purged — no residue found in the scanned regions of this file."
+            "\nRESULT: fully purged - no residue found in the scanned regions of this file."
         )?;
     } else {
         wprintln!(
             writer,
-            "\nRESULT: NOT purged — {} residue site(s) found:",
+            "\nRESULT: NOT purged - {} residue site(s) found:",
             report.residue_sites.len()
         )?;
         for s in &report.residue_sites {
