@@ -314,6 +314,14 @@ impl Tablespace {
         self.decryption_ctx = Some(ctx);
     }
 
+    /// Returns true if a decryption context (key) has actually been installed
+    /// via [`set_decryption_context`](Self::set_decryption_context). Unlike
+    /// [`is_encrypted`](Self::is_encrypted), this reflects whether the tablespace
+    /// can currently be decrypted, not merely whether it declares encryption.
+    pub fn has_decryption_key(&self) -> bool {
+        self.decryption_ctx.is_some()
+    }
+
     /// Read a single page by page number into a newly allocated buffer.
     ///
     /// If a decryption context has been set and the page has an encrypted
