@@ -921,6 +921,14 @@ pub enum Commands {
         /// Maximum directory recursion depth (default: 2, 0 = unlimited)
         #[arg(long)]
         depth: Option<u32>,
+
+        /// Scan every tablespace for a literal byte pattern (data-residue mode)
+        #[arg(long)]
+        compliance: bool,
+
+        /// Literal needle for --compliance: UTF-8 text or hex:00ff..
+        #[arg(long)]
+        pattern: Option<String>,
     },
 
     /// Check tablespace compatibility with a target MySQL version
@@ -1214,6 +1222,74 @@ pub enum Commands {
         page: Option<u64>,
 
         /// Output full metadata JSON envelope
+        #[arg(long)]
+        json: bool,
+
+        /// Override page size (default: auto-detect)
+        #[arg(long = "page-size")]
+        page_size: Option<u32>,
+
+        /// Path to MySQL keyring file for decrypting encrypted tablespaces
+        #[arg(long)]
+        keyring: Option<String>,
+    },
+
+    /// Verify data deletion and scan for residue (GDPR / forensic)
+    ///
+    /// Answers the inverse question from `undelete`: has a value been purged from
+    /// every InnoDB-retained location in this file? Three modes (exactly one per run):
+    ///
+    /// `--verify-deleted --where col=value` decodes live, delete-marked, free-list,
+    /// and undo records and reports every place the value still appears.
+    /// `--scan-residue --pattern <text|hex:..>` does a raw literal byte sweep across
+    /// all page regions incl. slack space. `--encryption-audit` reports encrypted vs
+    /// plaintext pages and key availability.
+    ///
+    /// Scope: this verifies residue within the file(s) passed in only. It cannot see
+    /// the OS page cache, replicas, other backups, or binlog archives, and does not
+    /// certify legal compliance.
+    Comply {
+        /// Path to InnoDB data file (.ibd)
+        #[arg(short, long)]
+        file: String,
+
+        /// Mode: verify a value has been purged from all InnoDB-retained locations
+        #[arg(long = "verify-deleted")]
+        verify_deleted: bool,
+
+        /// Mode: raw byte-pattern residue scan across all pages
+        #[arg(long = "scan-residue")]
+        scan_residue: bool,
+
+        /// Mode: report encrypted vs plaintext pages and key availability
+        #[arg(long = "encryption-audit")]
+        encryption_audit: bool,
+
+        /// Table-name filter (verify mode); errors if it mismatches SDI
+        #[arg(short, long)]
+        table: Option<String>,
+
+        /// verify mode: column=value to check for residue
+        #[arg(long = "where")]
+        where_clause: Option<String>,
+
+        /// scan mode: literal needle to search for (UTF-8 text, or hex:00ff..)
+        #[arg(long)]
+        pattern: Option<String>,
+
+        /// verify mode: also sweep raw slack space for the encoded value
+        #[arg(long)]
+        thorough: bool,
+
+        /// scan mode: cap on matches reported
+        #[arg(long = "max-hits", default_value = "1000")]
+        max_hits: usize,
+
+        /// Show additional details
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output in JSON format
         #[arg(long)]
         json: bool,
 

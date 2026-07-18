@@ -36,6 +36,7 @@ pub mod backup;
 pub mod btree;
 pub mod checksum;
 pub mod compat;
+pub mod compliance;
 pub mod compression;
 pub mod constants;
 pub mod corruption;

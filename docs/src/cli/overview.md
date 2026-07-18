@@ -53,6 +53,7 @@ brew install ringo380/tap/inno
 | [`inno recover`](recover.md) | Assess page-level recoverability and count salvageable records |
 | [`inno repair`](repair.md) | Recalculate and fix corrupt page checksums |
 | [`inno undelete`](undelete.md) | Recover deleted records from tablespace |
+| [`inno comply`](comply.md) | Verify data deletion and scan for residue (GDPR / forensic) |
 | [`inno corrupt`](corrupt.md) | Intentionally corrupt pages for testing |
 | [`inno defrag`](defrag.md) | Defragment tablespace, reorder INDEX pages |
 | [`inno transplant`](transplant.md) | Copy specific pages from a donor into a target tablespace |

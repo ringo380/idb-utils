@@ -30,6 +30,7 @@
 - [compat](cli/compat.md)
 - [verify](cli/verify.md)
 - [validate](cli/validate.md)
+- [comply](cli/comply.md)
 - [undo](cli/undo.md)
 - [binlog](cli/binlog.md)
 - [undelete](cli/undelete.md)
@@ -71,6 +72,7 @@
 - [Crash Recovery Simulation](guides/crash-recovery.md)
 - [Backup Analysis](guides/backup-analysis.md)
 - [Bloat Scoring](guides/bloat-scoring.md)
+- [GDPR Verification](guides/gdpr-verification.md)
 
 # Internals
 

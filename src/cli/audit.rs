@@ -45,6 +45,10 @@ pub struct AuditOptions {
     pub max_bloat_grade: Option<String>,
     /// Maximum directory recursion depth (None = default 2, Some(0) = unlimited).
     pub depth: Option<u32>,
+    /// Scan every tablespace for a literal byte pattern (data-residue mode).
+    pub compliance: bool,
+    /// Literal needle for compliance mode: UTF-8 text or `hex:...`.
+    pub pattern: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +87,39 @@ struct AuditSummary {
     total_pages: u64,
     corrupt_pages: u64,
     integrity_pct: f64,
+}
+
+// ---------------------------------------------------------------------------
+// JSON output structs - compliance (data-residue) mode (#182)
+// ---------------------------------------------------------------------------
+
+/// Per-file residue result. Caps stored matches; `capped` flags truncation so a
+/// large residue count is never silently under-reported.
+#[derive(Serialize, Clone)]
+struct FileComplianceResult {
+    file: String,
+    match_count: usize,
+    pages_with_matches: usize,
+    capped: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sample_matches: Vec<crate::innodb::compliance::ResidueMatch>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ComplianceReport {
+    datadir: String,
+    pattern: String,
+    files: Vec<FileComplianceResult>,
+    summary: ComplianceSummary,
+}
+
+#[derive(Serialize)]
+struct ComplianceSummary {
+    total_files: usize,
+    files_with_residue: usize,
+    total_matches: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +513,23 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             "--health and --checksum-mismatch are mutually exclusive".to_string(),
         ));
     }
+    if opts.compliance {
+        if opts.health || opts.checksum_mismatch {
+            return Err(IdbError::Argument(
+                "--compliance cannot be combined with --health or --checksum-mismatch".to_string(),
+            ));
+        }
+        if opts.prometheus {
+            return Err(IdbError::Argument(
+                "--compliance does not support --prometheus output".to_string(),
+            ));
+        }
+        if opts.pattern.is_none() {
+            return Err(IdbError::Argument(
+                "--compliance requires --pattern <text|hex:...>".to_string(),
+            ));
+        }
+    }
 
     let datadir = Path::new(&opts.datadir);
     if !datadir.is_dir() {
@@ -492,7 +546,21 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
             // Empty Prometheus output — valid exposition format (no metrics emitted)
             return Ok(());
         } else if opts.json {
-            if opts.health {
+            if opts.compliance {
+                let report = ComplianceReport {
+                    datadir: opts.datadir.clone(),
+                    pattern: opts.pattern.clone().unwrap_or_default(),
+                    files: Vec::new(),
+                    summary: ComplianceSummary {
+                        total_files: 0,
+                        files_with_residue: 0,
+                        total_matches: 0,
+                    },
+                };
+                let json = serde_json::to_string_pretty(&report)
+                    .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+                wprintln!(writer, "{}", json)?;
+            } else if opts.health {
                 let report = HealthAuditReport {
                     datadir: opts.datadir.clone(),
                     tablespaces: Vec::new(),
@@ -542,13 +610,193 @@ pub fn execute(opts: &AuditOptions, writer: &mut dyn Write) -> Result<(), IdbErr
         return Ok(());
     }
 
-    if opts.health {
+    if opts.compliance {
+        execute_compliance(opts, &ibd_files, datadir, writer)
+    } else if opts.health {
         execute_health(opts, &ibd_files, datadir, writer)
     } else if opts.checksum_mismatch {
         execute_mismatch(opts, &ibd_files, datadir, writer)
     } else {
         execute_integrity(opts, &ibd_files, datadir, writer)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Compliance / data-residue mode (#182)
+// ---------------------------------------------------------------------------
+
+/// Per-file cap on stored residue matches. Beyond this the `capped` flag is set.
+const COMPLIANCE_MATCH_CAP: usize = 10_000;
+/// How many matches to keep for the JSON `sample_matches` field.
+const COMPLIANCE_SAMPLE: usize = 25;
+
+fn compliance_file(
+    path: &Path,
+    datadir: &Path,
+    page_size_override: Option<u32>,
+    keyring: &Option<String>,
+    use_mmap: bool,
+    pattern: &crate::innodb::compliance::Pattern,
+) -> FileComplianceResult {
+    let display = path.strip_prefix(datadir).unwrap_or(path);
+    let display_str = display.display().to_string();
+    let path_str = path.to_string_lossy();
+
+    let mut ts = match crate::cli::open_tablespace(&path_str, page_size_override, use_mmap) {
+        Ok(t) => t,
+        Err(e) => {
+            return FileComplianceResult {
+                file: display_str,
+                match_count: 0,
+                pages_with_matches: 0,
+                capped: false,
+                sample_matches: Vec::new(),
+                error: Some(e.to_string()),
+            }
+        }
+    };
+
+    if let Some(ref kp) = keyring {
+        let _ = crate::cli::setup_decryption(&mut ts, kp);
+    }
+
+    match crate::innodb::compliance::scan_residue(&mut ts, pattern, COMPLIANCE_MATCH_CAP) {
+        Ok(matches) => {
+            let match_count = matches.len();
+            let mut pages: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            for m in &matches {
+                pages.insert(m.page_number);
+            }
+            let sample_matches = matches.into_iter().take(COMPLIANCE_SAMPLE).collect();
+            FileComplianceResult {
+                file: display_str,
+                match_count,
+                pages_with_matches: pages.len(),
+                capped: match_count >= COMPLIANCE_MATCH_CAP,
+                sample_matches,
+                error: None,
+            }
+        }
+        Err(e) => FileComplianceResult {
+            file: display_str,
+            match_count: 0,
+            pages_with_matches: 0,
+            capped: false,
+            sample_matches: Vec::new(),
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+fn execute_compliance(
+    opts: &AuditOptions,
+    ibd_files: &[std::path::PathBuf],
+    datadir: &Path,
+    writer: &mut dyn Write,
+) -> Result<(), IdbError> {
+    let pattern_str = opts.pattern.as_deref().ok_or_else(|| {
+        IdbError::Argument("--compliance requires --pattern <text|hex:...>".to_string())
+    })?;
+    let pattern = crate::innodb::compliance::Pattern::parse(pattern_str)?;
+
+    let pb = if !opts.json && !opts.csv {
+        Some(create_progress_bar(ibd_files.len() as u64, "files"))
+    } else {
+        None
+    };
+
+    let page_size = opts.page_size;
+    let keyring = opts.keyring.clone();
+    let use_mmap = opts.mmap;
+
+    let mut results: Vec<FileComplianceResult> = ibd_files
+        .par_iter()
+        .map(|path| {
+            let r = compliance_file(path, datadir, page_size, &keyring, use_mmap, &pattern);
+            if let Some(ref pb) = pb {
+                pb.inc(1);
+            }
+            r
+        })
+        .collect();
+
+    if let Some(ref pb) = pb {
+        pb.finish_and_clear();
+    }
+
+    results.sort_by(|a, b| a.file.cmp(&b.file));
+
+    let total_matches: usize = results.iter().map(|r| r.match_count).sum();
+    let files_with_residue = results.iter().filter(|r| r.match_count > 0).count();
+    let summary = ComplianceSummary {
+        total_files: results.len(),
+        files_with_residue,
+        total_matches,
+    };
+
+    if opts.json {
+        let report = ComplianceReport {
+            datadir: opts.datadir.clone(),
+            pattern: pattern_str.to_string(),
+            files: results,
+            summary,
+        };
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|e| IdbError::Parse(format!("JSON serialization error: {}", e)))?;
+        wprintln!(writer, "{}", json)?;
+        return Ok(());
+    }
+
+    if opts.csv {
+        wprintln!(writer, "file,match_count,pages_with_matches,capped,error")?;
+        for r in &results {
+            wprintln!(
+                writer,
+                "{},{},{},{},{}",
+                csv_escape(&r.file),
+                r.match_count,
+                r.pages_with_matches,
+                if r.capped { "Y" } else { "N" },
+                csv_escape(r.error.as_deref().unwrap_or("")),
+            )?;
+        }
+        return Ok(());
+    }
+
+    // Human-readable.
+    wprintln!(
+        writer,
+        "Data-residue audit for pattern '{}' across {} file(s):",
+        pattern_str,
+        results.len()
+    )?;
+    for r in &results {
+        if let Some(ref e) = r.error {
+            wprintln!(writer, "  {}: error: {}", r.file, e)?;
+        } else if r.match_count == 0 {
+            if opts.verbose {
+                wprintln!(writer, "  {}: clean", r.file)?;
+            }
+        } else {
+            wprintln!(
+                writer,
+                "  {}: {} match(es) across {} page(s){}",
+                r.file,
+                r.match_count,
+                r.pages_with_matches,
+                if r.capped { " (capped)" } else { "" }
+            )?;
+        }
+    }
+    wprintln!(
+        writer,
+        "\n{} match(es) in {} of {} file(s).",
+        total_matches,
+        files_with_residue,
+        results.len()
+    )?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
