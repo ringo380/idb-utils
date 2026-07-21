@@ -113,7 +113,10 @@ function showDropzone() {
       <h1 class="text-xl font-bold text-innodb-cyan">InnoDB Analyzer</h1>
       <span class="text-xs text-gray-600">v5.2.0 - powered by idb-utils WASM</span>
     </div>
-    <div class="text-xs text-gray-600">Press <kbd class="px-1 py-0.5 bg-surface-3 rounded">D</kbd> to toggle theme</div>
+    <div class="flex items-center gap-4 text-xs text-gray-600">
+      <a href="https://support.robworks.info/submit?product=innodb" class="hover:text-innodb-cyan">Support</a>
+      <span>Press <kbd class="px-1 py-0.5 bg-surface-3 rounded">D</kbd> to toggle theme</span>
+    </div>
   `;
   app.appendChild(header);
   app.appendChild(createDropzone(onFile, onDiffFiles, onMultiFiles));
